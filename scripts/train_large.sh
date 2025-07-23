@@ -16,8 +16,8 @@
 
 
 cd /scratch/um09/hl4138
-# module use /g/data/dk92/apps/Modules/modulefiles
-module load python3/3.12.1 #cuda/12.0.0 deepspeed/0.15.1 
+module use /g/data/dk92/apps/Modules/modulefiles
+module load python3/3.12.1 cuda/12.0.0 deepspeed/0.15.1 
 source venvs/dmpnn-venv/bin/activate
 
 cd dmpnn
