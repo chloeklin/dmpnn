@@ -105,6 +105,14 @@ for i in range(SPLITS):
     batch_norm = False
     mpnn = models.MPNN(mp, agg, ffn, batch_norm, metric_list)
 
+    checkpoint_path = f"checkpoints/{args.dataset_name}/rep_{i}/"
+    last_ckpt = None
+    if os.path.exists(checkpoint_path):
+        ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
+        if ckpt_files:
+            # Optionally sort to get the latest/best checkpoint
+            last_ckpt = str(Path(checkpoint_path) / sorted(ckpt_files)[-1])
+            
     # Configure model checkpointing
     Path(f"checkpoints/{args.dataset_name}/rep_{i}/").mkdir(parents=True, exist_ok=True)
     checkpointing = ModelCheckpoint(
@@ -134,7 +142,7 @@ for i in range(SPLITS):
         callbacks=[early_stop, checkpointing], # Use the configured checkpoint callback
     )
 
-    trainer.fit(mpnn, train_loader, val_loader)
+    trainer.fit(mpnn, train_loader, val_loader,  ckpt_path=last_ckpt)
     results = trainer.test(dataloaders=test_loader)
     test_metrics = results[0]
     results_all.append(test_metrics)
