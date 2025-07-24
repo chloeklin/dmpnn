@@ -16,6 +16,9 @@ parser.add_argument('--dataset_name', type=str, required=True,
                     help='Name of the dataset file (without .csv extension)')
 parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
+parser.add_argument('--n_classes', type=int, default=3,
+                    help='Number of classes for multi-class classification')
+
 
 args = parser.parse_args()
 
@@ -100,15 +103,18 @@ for i in range(REPLICATES):
     mp = nn.BondMessagePassing()
     agg = nn.MeanAggregation()
     
+    # Get the number of tasks from the training data
+    n_tasks = len(target_columns)
+    
     if args.task_type == 'reg':
         output_transform = nn.UnscaleTransform.from_standard_scaler(scaler)
-        ffn = nn.RegressionFFN(output_transform=output_transform)
+        ffn = nn.RegressionFFN(output_transform=output_transform, n_tasks=n_tasks)
         metric_list = [nn.metrics.MAE(), nn.metrics.RMSE(), nn.metrics.R2Score()]
     elif args.task_type == 'binary':
         ffn = nn.BinaryClassificationFFN()
         metric_list = [nn.metrics.BinaryAccuracy(), nn.metrics.BinaryAUROC(), nn.metrics.BinaryF1Score()]
     elif args.task_type == 'multi':
-        ffn = nn.MulticlassClassificationFFN()
+        ffn = nn.MulticlassClassificationFFN(n_classes=args.n_classes)
         metric_list = [nn.metrics.Accuracy(), nn.metrics.F1Score(), nn.metrics.AUROC()]
     
     batch_norm = False
@@ -178,3 +184,6 @@ results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv
 
 
 
+# mpnn = models.MPNN.load_from_checkpoint(checkpoint_path)
+# mpnn.eval()
+# featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()

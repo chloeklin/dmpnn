@@ -1,15 +1,0 @@
-Sanity Checking: |          | 0/? [00:00<?, ?it/s]Sanity Checking:   0%|          | 0/2 [00:00<?, ?it/s]Sanity Checking DataLoader 0:   0%|          | 0/2 [00:00<?, ?it/s]
-======================================================================================
-                  Resource Usage on 2025-07-24 16:37:16:
-   Job Id:             145839933.gadi-pbs
-   Project:            um09
-   Exit Status:        1
-   Service Units:      1.20
-   NCPUs Requested:    12                     NCPUs Used: 12              
-                                           CPU Time Used: 00:00:35        
-   Memory Requested:   100.0GB               Memory Used: 4.35GB          
-   NGPUs Requested:    1                 GPU Utilisation: 0%              
-                                         GPU Memory Used: 474.0MB         
-   Walltime requested: 00:30:00            Walltime Used: 00:01:55        
-   JobFS requested:    100.0GB                JobFS used: 4.87KB          
-======================================================================================
