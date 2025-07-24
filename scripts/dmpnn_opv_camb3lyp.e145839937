@@ -1,0 +1,68 @@
+Loading python3/3.12.1
+  Loading requirement: intel-mkl/2023.2.0
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+Loading `train_dataloader` to estimate number of stepping batches.
+/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/connectors/data_connector.py:425: The 'train_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=11` in the `DataLoader` to improve performance.
+
+  | Name            | Type               | Params | Mode 
+---------------------------------------------------------------
+0 | message_passing | BondMessagePassing | 227 K  | train
+1 | agg             | MeanAggregation    | 0      | train
+2 | bn              | Identity           | 0      | train
+3 | predictor       | RegressionFFN      | 90.6 K | train
+4 | X_d_transform   | Identity           | 0      | train
+5 | metrics         | ModuleList         | 0      | train
+---------------------------------------------------------------
+318 K     Trainable params
+0         Non-trainable params
+318 K     Total params
+1.273     Total estimated model params size (MB)
+26        Modules in train mode
+0         Modules in eval mode
+/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/connectors/data_connector.py:425: The 'val_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=11` in the `DataLoader` to improve performance.
+/scratch/um09/hl4138/dmpnn/chemprop/nn/metrics.py:133: UserWarning: Using a target size (torch.Size([64, 12])) that is different to the input size (torch.Size([64, 1])). This will likely lead to incorrect results due to broadcasting. Please ensure they have the same size.
+  return F.mse_loss(preds, targets, reduction="none")
+Traceback (most recent call last):
+  File "/scratch/um09/hl4138/dmpnn/scripts/train_large.py", line 155, in <module>
+    trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 561, in fit
+    call._call_and_handle_interrupt(
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py", line 48, in _call_and_handle_interrupt
+    return trainer_fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 599, in _fit_impl
+    self._run(model, ckpt_path=ckpt_path)
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 1012, in _run
+    results = self._run_stage()
+              ^^^^^^^^^^^^^^^^^
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 1054, in _run_stage
+    self._run_sanity_check()
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 1083, in _run_sanity_check
+    val_loop.run()
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/loops/utilities.py", line 179, in _decorator
+    return loop_run(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/loops/evaluation_loop.py", line 145, in run
+    self._evaluation_step(batch, batch_idx, dataloader_idx, dataloader_iter)
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/loops/evaluation_loop.py", line 437, in _evaluation_step
+    output = call._call_strategy_hook(trainer, hook_name, *step_args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py", line 328, in _call_strategy_hook
+    output = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/lightning/pytorch/strategies/strategy.py", line 412, in validation_step
+    return self.lightning_module.validation_step(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/um09/hl4138/dmpnn/chemprop/models/model.py", line 170, in validation_step
+    self._evaluate_batch(batch, "val")
+  File "/scratch/um09/hl4138/dmpnn/chemprop/models/model.py", line 199, in _evaluate_batch
+    m.update(preds, targets, mask, weights, lt_mask, gt_mask)
+  File "/scratch/um09/hl4138/venvs/dmpnn-venv/lib/python3.12/site-packages/torchmetrics/metric.py", line 549, in wrapped_func
+    update(*args, **kwargs)
+  File "/scratch/um09/hl4138/dmpnn/chemprop/nn/metrics.py", line 191, in update
+    super().update(preds[mask], targets[mask])
+                   ~~~~~^^^^^^
+IndexError: The shape of the mask [64, 12] at index 1 does not match the shape of the indexed tensor [64, 1] at index 1

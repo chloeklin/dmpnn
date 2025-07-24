@@ -1,0 +1,9 @@
+Loading python3/3.12.1
+  Loading requirement: intel-mkl/2023.2.0
+Dropping last batch of size 1 to avoid issues with batch normalization (dataset size = 1217, batch_size = 64)
+Dropping last batch of size 1 to avoid issues with batch normalization (dataset size = 1217, batch_size = 64)
+Traceback (most recent call last):
+  File "/scratch/um09/hl4138/dmpnn/scripts/train_large.py", line 111, in <module>
+    ffn = nn.MulticlassClassificationFFN()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: MulticlassClassificationFFN.__init__() missing 1 required positional argument: 'n_classes'
