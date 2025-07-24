@@ -20,7 +20,7 @@ parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'],
 args = parser.parse_args()
 
 # Set up paths and parameters
-chemprop_dir = Path.cwd().parent
+chemprop_dir = Path.cwd()
 input_path = chemprop_dir / "data" / f"{args.dataset_name}.csv"
 num_workers = 0  # number of workers for dataloader. 0 means using main process for data loading
 smiles_column = 'smiles'  # name of the column containing SMILES strings
