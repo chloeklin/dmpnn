@@ -25,7 +25,7 @@ input_path = chemprop_dir / "data" / f"{args.dataset_name}.csv"
 num_workers = 0  # number of workers for dataloader. 0 means using main process for data loading
 smiles_column = 'smiles'  # name of the column containing SMILES strings
 SEED = 42
-REPLICATES = 5
+SPLITS = 5
 EPOCHS = 300
 
 # === Set Random Seed ===
@@ -50,11 +50,26 @@ ys = df_input.loc[:, target_columns].values
 all_data = [data.MoleculeDatapoint.from_smi(smi, y) for smi, y in zip(smis, ys)]
 
 
-# === Split via Random with 5 Repetitions ===
+# === Split via 5-Fold CV ===
 mols = [d.mol for d in all_data]  # RDkit Mol objects are use for structure based splits
-train_indices, val_indices, test_indices = data.make_split_indices(mols, "RANDOM", (0.8, 0.1, 0.1), seed=SEED, num_replicates=REPLICATES)  # unpack the tuple into three separate lists
+k_splits = KFold(n_splits=SPLITS, shuffle=True, random_state=SEED)
+k_train_indices, k_val_indices, k_test_indices = [], [], []
+for fold_idx, (train_val_idx, test_idx) in enumerate(k_splits.split(mols)):
+    # Split train_val further into training and validation
+    rng = np.random.default_rng(SEED + fold_idx)
+    train_val_idx = rng.permutation(train_val_idx)
+
+    val_split = int(0.1 * len(train_val_idx))  # 10% for validation
+    val_idx = train_val_idx[:val_split]
+    train_idx = train_val_idx[val_split:]
+
+    k_train_indices.append(train_idx)
+    k_val_indices.append(val_idx)
+    k_test_indices.append(test_idx)
+
+# Save or use the indices
 train_data, val_data, test_data = data.split_data_by_indices(
-    all_data, train_indices, val_indices, test_indices
+    all_data, k_train_indices, k_val_indices, k_test_indices
 )
 
 
@@ -64,7 +79,7 @@ Path(chemprop_dir / "results").mkdir(parents=True, exist_ok=True)
 # === Train ===
 results_all = []
 featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
-for i in range(REPLICATES):
+for i in range(SPLITS):
     train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
     scaler = train.normalize_targets()
     val.normalize_targets(scaler)
@@ -140,8 +155,3 @@ print(std_metrics)
 results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv", index=False)
 
         
-
-
-
-
-

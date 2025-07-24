@@ -2,7 +2,7 @@ examples/
 docs/
 data/
 checkpoints/
-
+*.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
