@@ -18,6 +18,8 @@ parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'],
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
 parser.add_argument('--n_classes', type=int, default=3,
                     help='Number of classes for multi-class classification')
+parser.add_argument('--descriptor_columns', type=str, nargs='+', default=[],
+                    help='List of extra descriptor column names to use as global features')
 
 
 args = parser.parse_args()
@@ -42,15 +44,20 @@ torch.backends.cudnn.benchmark = False
 # === Load Data ===
 df_input = pd.read_csv(input_path)
 
+# Read descriptor columns from args
+descriptor_columns = args.descriptor_columns or []
+
 # Automatically detect target columns (all columns except 'smiles')
-target_columns = [col for col in df_input.columns if col != smiles_column]
+target_columns = [c for c in df_input.columns
+                  if c not in ([smiles_column] + descriptor_columns)]
 if not target_columns:
     raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
 
 # === Process Data ===
 smis = df_input.loc[:, smiles_column].values
 ys = df_input.loc[:, target_columns].values
-all_data = [data.MoleculeDatapoint.from_smi(smi, y) for smi, y in zip(smis, ys)]
+descriptor_data = df_input[descriptor_columns].values if descriptor_columns else None
+all_data = [data.MoleculeDatapoint.from_smi(smi, y, descriptor_data=descriptors) for smi, y, descriptors in zip(smis, ys, descriptor_data)]
 
 
 # === Split via Random/Stratified Split with 5 Repetitions ===
@@ -94,7 +101,10 @@ featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
 for i in range(REPLICATES):
     train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
     scaler = train.normalize_targets()
+    descriptor_scaler = train.normalize_inputs("descriptor")
     val.normalize_targets(scaler)
+    val.normalize_inputs("descriptor", descriptor_scaler)
+    
 
     train_loader = data.build_dataloader(train, num_workers=num_workers)
     val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
@@ -102,13 +112,14 @@ for i in range(REPLICATES):
 
     mp = nn.BondMessagePassing()
     agg = nn.MeanAggregation()
+    ffn_input_dim = mp.output_dim + descriptor_data.shape[1] if descriptor_data is not None else mp.output_dim
     
     # Get the number of tasks from the training data
     n_tasks = len(target_columns)
     
     if args.task_type == 'reg':
         output_transform = nn.UnscaleTransform.from_standard_scaler(scaler)
-        ffn = nn.RegressionFFN(output_transform=output_transform, n_tasks=n_tasks)
+        ffn = nn.RegressionFFN(output_transform=output_transform, n_tasks=n_tasks, input_dim=ffn_input_dim)
         metric_list = [nn.metrics.MAE(), nn.metrics.RMSE(), nn.metrics.R2Score()]
     elif args.task_type == 'binary':
         ffn = nn.BinaryClassificationFFN()
@@ -118,7 +129,9 @@ for i in range(REPLICATES):
         metric_list = [nn.metrics.Accuracy(), nn.metrics.F1Score(), nn.metrics.AUROC()]
     
     batch_norm = False
-    mpnn = models.MPNN(mp, agg, ffn, batch_norm, metric_list)
+    X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler) if descriptor_data is not None else None
+
+    mpnn = models.MPNN(mp, agg, ffn, batch_norm, metric_list, X_d_transform=X_d_transform)
 
     checkpoint_path = f"checkpoints/{args.dataset_name}/rep_{i}/"
     last_ckpt = None
@@ -176,14 +189,7 @@ print("\nStandard deviation across 5 splits:")
 print(std_metrics)
 
 # Optional: save to file
-results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv", index=False)
-
-        
-
-
-
-
-
-mpnn = models.MPNN.load_from_checkpoint(checkpoint_path)
-mpnn.eval()
-featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
+if descriptor_data is not None:
+    results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_descriptors_results.csv", index=False)
+else:
+    results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv", index=False)
