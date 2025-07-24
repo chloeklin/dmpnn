@@ -189,21 +189,7 @@ print("\nStandard deviation across 5 splits:")
 print(std_metrics)
 
 # Optional: save to file
-<<<<<<< HEAD
 if descriptor_data is not None:
     results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_descriptors_results.csv", index=False)
 else:
     results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv", index=False)
-=======
-results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv", index=False)
-
-        
-
-
-
-
-
-# mpnn = models.MPNN.load_from_checkpoint(checkpoint_path)
-# mpnn.eval()
-# featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
->>>>>>> c8b33b9310be02c4f000c2709e06dfc27f1d4a74
