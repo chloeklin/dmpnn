@@ -57,7 +57,7 @@ if not target_columns:
 smis = df_input.loc[:, smiles_column].values
 ys = df_input.loc[:, target_columns].values
 descriptor_data = df_input[descriptor_columns].values if descriptor_columns else None
-all_data = [data.MoleculeDatapoint.from_smi(smi, y, descriptor_data=descriptors) for smi, y, descriptors in zip(smis, ys, descriptor_data)]
+all_data = [data.MoleculeDatapoint.from_smi(smi, y, x_d=descriptors) for smi, y, descriptors in zip(smis, ys, descriptor_data)]
 
 
 # === Split via Random/Stratified Split with 5 Repetitions ===
@@ -101,9 +101,9 @@ featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
 for i in range(REPLICATES):
     train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
     scaler = train.normalize_targets()
-    descriptor_scaler = train.normalize_inputs("descriptor")
+    descriptor_scaler = train.normalize_inputs("x_d")
     val.normalize_targets(scaler)
-    val.normalize_inputs("descriptor", descriptor_scaler)
+    val.normalize_inputs("x_d", descriptor_scaler)
     
 
     train_loader = data.build_dataloader(train, num_workers=num_workers)
