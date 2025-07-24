@@ -19,3 +19,7 @@ source venvs/dmpnn-venv/bin/activate
 
 cd dmpnn
 python3 scripts/train_large.py --dataset_name insulator
+python3 scripts/train_large.py --dataset_name polyinfo --task_type multi
+python3 scripts/train_large.py --dataset_name htpmd 
+python3 scripts/train_large.py --dataset_name opv_b3lyp
+python3 scripts/train_large.py --dataset_name opv_camb3lyp

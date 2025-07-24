@@ -50,9 +50,33 @@ ys = df_input.loc[:, target_columns].values
 all_data = [data.MoleculeDatapoint.from_smi(smi, y) for smi, y in zip(smis, ys)]
 
 
-# === Split via Random with 5 Repetitions ===
-mols = [d.mol for d in all_data]  # RDkit Mol objects are use for structure based splits
-train_indices, val_indices, test_indices = data.make_split_indices(mols, "RANDOM", (0.8, 0.1, 0.1), seed=SEED, num_replicates=REPLICATES)  # unpack the tuple into three separate lists
+# === Split via Random/Stratified Split with 5 Repetitions ===
+from sklearn.model_selection import StratifiedShuffleSplit
+
+if args.task_type in ['binary', 'multi']:
+    y_class = df_input[target_columns[0]].values  # assumes a single task for stratification
+    train_indices, val_indices, test_indices = [], [], []
+
+    for i in range(REPLICATES):
+        sss_outer = StratifiedShuffleSplit(n_splits=1, test_size=0.1, random_state=SEED + i)
+        sss_inner = StratifiedShuffleSplit(n_splits=1, test_size=1/9, random_state=SEED + i)  # 10% val from 90% train
+
+        idx = np.arange(len(y_class))
+        train_val_idx, test_idx = next(sss_outer.split(idx, y_class))
+        train_idx, val_idx = next(sss_inner.split(train_val_idx, y_class[train_val_idx]))
+
+        train_indices.append(idx[train_val_idx][train_idx].tolist())
+        val_indices.append(idx[train_val_idx][val_idx].tolist())
+        test_indices.append(idx[test_idx].tolist())
+else:
+    mols = [d.mol for d in all_data]
+    train_indices, val_indices, test_indices = data.make_split_indices(
+        mols, "RANDOM", (0.8, 0.1, 0.1), seed=SEED, num_replicates=REPLICATES
+    )
+
+
+
+
 train_data, val_data, test_data = data.split_data_by_indices(
     all_data, train_indices, val_indices, test_indices
 )
