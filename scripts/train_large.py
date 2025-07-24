@@ -125,7 +125,7 @@ for i in range(REPLICATES):
         ffn = nn.BinaryClassificationFFN()
         metric_list = [nn.metrics.BinaryAccuracy(), nn.metrics.BinaryAUROC(), nn.metrics.BinaryF1Score()]
     elif args.task_type == 'multi':
-        ffn = nn.MulticlassClassificationFFN()
+        ffn = nn.MulticlassClassificationFFN(n_classes=args.n_classes)
         metric_list = [nn.metrics.Accuracy(), nn.metrics.F1Score(), nn.metrics.AUROC()]
     
     batch_norm = False
@@ -189,7 +189,21 @@ print("\nStandard deviation across 5 splits:")
 print(std_metrics)
 
 # Optional: save to file
+<<<<<<< HEAD
 if descriptor_data is not None:
     results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_descriptors_results.csv", index=False)
 else:
     results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv", index=False)
+=======
+results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv", index=False)
+
+        
+
+
+
+
+
+# mpnn = models.MPNN.load_from_checkpoint(checkpoint_path)
+# mpnn.eval()
+# featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
+>>>>>>> c8b33b9310be02c4f000c2709e06dfc27f1d4a74
