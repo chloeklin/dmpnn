@@ -55,9 +55,19 @@ if not target_columns:
 
 # === Process Data ===
 smis = df_input.loc[:, smiles_column].values
+for i, smi in enumerate(smis):
+    if not isinstance(smi, str):
+        print(f"Non-string SMILES at index {i}: {smi} (type: {type(smi)})")
+
+
+
+
 ys = df_input.loc[:, target_columns].values
 descriptor_data = df_input[descriptor_columns].values if descriptor_columns else None
-all_data = [data.MoleculeDatapoint.from_smi(smi, y, x_d=descriptors) for smi, y, descriptors in zip(smis, ys, descriptor_data)]
+if descriptor_data is not None:
+    all_data = [data.MoleculeDatapoint.from_smi(smi, y, x_d=descriptors) for smi, y, descriptors in zip(smis, ys, descriptor_data)]
+else:
+    all_data = [data.MoleculeDatapoint.from_smi(smi, y) for smi, y in zip(smis, ys)]
 
 
 # === Split via Random/Stratified Split with 5 Repetitions ===
@@ -101,9 +111,12 @@ featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
 for i in range(REPLICATES):
     train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
     scaler = train.normalize_targets()
-    descriptor_scaler = train.normalize_inputs("x_d")
     val.normalize_targets(scaler)
-    val.normalize_inputs("x_d", descriptor_scaler)
+    if descriptor_columns is not None:
+        descriptor_scaler = train.normalize_inputs("X_d")
+        val.normalize_inputs("X_d", descriptor_scaler)
+    
+    
     
 
     train_loader = data.build_dataloader(train, num_workers=num_workers)
@@ -132,8 +145,11 @@ for i in range(REPLICATES):
     X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler) if descriptor_data is not None else None
 
     mpnn = models.MPNN(mp, agg, ffn, batch_norm, metric_list, X_d_transform=X_d_transform)
-
-    checkpoint_path = f"checkpoints/{args.dataset_name}/rep_{i}/"
+    
+    if descriptor_data is not None:
+        checkpoint_path = f"checkpoints/{args.dataset_name}_descriptors/rep_{i}/"
+    else:
+        checkpoint_path = f"checkpoints/{args.dataset_name}/rep_{i}/"
     last_ckpt = None
     if os.path.exists(checkpoint_path):
         ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
