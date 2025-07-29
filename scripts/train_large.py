@@ -44,6 +44,29 @@ torch.backends.cudnn.benchmark = False
 # === Load Data ===
 df_input = pd.read_csv(input_path)
 
+# For insulator dataset, exclude indices from the text files
+if args.dataset_name == "insulator":
+    # Read indices to exclude from skipped_indices.txt
+    skipped_indices = []
+    skipped_indices_path = f"{args.dataset_name}_skipped_indices.txt"
+    if os.path.exists(skipped_indices_path):
+        with open(skipped_indices_path, 'r') as f:
+            skipped_indices = [int(line.strip()) for line in f if line.strip()]
+    
+    # Read indices to exclude from excluded_problematic_smiles.txt
+    problem_indices = []
+    problem_smiles_path = f"{args.dataset_name}_excluded_problematic_smiles.txt"
+    if os.path.exists(problem_smiles_path):
+        with open(problem_smiles_path, 'r') as f:
+            problem_indices = [int(line.split(',')[0]) for line in f if line.strip()]
+    
+    # Combine and deduplicate indices to exclude
+    indices_to_exclude = set(skipped_indices + problem_indices)
+    
+    if indices_to_exclude:
+        print(f"Excluding {len(indices_to_exclude)} problematic samples from the dataset")
+        df_input = df_input[~df_input.index.isin(indices_to_exclude)].reset_index(drop=True)
+
 # Read descriptor columns from args
 descriptor_columns = args.descriptor_columns or []
 ignore_columns = ['WDMPNN_Input']
