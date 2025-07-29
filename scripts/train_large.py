@@ -159,9 +159,9 @@ for i in range(REPLICATES):
 
 
     # Configure model checkpointing
-    Path(f"checkpoints/{args.dataset_name}/rep_{i}/").mkdir(parents=True, exist_ok=True)
+    Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
     checkpointing = ModelCheckpoint(
-        dirpath=f"checkpoints/{args.dataset_name}/rep_{i}/",  # Unique folder for each split
+        dirpath=checkpoint_path,  # Unique folder for each split
         filename="best-{epoch}-{val_loss:.4f}",
         monitor="val_loss",
         mode="min",
