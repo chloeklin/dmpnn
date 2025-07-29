@@ -1,6 +1,7 @@
 examples/
 docs/
 data/
+!/chemprop/data/
 checkpoints/
 *.zip
 

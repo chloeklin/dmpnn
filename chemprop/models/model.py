@@ -9,7 +9,7 @@ from lightning import pytorch as pl
 import torch
 from torch import Tensor, nn, optim
 
-from chemprop.data import BatchMolGraph, MulticomponentTrainingBatch, TrainingBatch
+from chemprop.data import BatchMolGraph, BatchPolymerMolGraph, MulticomponentTrainingBatch, TrainingBatch
 from chemprop.nn import Aggregation, ChempropMetric, MessagePassing, Predictor
 from chemprop.nn.transforms import ScaleTransform
 from chemprop.schedulers import build_NoamLike_LRSched
@@ -123,23 +123,27 @@ class MPNN(pl.LightningModule):
         return self.predictor.criterion
 
     def fingerprint(
-        self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
+        self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
     ) -> Tensor:
         """the learned fingerprints for the input molecules"""
         H_v = self.message_passing(bmg, V_d)
         H = self.agg(H_v, bmg.batch)
         H = self.bn(H)
 
+        # ✅ Scale by degree of polymerization if present (i.e., polymer graph)
+        if isinstance(bmg, BatchPolymerMolGraph):
+            H = H * bmg.degree_of_polym.unsqueeze(1)
+
         return H if X_d is None else torch.cat((H, self.X_d_transform(X_d)), dim=1)
 
     def encoding(
-        self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None, i: int = -1
+        self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None, i: int = -1
     ) -> Tensor:
         """Calculate the :attr:`i`-th hidden representation"""
         return self.predictor.encode(self.fingerprint(bmg, V_d, X_d), i)
 
     def forward(
-        self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
+        self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
     ) -> Tensor:
         """Generate predictions for the input molecules/reactions"""
         return self.predictor(self.fingerprint(bmg, V_d, X_d))

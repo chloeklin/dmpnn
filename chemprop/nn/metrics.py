@@ -421,21 +421,39 @@ class MulticlassMCCMetric(MulticlassMCCLoss):
         return 1 - super().compute()
 
 
+# class ClassificationMixin:
+#     def __init__(self, task_weights: ArrayLike = 1.0, **kwargs):
+#         """
+#         Parameters
+#         ----------
+#         task_weights :  ArrayLike = 1.0
+#             .. important::
+#                 Ignored. Maintained for compatibility with :class:`ChempropMetric`
+#         """
+#         super().__init__()
+#         task_weights = torch.as_tensor(task_weights, dtype=torch.float).view(1, -1)
+#         self.register_buffer("task_weights", task_weights)
+
+#     def update(self, preds: Tensor, targets: Tensor, mask: Tensor, *args, **kwargs):
+#         super().update(preds[mask], targets[mask].long())
+
 class ClassificationMixin:
     def __init__(self, task_weights: ArrayLike = 1.0, **kwargs):
         """
         Parameters
         ----------
-        task_weights :  ArrayLike = 1.0
-            .. important::
-                Ignored. Maintained for compatibility with :class:`ChempropMetric`
+        task_weights : ArrayLike = 1.0
+            Ignored by torchmetrics but kept for compatibility.
         """
-        super().__init__()
         task_weights = torch.as_tensor(task_weights, dtype=torch.float).view(1, -1)
         self.register_buffer("task_weights", task_weights)
 
-    def update(self, preds: Tensor, targets: Tensor, mask: Tensor, *args, **kwargs):
-        super().update(preds[mask], targets[mask].long())
+        # Call the right parent constructor with remaining kwargs
+        # If multiple inheritance, skip ChempropMetric if already initialized
+        super_classes = [base.__name__ for base in self.__class__.__mro__]
+        if 'ChempropMetric' not in super_classes:
+            super().__init__(**kwargs)
+
 
 
 @MetricRegistry.register("roc")
@@ -454,10 +472,67 @@ class BinaryAUPRC(ClassificationMixin, torchmetrics.classification.BinaryPrecisi
 class BinaryAccuracy(ClassificationMixin, torchmetrics.classification.BinaryAccuracy):
     pass
 
+# @MetricRegistry.register("multiclass-accuracy")
+# class MulticlassAccuracy(ClassificationMixin, torchmetrics.classification.MulticlassAccuracy):
+#     def __init__(self, task_weights: ArrayLike = 1.0, num_classes: int = 3, **kwargs):
+#         torchmetrics.classification.MulticlassAccuracy.__init__(self, num_classes=num_classes, **kwargs)
+#         ClassificationMixin.__init__(self, task_weights)
+
+@MetricRegistry.register("multiclass-accuracy")
+class MulticlassAccuracy(torchmetrics.classification.MulticlassAccuracy, ClassificationMixin):
+    def __init__(self, task_weights: ArrayLike = 1.0, num_classes: int = 3, average: str = "macro", **kwargs):
+        # Initialize torchmetrics first
+        torchmetrics.classification.MulticlassAccuracy.__init__(self, num_classes=num_classes, average=average, **kwargs)
+        # Then initialize mixin (which registers task_weights)
+        ClassificationMixin.__init__(self, task_weights=task_weights)
+    
+    def update(self, preds: Tensor, targets: Tensor, *args, **kwargs):
+        # If shape is (B, T, C), squeeze T
+        if preds.ndim == 3:
+            preds = preds.squeeze(1)  # now shape is (B, C)
+        
+        class_preds = preds.argmax(dim=-1)  # shape (B,)
+        if targets.ndim == 2:
+            targets = targets.squeeze(1)    # shape (B,)
+        super().update(class_preds, targets.long())
+
 
 @MetricRegistry.register("f1")
 class BinaryF1Score(ClassificationMixin, torchmetrics.classification.BinaryF1Score):
     pass
+
+@MetricRegistry.register("multiclass-f1")
+class MulticlassF1Score(torchmetrics.classification.MulticlassF1Score, ClassificationMixin):
+    def __init__(self, task_weights: ArrayLike = 1.0, num_classes: int = 3, average: str = "macro", **kwargs):
+        torchmetrics.classification.MulticlassF1Score.__init__(
+            self, num_classes=num_classes, average=average, **kwargs
+        )
+        ClassificationMixin.__init__(self, task_weights=task_weights)
+
+    def update(self, preds: Tensor, targets: Tensor, *args, **kwargs):
+        # If shape is (B, T, C), squeeze T
+        if preds.ndim == 3:
+            preds = preds.squeeze(1)  # now shape is (B, C)
+        
+        class_preds = preds.argmax(dim=-1)  # shape (B,)
+        if targets.ndim == 2:
+            targets = targets.squeeze(1)    # shape (B,)
+        super().update(class_preds, targets.long())
+
+@MetricRegistry.register("multiclass-roc")
+class MulticlassAUROC(torchmetrics.classification.MulticlassAUROC, ClassificationMixin):
+    def __init__(self, task_weights: ArrayLike = 1.0, num_classes: int = 3, average: str = "macro", **kwargs):
+        torchmetrics.classification.MulticlassAUROC.__init__(
+            self, num_classes=num_classes, average=average, **kwargs
+        )
+        ClassificationMixin.__init__(self, task_weights=task_weights)
+
+    def update(self, preds: Tensor, targets: Tensor, *args, **kwargs):
+        if preds.ndim == 3:
+            preds = preds.squeeze(1)  # from (B, 1, C) to (B, C)
+        if targets.ndim == 2:
+            targets = targets.squeeze(1)  # from (B, 1) to (B,)
+        super().update(preds, targets.long())  # pass logits or softmax
 
 
 @LossFunctionRegistry.register("dirichlet")

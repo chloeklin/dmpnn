@@ -46,10 +46,10 @@ df_input = pd.read_csv(input_path)
 
 # Read descriptor columns from args
 descriptor_columns = args.descriptor_columns or []
-ignore_columns = ['WDMPNN_Input']
+
 # Automatically detect target columns (all columns except 'smiles')
 target_columns = [c for c in df_input.columns
-                  if c not in ([smiles_column] + descriptor_columns + ignore_columns)]
+                  if c not in ([smiles_column] + descriptor_columns)]
 if not target_columns:
     raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
 
@@ -97,59 +97,18 @@ else:
 
 
 
-train_data, val_data, test_data = data.split_data_by_indices(
+_, _, test_data = data.split_data_by_indices(
     all_data, train_indices, val_indices, test_indices
 )
 
-
-# Create necessary directories
-Path(chemprop_dir / "results").mkdir(parents=True, exist_ok=True)
-
-# === Train ===
+# === Evaluate on test set ===
 results_all = []
 featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
 for i in range(REPLICATES):
-    train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
-    scaler = train.normalize_targets()
-    val.normalize_targets(scaler)
-    if descriptor_columns is not None:
-        descriptor_scaler = train.normalize_inputs("X_d")
-        val.normalize_inputs("X_d", descriptor_scaler)
-    
-    
-    
-
-    train_loader = data.build_dataloader(train, num_workers=num_workers)
-    val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
+    test = data.MoleculeDataset(test_data[i], featurizer)
     test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
-
-    mp = nn.BondMessagePassing()
-    agg = nn.MeanAggregation()
-    ffn_input_dim = mp.output_dim + descriptor_data.shape[1] if descriptor_data is not None else mp.output_dim
     
-    # Get the number of tasks from the training data
-    n_tasks = len(target_columns)
-    
-    if args.task_type == 'reg':
-        output_transform = nn.UnscaleTransform.from_standard_scaler(scaler)
-        ffn = nn.RegressionFFN(output_transform=output_transform, n_tasks=n_tasks, input_dim=ffn_input_dim)
-        metric_list = [nn.metrics.MAE(), nn.metrics.RMSE(), nn.metrics.R2Score()]
-    elif args.task_type == 'binary':
-        ffn = nn.BinaryClassificationFFN()
-        metric_list = [nn.metrics.BinaryAccuracy(), nn.metrics.BinaryAUROC(), nn.metrics.BinaryF1Score()]
-    elif args.task_type == 'multi':
-        ffn = nn.MulticlassClassificationFFN(n_classes=args.n_classes)
-        metric_list = [
-            nn.metrics.MulticlassAccuracy(num_classes=args.n_classes, average='macro'),
-            nn.metrics.MulticlassF1Score(num_classes=args.n_classes, average='macro'),
-            nn.metrics.MulticlassAUROC(num_classes=args.n_classes, average='macro')
-        ]
-    
-    batch_norm = False
-    X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler) if descriptor_data is not None else None
-
-    mpnn = models.MPNN(mp, agg, ffn, batch_norm, metric_list, X_d_transform=X_d_transform)
-    
+    # Load best ckpt
     if descriptor_data is not None:
         checkpoint_path = f"checkpoints/{args.dataset_name}_descriptors/rep_{i}/"
     else:
@@ -161,40 +120,15 @@ for i in range(REPLICATES):
             # Optionally sort to get the latest/best checkpoint
             last_ckpt = str(Path(checkpoint_path) / sorted(ckpt_files)[-1])
 
+    mpnn = models.MPNN.load_from_checkpoint(last_ckpt)
+    mpnn.eval()
 
-    # Configure model checkpointing
-    Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
-    checkpointing = ModelCheckpoint(
-        dirpath=checkpoint_path,  # Unique folder for each split
-        filename="best-{epoch}-{val_loss:.4f}",
-        monitor="val_loss",
-        mode="min",
-        save_top_k=1,
-        save_last=False,
-    )
-
-    early_stop = EarlyStopping(
-        monitor="val_loss",     # Metric to monitor
-        patience=30,            # Number of epochs with no improvement after which training stops
-        mode="min",             # We're minimizing val_loss
-        verbose=True
-        )
-
-
-    trainer = pl.Trainer(
-        logger=False,
-        enable_checkpointing=True, # Use `True` if you want to save model checkpoints. The checkpoints will be saved in the `checkpoints` folder.
-        enable_progress_bar=True,
-        accelerator="auto",
-        devices=1,
-        max_epochs=EPOCHS, # number of epochs to train for
-        callbacks=[early_stop, checkpointing], # Use the configured checkpoint callback
-    )
-
-    trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
-    results = trainer.test(dataloaders=test_loader)
-    test_metrics = results[0]
-    results_all.append(test_metrics)
+    with torch.no_grad():
+        fingerprints = [
+            mpnn.encoding(batch.bmg, batch.V_d, batch.X_d, i=0)
+            for batch in test_loader
+        ]
+        fingerprints = torch.cat(fingerprints, 0)
     
 
 # Convert to DataFrame

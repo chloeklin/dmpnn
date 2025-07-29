@@ -10,6 +10,7 @@ from .ffn import ConstrainerFFN
 from .message_passing import (
     AtomMessagePassing,
     BondMessagePassing,
+    WeightedBondMessagePassing,
     MABAtomMessagePassing,
     MABBondMessagePassing,
     MABMessagePassing,

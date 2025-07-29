@@ -55,7 +55,13 @@ class MolGraphCache(MolGraphCacheFacade):
         E_fs: Iterable[np.ndarray | None],
         featurizer: Featurizer[S, MolGraph],
     ):
-        self._mgs = [featurizer(input, V_f, E_f) for input, V_f, E_f in zip(inputs, V_fs, E_fs)]
+        self._mgs = []
+        for input_data, V_f, E_f in zip(inputs, V_fs, E_fs):
+            # If input is a PolymerDatapoint, extract mol and edges
+            if hasattr(input_data, 'mol') and hasattr(input_data, 'edges'):
+                self._mgs.append(featurizer(input_data.mol, input_data.edges, V_f, E_f))
+            else:
+                self._mgs.append(featurizer(input_data, V_f, E_f))
 
     def __len__(self) -> int:
         return len(self._mgs)
@@ -86,4 +92,9 @@ class MolGraphCacheOnTheFly(MolGraphCacheFacade):
         return len(self._inputs)
 
     def __getitem__(self, index: int) -> MolGraph:
-        return self._featurizer(self._inputs[index], self._V_fs[index], self._E_fs[index])
+        input_data = self._inputs[index]
+        # If input is a PolymerDatapoint, extract mol and edges
+        if hasattr(input_data, 'mol') and hasattr(input_data, 'edges'):
+            return self._featurizer(input_data.mol, input_data.edges, self._V_fs[index], self._E_fs[index])
+        # Otherwise, assume it's a regular molecule
+        return self._featurizer(input_data, self._V_fs[index], self._E_fs[index])

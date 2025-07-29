@@ -4,10 +4,10 @@ from lightning.pytorch.core.mixins import HyperparametersMixin
 import torch
 from torch import Tensor, nn
 
-from chemprop.conf import DEFAULT_ATOM_FDIM, DEFAULT_BOND_FDIM, DEFAULT_HIDDEN_DIM
-from chemprop.data import BatchMolGraph
+from chemprop.conf import DEFAULT_ATOM_FDIM, DEFAULT_BOND_FDIM, DEFAULT_HIDDEN_DIM, DEFAULT_POLY_ATOM_FDIM, DEFAULT_POLY_BOND_FDIM
+from chemprop.data import BatchMolGraph, BatchPolymerMolGraph
 from chemprop.exceptions import InvalidShapeError
-from chemprop.nn.message_passing.mixins import _AtomMessagePassingMixin, _BondMessagePassingMixin
+from chemprop.nn.message_passing.mixins import _AtomMessagePassingMixin, _BondMessagePassingMixin, _WeightedBondMessagePassingMixin
 from chemprop.nn.message_passing.proto import MessagePassing
 from chemprop.nn.transforms import GraphTransform, ScaleTransform
 from chemprop.nn.utils import Activation, get_activation_function
@@ -125,11 +125,11 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
         """
 
     @abstractmethod
-    def initialize(self, bmg: BatchMolGraph) -> Tensor:
+    def initialize(self, bmg: BatchMolGraph|BatchPolymerMolGraph) -> Tensor:
         """initialize the message passing scheme by calculating initial matrix of hidden features"""
 
     @abstractmethod
-    def message(self, H_t: Tensor, bmg: BatchMolGraph):
+    def message(self, H_t: Tensor, bmg: BatchMolGraph|BatchPolymerMolGraph):
         """Calculate the message matrix"""
 
     def update(self, M_t, H_0):
@@ -193,10 +193,9 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
 
         return H
 
-    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None) -> Tensor:
         bmg = self.graph_transform(bmg)
         H_0 = self.initialize(bmg)
-
         H = self.tau(H_0)
         for _ in range(1, self.depth):
             if self.undirected:
@@ -210,6 +209,45 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
             0, index_torch, H, reduce="sum", include_self=False
         )
         return self.finalize(M, bmg.V, V_d)
+
+class WeightedBondMessagePassing(_WeightedBondMessagePassingMixin, _MessagePassingBase):
+    r"""A :class:`WeightedBondMessagePassing` encodes a batch of molecular graphs by passing messages along
+    directed bonds.
+
+    It implements the following operation:
+
+    .. math::
+
+        h_{vw}^{(0)} &= \tau \left( \mathbf W_i(e_{vw}) \right) \\
+        m_{vw}^{(t)} &= \sum_{u \in \mathcal N(v)\setminus w} h_{uv}^{(t-1)} \\
+        h_{vw}^{(t)} &= \tau \left(h_v^{(0)} + \mathbf W_h m_{vw}^{(t-1)} \right) \\
+        m_v^{(T)} &= \sum_{w \in \mathcal N(v)} h_w^{(T-1)} \\
+        h_v^{(T)} &= \tau \left (\mathbf W_o \left( x_v \mathbin\Vert m_{v}^{(T)} \right) \right),
+
+    where :math:`\tau` is the activation function; :math:`\mathbf W_i`, :math:`\mathbf W_h`, and
+    :math:`\mathbf W_o` are learned weight matrices; :math:`e_{vw}` is the feature vector of the
+    bond between atoms :math:`v` and :math:`w`; :math:`x_v` is the feature vector of atom :math:`v`;
+    :math:`h_{vw}^{(t)}` is the hidden representation of the bond :math:`v \rightarrow w` at
+    iteration :math:`t`; :math:`m_{vw}^{(t)}` is the message received by the bond :math:`v
+    \to w` at iteration :math:`t`; and :math:`t \in \{1, \dots, T-1\}` is the number of
+    message passing iterations.
+    """
+
+    def setup(
+        self,
+        d_v: int = DEFAULT_POLY_ATOM_FDIM, #72
+        d_e: int = DEFAULT_POLY_BOND_FDIM, #86
+        d_h: int = DEFAULT_HIDDEN_DIM,
+        d_vd: int | None = None,
+        bias: bool = False,
+    ):
+        print("d_v, d_e, d_h, d_vd, bias", d_v, d_e, d_h, d_vd, bias)
+        W_i = nn.Linear(d_v+d_e, d_h, bias)
+        W_h = nn.Linear(d_h, d_h, bias)
+        W_o = nn.Linear(d_v + d_h, d_h)
+        W_d = nn.Linear(d_h + d_vd, d_h + d_vd) if d_vd else None
+
+        return W_i, W_h, W_o, W_d
 
 
 class BondMessagePassing(_BondMessagePassingMixin, _MessagePassingBase):

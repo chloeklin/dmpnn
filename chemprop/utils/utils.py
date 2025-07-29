@@ -41,6 +41,7 @@ def make_mol(
     add_h: bool = False,
     ignore_stereo: bool = False,
     reorder_atoms: bool = False,
+    
 ) -> Chem.Mol:
     """build an RDKit molecule from a SMILES string.
 
@@ -85,6 +86,60 @@ def make_mol(
         atom_map_numbers = tuple(atom.GetAtomMapNum() for atom in mol.GetAtoms())
         new_order = np.argsort(atom_map_numbers).tolist()
         mol = Chem.rdmolops.RenumberAtoms(mol, new_order)
+
+    return mol
+
+def make_polymer_mol(
+    smi: str,
+    fragment_weights: list,
+    keep_h: bool = False,
+    add_h: bool = False,
+    
+) -> Chem.Mol:
+    """build an RDKit molecule from a SMILES string.
+
+    Parameters
+    ----------
+    smi : str
+        a SMILES string.
+    fragment_weights : list
+        List of monomer fractions for each fragment in s. Only used when input is a polymer.
+    keep_h : bool, optional
+        whether to keep hydrogens in the input smiles. This does not add hydrogens, it only keeps
+        them if they are specified. Default is False.
+    add_h : bool, optional
+        whether to add hydrogens to the molecule. Default is False.
+
+    Returns
+    -------
+    Chem.Mol
+        the RDKit molecule.
+    """
+    print("[DEBUG] PolymerDatapoint input smiles: ", smi)
+    num_frags = len(smi.split('.'))
+    if len(fragment_weights) != num_frags:
+        raise ValueError(f'number of input monomers/fragments ({num_frags}) does not match number of '
+                         f'input number of weights ({len(fragment_weights)})')
+
+
+    # we create one molecule object for each monomer fragment, add the weight as proerty of each atom, and merge the 
+    # fragments into a single molecule object
+    mols = []
+    for s, w in zip(smi.split('.'), fragment_weights):
+        m = make_mol(s, keep_h, add_h)
+        for a in m.GetAtoms():
+            a.SetDoubleProp('w_frag', float(w))
+        mols.append(m)
+    
+    # combine all mols into single mol object
+    mol = mols.pop(0)
+    while len(mols) > 0:
+        m2 = mols.pop(0)
+        mol = Chem.CombineMols(mol, m2)
+    print("[DEBUG] PolymerDatapoint output mol: ", Chem.MolToSmiles(mol))
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() == '*':
+            print(f"[*] Atom {atom.GetIdx()} has {len(atom.GetNeighbors())} neighbors")
 
     return mol
 
