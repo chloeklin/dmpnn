@@ -115,7 +115,7 @@ def make_polymer_mol(
     Chem.Mol
         the RDKit molecule.
     """
-    print("[DEBUG] PolymerDatapoint input smiles: ", smi)
+    # print("[DEBUG] PolymerDatapoint input smiles: ", smi)
     num_frags = len(smi.split('.'))
     if len(fragment_weights) != num_frags:
         raise ValueError(f'number of input monomers/fragments ({num_frags}) does not match number of '
@@ -136,10 +136,10 @@ def make_polymer_mol(
     while len(mols) > 0:
         m2 = mols.pop(0)
         mol = Chem.CombineMols(mol, m2)
-    print("[DEBUG] PolymerDatapoint output mol: ", Chem.MolToSmiles(mol))
-    for atom in mol.GetAtoms():
-        if atom.GetSymbol() == '*':
-            print(f"[*] Atom {atom.GetIdx()} has {len(atom.GetNeighbors())} neighbors")
+    # print("[DEBUG] PolymerDatapoint output mol: ", Chem.MolToSmiles(mol))
+    # for atom in mol.GetAtoms():
+    #     if atom.GetSymbol() == '*':
+            # print(f"[*] Atom {atom.GetIdx()} has {len(atom.GetNeighbors())} neighbors")
 
     return mol
 

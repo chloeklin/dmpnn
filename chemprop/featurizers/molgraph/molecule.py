@@ -322,7 +322,7 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         n_atoms = mol.GetNumAtoms()
         n_bonds = 0
         degree_of_polym = 1
-        print("Original raw SMILES string before RDKit parsing:", Chem.MolToSmiles(mol))
+        # print("Original raw SMILES string before RDKit parsing:", Chem.MolToSmiles(mol))
 
 
         if atom_features_extra is not None and len(atom_features_extra) != n_atoms:
@@ -340,8 +340,8 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         # also get map of R groups to bonds types, e.f. r_bond_types[*1] -> SINGLE
         rwmol, r_bond_types = tag_atoms_in_repeating_unit(rwmol)
 
-        print("Tagged R atoms:")
-        print(Chem.MolToSmiles(rwmol, True))
+        # print("Tagged R atoms:")
+        # print(Chem.MolToSmiles(rwmol, True))
 
 
         
@@ -371,27 +371,27 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
 
         n_atoms = len(V)
 
-        print("=== R-group neighbor map ===")
-        for atom in rwmol.GetAtoms():
-            idx = atom.GetIdx()
-            try:
-                r = atom.GetProp("R")
-                core = atom.GetBoolProp("core")
-                print(f"Atom {idx}: R = {r}, core = {core}, symbol = {atom.GetSymbol()}")
-            except:
-                print(f"Atom {idx}: symbol = {atom.GetSymbol()}, no R prop")
+        # print("=== R-group neighbor map ===")
+        # for atom in rwmol.GetAtoms():
+        #     idx = atom.GetIdx()
+        #     try:
+        #         r = atom.GetProp("R")
+        #         core = atom.GetBoolProp("core")
+        #         print(f"Atom {idx}: R = {r}, core = {core}, symbol = {atom.GetSymbol()}")
+        #     except:
+        #         print(f"Atom {idx}: symbol = {atom.GetSymbol()}, no R prop")
 
-        print("Before wildcard removal:")
-        for atom in rwmol.GetAtoms():
-            print(f"Atom {atom.GetIdx()}: {atom.GetSymbol()}")
+        # print("Before wildcard removal:")
+        # for atom in rwmol.GetAtoms():
+        #     print(f"Atom {atom.GetIdx()}: {atom.GetSymbol()}")
 
 
         # remove R groups -> now atoms in rdkit Mol object have the same order as self.f_atoms
         rwmol = remove_wildcard_atoms(rwmol)
 
-        print("After wildcard removal:")
-        for atom in rwmol.GetAtoms():
-            print(f"Atom {atom.GetIdx()}: {atom.GetSymbol()}")
+        # print("After wildcard removal:")
+        # for atom in rwmol.GetAtoms():
+        #     print(f"Atom {atom.GetIdx()}: {atom.GetSymbol()}")
         
         E = []
         W_bonds = []
@@ -451,8 +451,8 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         # create an editable combined molecule
         cm = Chem.CombineMols(rwmol, rwmol_copy)
         cm = Chem.RWMol(cm)
-        for atom in cm.GetAtoms():
-            print(atom.GetIdx(), atom.HasProp("R"), atom.GetProp("R") if atom.HasProp("R") else None)
+        # for atom in cm.GetAtoms():
+        #     print(atom.GetIdx(), atom.HasProp("R"), atom.GetProp("R") if atom.HasProp("R") else None)
 
         
 
