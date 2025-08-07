@@ -268,12 +268,76 @@ def tag_atoms_in_repeating_unit(mol):
 
     return mol, r_bond_types
 
-def remove_wildcard_atoms(rwmol):
-    indices = [a.GetIdx() for a in rwmol.GetAtoms() if '*' in a.GetSmarts() and not a.IsInRing()]
-    while len(indices) > 0:
-        rwmol.RemoveAtom(indices[0])
-        indices = [a.GetIdx() for a in rwmol.GetAtoms() if '*' in a.GetSmarts() and not a.IsInRing()]
-    Chem.SanitizeMol(rwmol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE)
+# def remove_wildcard_atoms(rwmol):
+#     indices = [a.GetIdx() for a in rwmol.GetAtoms() if '*' in a.GetSmarts() and not a.IsInRing()]
+#     while len(indices) > 0:
+#         rwmol.RemoveAtom(indices[0])
+#         indices = [a.GetIdx() for a in rwmol.GetAtoms() if '*' in a.GetSmarts() and not a.IsInRing()]
+#     Chem.SanitizeMol(rwmol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE)
+#     return rwmol
+
+def remove_wildcard_atoms(rwmol: Chem.RWMol) -> Chem.RWMol:
+    """
+    Removes wildcard atoms (e.g., [*:1]) that are not in rings,
+    and replaces those that are in rings with a basic wildcard [*].
+
+    Parameters
+    ----------
+    rwmol : Chem.RWMol
+        The modifiable RDKit molecule to clean.
+
+    Returns
+    -------
+    Chem.RWMol
+        A new molecule with wildcards removed or replaced.
+    """
+
+    atoms_to_replace = []
+    atoms_to_remove = []
+
+    # First pass: identify what to remove or replace
+    for atom in rwmol.GetAtoms():
+        if atom.GetSymbol() == '*':
+            if atom.IsInRing():
+                atoms_to_replace.append(atom.GetIdx())
+            else:
+                atoms_to_remove.append(atom.GetIdx())
+
+    # Sort in reverse to avoid index shift when removing atoms
+    atoms_to_replace.sort(reverse=True)
+    atoms_to_remove.sort(reverse=True)
+
+    # Replace ring wildcards with a basic [*] atom
+    for idx in atoms_to_replace:
+        atom = rwmol.GetAtomWithIdx(idx)
+        neighbors = atom.GetNeighbors()
+
+        if len(neighbors) != 1:
+            continue  # skip malformed wildcards
+
+        neighbor = neighbors[0]
+        neighbor_idx = neighbor.GetIdx()
+
+        bond = rwmol.GetBondBetweenAtoms(idx, neighbor_idx)
+        bond_type = bond.GetBondType()
+
+        # Remove old atom
+        rwmol.RemoveAtom(idx)
+
+        # Add new simple wildcard atom [*]
+        new_idx = rwmol.AddAtom(Chem.Atom(0))  # atomic num 0 = wildcard
+        rwmol.AddBond(new_idx, neighbor_idx, bond_type)
+
+    # Remove non-ring wildcard atoms
+    for idx in atoms_to_remove:
+        rwmol.RemoveAtom(idx)
+
+    # Re-sanitize molecule (skip kekulization to avoid aromatic errors)
+    Chem.SanitizeMol(
+        rwmol,
+        sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE
+    )
+
     return rwmol
 
 @dataclass
@@ -484,6 +548,9 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
             order1 = r_bond_types[f'*{r1}']
             order2 = r_bond_types[f'*{r2}']
             if order1 != order2:
+                print(f"[DEBUG] Bond type conflict in molecule: {input_data.mol if 'input_data' in locals() else 'unknown'}")
+                print(f"[DEBUG] Atom indices: a1={a1}, _a2={_a2}")
+                print(f"[DEBUG] Bond types: order1={order1}, order2={order2}")
                 raise ValueError(f'two atoms are trying to be bonded with different bond types: '
                                     f'{order1} vs {order2}')
             cm.AddBond(a1, _a2, order=order1)

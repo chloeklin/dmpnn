@@ -20,6 +20,10 @@ parser.add_argument('--n_classes', type=int, default=3,
                     help='Number of classes for multi-class classification')
 parser.add_argument('--descriptor_columns', type=str, nargs='+', default=[],
                     help='List of extra descriptor column names to use as global features')
+parser.add_argument('--incl_rdkit', type=bool, default=False,
+                    help='Include RDKit descriptors')
+
+
 
 
 args = parser.parse_args()
@@ -45,27 +49,27 @@ torch.backends.cudnn.benchmark = False
 df_input = pd.read_csv(input_path)
 
 # For insulator dataset, exclude indices from the text files
-if args.dataset_name == "insulator":
-    # Read indices to exclude from skipped_indices.txt
-    skipped_indices = []
-    skipped_indices_path = f"{args.dataset_name}_skipped_indices.txt"
-    if os.path.exists(skipped_indices_path):
-        with open(skipped_indices_path, 'r') as f:
-            skipped_indices = [int(line.strip()) for line in f if line.strip()]
+# if args.dataset_name == "insulator":
+#     # Read indices to exclude from skipped_indices.txt
+#     skipped_indices = []
+#     skipped_indices_path = f"{args.dataset_name}_skipped_indices.txt"
+#     if os.path.exists(skipped_indices_path):
+#         with open(skipped_indices_path, 'r') as f:
+#             skipped_indices = [int(line.strip()) for line in f if line.strip()]
     
-    # Read indices to exclude from excluded_problematic_smiles.txt
-    problem_indices = []
-    problem_smiles_path = f"{args.dataset_name}_excluded_problematic_smiles.txt"
-    if os.path.exists(problem_smiles_path):
-        with open(problem_smiles_path, 'r') as f:
-            problem_indices = [int(line.split(',')[0]) for line in f if line.strip()]
+#     # Read indices to exclude from excluded_problematic_smiles.txt
+#     problem_indices = []
+#     problem_smiles_path = f"{args.dataset_name}_excluded_problematic_smiles.txt"
+#     if os.path.exists(problem_smiles_path):
+#         with open(problem_smiles_path, 'r') as f:
+#             problem_indices = [int(line.split(',')[0]) for line in f if line.strip()]
     
-    # Combine and deduplicate indices to exclude
-    indices_to_exclude = set(skipped_indices + problem_indices)
+#     # Combine and deduplicate indices to exclude
+#     indices_to_exclude = set(skipped_indices + problem_indices)
     
-    if indices_to_exclude:
-        print(f"Excluding {len(indices_to_exclude)} problematic samples from the dataset")
-        df_input = df_input[~df_input.index.isin(indices_to_exclude)].reset_index(drop=True)
+#     if indices_to_exclude:
+#         print(f"Excluding {len(indices_to_exclude)} problematic samples from the dataset")
+#         df_input = df_input[~df_input.index.isin(indices_to_exclude)].reset_index(drop=True)
 
 # Read descriptor columns from args
 descriptor_columns = args.descriptor_columns or []
@@ -87,8 +91,23 @@ for i, smi in enumerate(smis):
 
 ys = df_input.loc[:, target_columns].values
 descriptor_data = df_input[descriptor_columns].values if descriptor_columns else None
-if descriptor_data is not None:
-    all_data = [data.MoleculeDatapoint.from_smi(smi, y, x_d=descriptors) for smi, y, descriptors in zip(smis, ys, descriptor_data)]
+if args.incl_rdkit:
+    rdkit_data = featurizers.RDKit2DFeaturizer().featurize(smis)
+
+# Combine both if needed
+if rdkit_data is not None and descriptor_data is not None:
+    # Concatenate along the last axis (feature dimension)
+    combined_descriptor_data = [
+        np.concatenate([rdkit, extra], dtype=np.float32)
+        for rdkit, extra in zip(rdkit_data, descriptor_data)
+    ]
+elif rdkit_data is not None:
+    combined_descriptor_data = rdkit_data
+else:
+    combined_descriptor_data = descriptor_data
+
+if combined_descriptor_data is not None:
+    all_data = [data.MoleculeDatapoint.from_smi(smi, y, x_d=descriptors) for smi, y, descriptors in zip(smis, ys, combined_descriptor_data)]
 else:
     all_data = [data.MoleculeDatapoint.from_smi(smi, y) for smi, y in zip(smis, ys)]
 

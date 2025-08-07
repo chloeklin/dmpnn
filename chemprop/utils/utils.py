@@ -122,7 +122,7 @@ def make_polymer_mol(
                          f'input number of weights ({len(fragment_weights)})')
 
 
-    # we create one molecule object for each monomer fragment, add the weight as proerty of each atom, and merge the 
+    # we create one molecule object for each monomer fragment, add the weight as property of each atom, and merge the 
     # fragments into a single molecule object
     mols = []
     for s, w in zip(smi.split('.'), fragment_weights):
