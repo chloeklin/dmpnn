@@ -196,6 +196,12 @@ class MPNN(pl.LightningModule):
         preds = self(bmg, V_d, X_d)
         weights = torch.ones_like(weights)
 
+        # === DEBUG PRINTS ===
+        print(f"[DEBUG] preds dtype: {preds.dtype}, shape: {preds.shape}, min: {preds.min().item()}, max: {preds.max().item()}")
+        print(f"[DEBUG] targets dtype: {targets.dtype}, shape: {targets.shape}, min: {targets.min().item()}, max: {targets.max().item()}")
+        print(f"[DEBUG] unique targets: {torch.unique(targets)}")
+        # ====================
+
         if self.predictor.n_targets > 1:
             preds = preds[..., 0]
 
