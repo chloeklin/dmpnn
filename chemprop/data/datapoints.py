@@ -281,7 +281,10 @@ class _PolymerDatapointMixin:
     ) -> _PolymerDatapointMixin:
         
         smiles, fragment_weights, edges = smi.split("|")[0], smi.split("|")[1:-1], smi.split("<")[1:]
+        print(f"[DEBUG] smiles: {smiles}")
+        
         mol = make_polymer_mol(smiles, fragment_weights, keep_h, add_h)
+        print(f"[DEBUG] mol: {Chem.MolToSmiles(mol)}")
         return cls(mol, edges, *args, **kwargs)
 
 

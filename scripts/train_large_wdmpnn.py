@@ -97,6 +97,14 @@ for i, smi in enumerate(smis):
 
 
 ys = df_input.loc[:, target_columns].values
+
+# Convert targets to integer class labels for multiclass tasks
+if args.task_type == 'multi':
+    # If targets are floats, bin or map them to integer classes as needed
+    # Example: if already categorical, just cast to int
+    ys = ys.astype(int)
+    print(f"[DEBUG] unique class labels after conversion: {np.unique(ys)}")
+
 descriptor_data = df_input[descriptor_columns].values if descriptor_columns else None
 if descriptor_data is not None:
     all_data = [data.PolymerDatapoint.from_smi(smi, y, x_d=descriptors) for smi, y, descriptors in zip(smis, ys, descriptor_data)]

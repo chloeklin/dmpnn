@@ -167,7 +167,7 @@ for i in range(REPLICATES):
 
     mp = nn.BondMessagePassing()
     agg = nn.MeanAggregation()
-    ffn_input_dim = mp.output_dim + descriptor_data.shape[1] if descriptor_data is not None else mp.output_dim
+    ffn_input_dim = mp.output_dim + combined_descriptor_data.shape[1] if combined_descriptor_data is not None else mp.output_dim
     
     # Get the number of tasks from the training data
     n_tasks = len(target_columns)
@@ -192,10 +192,7 @@ for i in range(REPLICATES):
 
     mpnn = models.MPNN(mp, agg, ffn, batch_norm, metric_list, X_d_transform=X_d_transform)
     
-    if descriptor_data is not None:
-        checkpoint_path = f"checkpoints/{args.dataset_name}_descriptors/rep_{i}/"
-    else:
-        checkpoint_path = f"checkpoints/{args.dataset_name}/rep_{i}/"
+    checkpoint_path = f"checkpoints/{args.dataset_name}{"_descriptors" if descriptor_data is not None else ""}{"_rdkit" if args.incl_rdkit else ""}/rep_{i}/"
     last_ckpt = None
     if os.path.exists(checkpoint_path):
         ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
@@ -251,7 +248,4 @@ print("\nStandard deviation across 5 splits:")
 print(std_metrics)
 
 # Optional: save to file
-if descriptor_data is not None:
-    results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_descriptors_results.csv", index=False)
-else:
-    results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}_dmpnn_results.csv", index=False)
+results_df.to_csv(f"{chemprop_dir}/results/{args.dataset_name}{"_descriptors" if descriptor_data is not None else ""}{"_rdkit" if args.incl_rdkit else ""}_dmpnn_results.csv", index=False)
