@@ -548,7 +548,7 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
             order1 = r_bond_types[f'*{r1}']
             order2 = r_bond_types[f'*{r2}']
             if order1 != order2:
-                print(f"[DEBUG] Bond type conflict in molecule: {input_data.mol if 'input_data' in locals() else 'unknown'}")
+                print(f"[DEBUG] Bond type conflict in molecule: {Chem.MolToSmiles(cm)}")
                 print(f"[DEBUG] Atom indices: a1={a1}, _a2={_a2}")
                 print(f"[DEBUG] Bond types: order1={order1}, order2={order2}")
                 raise ValueError(f'two atoms are trying to be bonded with different bond types: '
