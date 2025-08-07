@@ -99,7 +99,7 @@ for i, smi in enumerate(smis):
 ys = df_input.loc[:, target_columns].values
 
 # Convert targets to integer class labels for multiclass tasks
-if args.task_type == 'multi':
+if args.task_type != 'reg':
     # If targets are floats, bin or map them to integer classes as needed
     # Example: if already categorical, just cast to int
     ys = ys.astype(int)
