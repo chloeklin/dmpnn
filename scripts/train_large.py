@@ -86,25 +86,56 @@ for i, smi in enumerate(smis):
     if not isinstance(smi, str):
         print(f"Non-string SMILES at index {i}: {smi} (type: {type(smi)})")
 
+# --- enforce clean labels for classification ---
+if args.task_type in ['binary', 'multi']:
+    tcol = target_columns[0]              # you stratify on this anyway
+    # map strings to ints if needed
+    if df_input[tcol].dtype.kind in {'U','S','O'}:
+        classes = sorted(df_input[tcol].dropna().unique().tolist())
+        class_to_idx = {c:i for i,c in enumerate(classes)}
+        df_input[tcol] = df_input[tcol].map(class_to_idx)
+
+    # forbid negative labels (e.g., -1 used as "missing")
+    if (df_input[tcol].dropna() < 0).any():
+        raise ValueError("Found negative class labels. Replace missing labels with NaN, not -1.")
+
+    # int dtype and contiguous range
+    df_input[tcol] = df_input[tcol].astype(int)
+    uniq = np.sort(df_input[tcol].dropna().unique())
+    if args.task_type == 'multi':
+        if uniq.min() != 0 or uniq.max() != args.n_classes - 1:
+            raise ValueError(f"Labels must be 0..{args.n_classes-1}. Found {uniq}.")
+    else:  # binary
+        if not np.array_equal(uniq, np.array([0,1])) and not np.array_equal(uniq, np.array([0])) and not np.array_equal(uniq, np.array([1])):
+            raise ValueError(f"Binary labels must be 0/1. Found {uniq}.")
 
 
+if args.task_type in ['binary', 'multi']:
+    ys = df_input.loc[:, target_columns].astype(float).values  # Chemprop stores as float internally
+else:
+    ys = df_input.loc[:, target_columns].astype(float).values
 
-ys = df_input.loc[:, target_columns].values
+
 descriptor_data = df_input[descriptor_columns].values if descriptor_columns else None
+rdkit_data=None
 if args.incl_rdkit:
     rdkit_data = featurizers.RDKit2DFeaturizer().featurize(smis)
 
 # Combine both if needed
 if rdkit_data is not None and descriptor_data is not None:
-    # Concatenate along the last axis (feature dimension)
-    combined_descriptor_data = [
-        np.concatenate([rdkit, extra], dtype=np.float32)
-        for rdkit, extra in zip(rdkit_data, descriptor_data)
-    ]
+    combined_descriptor_data = [np.concatenate([rdkit, extra]).astype(np.float32)
+                                for rdkit, extra in zip(rdkit_data, descriptor_data)]
 elif rdkit_data is not None:
-    combined_descriptor_data = rdkit_data
+    combined_descriptor_data = np.asarray(rdkit_data, dtype=np.float32)
 else:
-    combined_descriptor_data = descriptor_data
+    combined_descriptor_data = (np.asarray(descriptor_data, dtype=np.float32)
+                                if descriptor_data is not None else None)
+
+has_Xd = combined_descriptor_data is not None
+if has_Xd:
+    if combined_descriptor_data.ndim != 2:
+        raise ValueError(f"X_d must be 2D, got {combined_descriptor_data.shape}")
+
 
 if combined_descriptor_data is not None:
     all_data = [data.MoleculeDatapoint.from_smi(smi, y, x_d=descriptors) for smi, y, descriptors in zip(smis, ys, combined_descriptor_data)]
@@ -151,13 +182,16 @@ Path(chemprop_dir / "results").mkdir(parents=True, exist_ok=True)
 results_all = []
 featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
 for i in range(REPLICATES):
+    X_d_transform = None
     train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
-    scaler = train.normalize_targets()
-    val.normalize_targets(scaler)
-    if descriptor_columns is not None:
+    if args.task_type == 'reg':
+        scaler = train.normalize_targets()
+        val.normalize_targets(scaler)
+
+    if has_Xd:
         descriptor_scaler = train.normalize_inputs("X_d")
         val.normalize_inputs("X_d", descriptor_scaler)
-    
+        X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler)
     
     
 
@@ -167,7 +201,7 @@ for i in range(REPLICATES):
 
     mp = nn.BondMessagePassing()
     agg = nn.MeanAggregation()
-    ffn_input_dim = mp.output_dim + combined_descriptor_data.shape[1] if combined_descriptor_data is not None else mp.output_dim
+    ffn_input_dim = mp.output_dim + combined_descriptor_data.shape[1] if has_Xd else mp.output_dim
     
     # Get the number of tasks from the training data
     n_tasks = len(target_columns)
@@ -188,8 +222,6 @@ for i in range(REPLICATES):
         ]
     
     batch_norm = False
-    X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler) if descriptor_data is not None else None
-
     mpnn = models.MPNN(mp, agg, ffn, batch_norm, metric_list, X_d_transform=X_d_transform)
     
     checkpoint_path = f"checkpoints/{args.dataset_name}{"_descriptors" if descriptor_data is not None else ""}{"_rdkit" if args.incl_rdkit else ""}/rep_{i}/"

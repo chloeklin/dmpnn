@@ -386,7 +386,7 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         n_atoms = mol.GetNumAtoms()
         n_bonds = 0
         degree_of_polym = 1
-        # print("Original raw SMILES string before RDKit parsing:", Chem.MolToSmiles(mol))
+        print("Original raw SMILES string before RDKit parsing:", Chem.MolToSmiles(mol))
 
 
         if atom_features_extra is not None and len(atom_features_extra) != n_atoms:
