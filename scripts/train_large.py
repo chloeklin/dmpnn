@@ -18,7 +18,7 @@ parser.add_argument('--descriptor_columns', type=str, nargs='+', default=[],
                     help='List of extra descriptor column names to use as global features')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
-parser.add_argument('--model_name', type=str, default="wDMPNN",
+parser.add_argument('--model_name', type=str, default="DMPNN",
                     help='Name of the model to use')
 args = parser.parse_args()
 

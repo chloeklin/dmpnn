@@ -1,3 +1,6 @@
+from typing import Optional, List
+
+
 def combine_descriptors(rdkit_data, descriptor_data):
     import numpy as np
     if rdkit_data is not None and descriptor_data is not None:
