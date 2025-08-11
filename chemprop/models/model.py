@@ -196,20 +196,60 @@ class MPNN(pl.LightningModule):
         preds = self(bmg, V_d, X_d)
         weights = torch.ones_like(weights)
 
-        preds = preds.squeeze(1)
-        targets = targets.squeeze(1)
+        # preds: model outputs; targets: float with NaNs masked by `mask`
+        # DO NOT squeeze universally — handle per task
 
-        # === DEBUG PRINTS ===
-        print(f"[DEBUG] preds dtype: {preds.dtype}, shape: {preds.shape}, min: {preds.min().item()}, max: {preds.max().item()}")
-        print(f"[DEBUG] targets dtype: {targets.dtype}, shape: {targets.shape}, min: {targets.min().item()}, max: {targets.max().item()}")
-        print(f"[DEBUG] unique targets: {torch.unique(targets)}")
-        # ====================
+        is_multiclass = (preds.ndim == 2 and preds.size(-1) > 1)  # (N, C)
+        is_single_output = (preds.ndim == 2 and preds.size(-1) == 1)  # (N, 1)
 
+        if is_multiclass:
+            # ---- MULTICLASS ----
+            # Convert to class indices for torchmetrics
+            preds_for_metrics = preds.argmax(dim=-1)          # (N,)
+            targets_for_metrics = targets.squeeze(-1).long()  # (N,)
+
+            # Reduce mask/weights to 1-D for a single target
+            mask_for_metrics = mask.squeeze(-1) if mask.ndim > 1 else mask
+            weights_for_metrics = weights.squeeze(-1) if weights.ndim > 1 else weights
+
+            # Final shape sanity
+            if mask_for_metrics.ndim > 1:
+                mask_for_metrics = mask_for_metrics[:, 0]
+            if weights_for_metrics.ndim > 1:
+                weights_for_metrics = weights_for_metrics[:, 0]
+
+        else:
+            # ---- REGRESSION or BINARY-SINGLE-TARGET ----
+            # Keep (N, 1) tensors so chemprop’s regression metrics see [N, T]
+            # and the internal masking (N, 1) still broadcasts.
+            if is_single_output:
+                # keep (N,1) — no squeeze
+                preds_for_metrics = preds
+                targets_for_metrics = targets
+                mask_for_metrics = mask
+                weights_for_metrics = weights
+            else:
+                # Fallback: if something delivered (N,), unsqueeze to (N,1)
+                if preds.ndim == 1:
+                    preds = preds.unsqueeze(-1)
+                if targets.ndim == 1:
+                    targets = targets.unsqueeze(-1)
+                if mask.ndim == 1:
+                    mask = mask.unsqueeze(-1)
+                if weights.ndim == 1:
+                    weights = weights.unsqueeze(-1)
+                preds_for_metrics = preds
+                targets_for_metrics = targets
+                mask_for_metrics = mask
+                weights_for_metrics = weights
+
+        
         if self.predictor.n_targets > 1:
             preds = preds[..., 0]
 
         for m in self.metrics[:-1]:
-            m.update(preds, targets, mask, weights, lt_mask, gt_mask)
+            # m.update(preds, targets, mask, weights, lt_mask, gt_mask)
+            m.update(preds_for_metrics, targets_for_metrics, mask_for_metrics, weights_for_metrics, lt_mask, gt_mask)
             self.log(f"{label}/{m.alias}", m, batch_size=batch_size)
 
     def predict_step(self, batch: BatchType, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
