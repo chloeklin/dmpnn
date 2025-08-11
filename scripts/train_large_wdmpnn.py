@@ -95,27 +95,25 @@ for i, smi in enumerate(smis):
 
 # --- enforce clean labels for classification ---
 if args.task_type in ['binary', 'multi']:
-    tcol = target_columns[0]              # you stratify on this anyway
-    # map strings to ints if needed
+    tcol = target_columns[0]
+
+    # 1) If labels are strings, map to ints first
     if df_input[tcol].dtype.kind in {'U','S','O'}:
-        classes = sorted(df_input[tcol].dropna().unique().tolist())
-        class_to_idx = {c:i for i,c in enumerate(classes)}
-        df_input[tcol] = df_input[tcol].map(class_to_idx)
+        raw_classes = pd.Index(sorted(df_input[tcol].dropna().unique().tolist()))
+        str_to_int = {c: i for i, c in enumerate(raw_classes)}
+        df_input[tcol] = df_input[tcol].map(str_to_int)
 
-    # forbid negative labels (e.g., -1 used as "missing")
-    if (df_input[tcol].dropna() < 0).any():
-        raise ValueError("Found negative class labels. Replace missing labels with NaN, not -1.")
+    # 2) Get unique *numeric* labels and remap to 0..C-1 (contiguous)
+    raw_vals = df_input[tcol].dropna().astype(int)
+    classes = np.sort(raw_vals.unique())           # e.g., [1,2,3,...,21] (maybe with gaps)
+    class_to_idx = {c: i for i, c in enumerate(classes)}
+    df_input[tcol] = df_input[tcol].map(class_to_idx).astype(int)
 
-    # int dtype and contiguous range
-    df_input[tcol] = df_input[tcol].astype(int)
-    uniq = np.sort(df_input[tcol].dropna().unique())
-    if args.task_type == 'multi':
-        if uniq.min() != 0 or uniq.max() != args.n_classes - 1:
-            raise ValueError(f"Labels must be 0..{args.n_classes-1}. Found {uniq}.")
-    else:  # binary
-        if not np.array_equal(uniq, np.array([0,1])) and not np.array_equal(uniq, np.array([0])) and not np.array_equal(uniq, np.array([1])):
-            raise ValueError(f"Binary labels must be 0/1. Found {uniq}.")
+    # 3) Update n_classes to what actually exists
+    args.n_classes = int(len(classes))
 
+    # (optional) sanity print
+    print(f"[labels] original→mapped: {class_to_idx} | n_classes={args.n_classes}")
 
 if args.task_type in ['binary', 'multi']:
     ys = df_input.loc[:, target_columns].astype(float).values  # Chemprop stores as float internally
