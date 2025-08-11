@@ -56,7 +56,7 @@ if args.dataset_name == "insulator":
     missing_star_indices = df_orig[missing_star_mask].index.tolist()
 
     # Identify rows with specific problematic SMILES
-    excluded_smis = {"[*:1]CC(C)/C=C\[*:2]C|1.0|<1-2:0.5:0.5", "[*:1]CC/C=C\[*:2]Cl|1.0|<1-2:0.5:0.5"}
+    excluded_smis = {"[*:1]CC(C)/C=C\[*:2]C|1.0|<1-2:0.5:0.5", "[*:1]CC/C=C\[*:2]Cl|1.0|<1-2:0.5:0.5", "[*:1]C1CCC(C=[*:2])C1|1.0|<1-2:0.5:0.5"}
     problem_smiles_mask = df_orig[smiles_column].isin(excluded_smis)
     problem_smiles_indices = df_orig[problem_smiles_mask].index.tolist()
 
