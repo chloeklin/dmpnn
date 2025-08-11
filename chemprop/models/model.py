@@ -196,6 +196,9 @@ class MPNN(pl.LightningModule):
         preds = self(bmg, V_d, X_d)
         weights = torch.ones_like(weights)
 
+        preds = preds.squeeze(1)
+        targets = targets.squeeze(1)
+
         # === DEBUG PRINTS ===
         print(f"[DEBUG] preds dtype: {preds.dtype}, shape: {preds.shape}, min: {preds.min().item()}, max: {preds.max().item()}")
         print(f"[DEBUG] targets dtype: {targets.dtype}, shape: {targets.shape}, min: {targets.min().item()}, max: {targets.max().item()}")
