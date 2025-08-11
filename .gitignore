@@ -1,3 +1,5 @@
+*.e*
+*.o*
 examples/
 docs/
 data/
