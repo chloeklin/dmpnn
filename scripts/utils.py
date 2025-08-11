@@ -1,5 +1,5 @@
 from typing import Optional, List
-
+import numpy as np
 
 def combine_descriptors(rdkit_data, descriptor_data):
     import numpy as np
