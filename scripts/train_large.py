@@ -111,7 +111,6 @@ for target in target_columns:
         val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
 
-        ffn_input_dim = nn.BondMessagePassing().output_dim + combined_descriptor_data.shape[1] if combined_descriptor_data is not None else nn.BondMessagePassing().output_dim
         # Modular metric selection
         n_classes_arg = n_classes_per_target[target] if args.task_type == 'multi' else None
         metric_list = get_metric_list(
@@ -125,7 +124,7 @@ for target in target_columns:
         scaler_arg = scaler if args.task_type == 'reg' else None
         mpnn, trainer = build_model_and_trainer(
             args=args,
-            input_dim=ffn_input_dim,
+            combined_descriptor_data=combined_descriptor_data,
             n_classes=n_classes_arg,
             scaler=scaler_arg,
             X_d_transform=X_d_transform,

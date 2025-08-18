@@ -141,7 +141,6 @@ for target in target_columns:
         val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
 
-        ffn_input_dim = mp.output_dim + combined_descriptor_data.shape[1] if combined_descriptor_data is not None else mp.output_dim
         
         # Get the number of tasks from the training data
         n_tasks = len(target_columns)
@@ -158,7 +157,7 @@ for target in target_columns:
         checkpoint_path = f"checkpoints/{MODEL_NAME}/{args.dataset_name}_{target}{'_descriptors' if descriptor_columns is not None else ''}{'_rdkit' if args.incl_rdkit else ''}/rep_{i}/"
         mpnn, trainer = build_model_and_trainer(
             args=args,
-            input_dim=ffn_input_dim,
+            combined_descriptor_data=combined_descriptor_data,
             n_classes=n_classes_arg,
             scaler=scaler_arg,
             X_d_transform=X_d_transform,

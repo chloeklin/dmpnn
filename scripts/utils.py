@@ -124,10 +124,19 @@ def get_metric_list(task_type, target=None, n_classes=None, df_input=None):
     else:
         raise ValueError(f"Unknown task_type: {task_type}")
 
-def build_model_and_trainer(args, input_dim, n_classes, scaler, X_d_transform, checkpoint_path, batch_norm, metric_list):
+def build_model_and_trainer(args, combined_descriptor_data, n_classes, scaler, X_d_transform, checkpoint_path, batch_norm, metric_list):
     from chemprop import nn, models
     from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
     import lightning.pytorch as pl
+    from pathlib import Path
+
+    # Select Message Passing Scheme
+    if args.model_name == "wDMPNN":
+        mp = nn.WeightedBondMessagePassing(d_v=72, d_e=86)
+    elif args.model_name == "DMPNN":
+        mp = nn.BondMessagePassing()
+    input_dim = mp.output_dim + combined_descriptor_data.shape[1] if combined_descriptor_data is not None else mp.output_dim
+    
     # Model selection
     if args.task_type == 'reg':
         output_transform = nn.UnscaleTransform.from_standard_scaler(scaler) if scaler is not None else None
@@ -136,10 +145,7 @@ def build_model_and_trainer(args, input_dim, n_classes, scaler, X_d_transform, c
         ffn = nn.BinaryClassificationFFN(input_dim=input_dim)
     elif args.task_type == 'multi':
         ffn = nn.MulticlassClassificationFFN(n_classes=n_classes, input_dim=input_dim)
-    if args.model_name == "wDMPNN":
-        mp = nn.WeightedBondMessagePassing(d_v=72, d_e=86)
-    elif args.model_name == "DMPNN":
-        mp = nn.BondMessagePassing()
+
     agg = nn.MeanAggregation()
     mpnn = models.MPNN(mp, agg, ffn, batch_norm, metric_list, X_d_transform=X_d_transform)
     # Checkpointing
@@ -200,3 +206,39 @@ def make_repeated_splits(
         )
     
     return train_indices, val_indices, test_indices
+
+
+
+def build_sklearn_models(task_type, n_classes=None, baselines=["Linear", "RF", "XGB"]):
+    models_dict = {}
+    if task_type == "reg":
+        for baseline in baselines:
+            if baseline == "Linear":
+                models_dict["Linear"] = LinearRegression()
+            elif baseline == "RF":
+                models_dict["RF"] = RandomForestRegressor(n_estimators=500, random_state=42, n_jobs=-1)
+            elif baseline == "XGB":
+                models_dict["XGB"] = XGBRegressor(
+                    n_estimators=500, max_depth=10, random_state=42, n_jobs=-1
+            )
+    else:
+        multi = (task_type == "multi")
+        models_dict["LogReg"] = LogisticRegression(
+            penalty="l2",
+            solver="lbfgs",
+            max_iter=2000,
+            n_jobs=-1 if hasattr(LogisticRegression(), "n_jobs") else None,
+            multi_class="multinomial" if multi else "auto"
+        )
+        models_dict["RF"] = RandomForestClassifier(n_estimators=500, random_state=42, n_jobs=-1)
+        if HAS_XGB:
+            models_dict["XGB"] = XGBClassifier(
+                n_estimators=500,
+                max_depth=10,
+                objective="multi:softprob" if multi else "binary:logistic",
+                num_class=n_classes if multi else None,
+                random_state=42,
+                n_jobs=-1,
+                eval_metric="mlogloss" if multi else "logloss"
+            )
+    return models_dict
