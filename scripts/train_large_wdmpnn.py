@@ -35,12 +35,7 @@ MODEL_NAME = args.model_name
 
 
 # === Set Random Seed ===
-os.environ["PYTHONHASHSEED"] = str(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
+set_seed(SEED)
 
 # === Load Data ===
 df_input = pd.read_csv(input_path)
@@ -154,7 +149,13 @@ for target in target_columns:
         )
         
         batch_norm = False
-        checkpoint_path = f"checkpoints/{MODEL_NAME}/{args.dataset_name}_{target}{'_descriptors' if descriptor_columns is not None else ''}{'_rdkit' if args.incl_rdkit else ''}/rep_{i}/"
+        checkpoint_path = (
+            f"checkpoints/{MODEL_NAME}/"
+            f"{args.dataset_name}__{target}"
+            f"{'__desc' if descriptor_columns else ''}"
+            f"{'__rdkit' if args.incl_rdkit else ''}"
+            f"__rep{i}/"
+            )
         mpnn, trainer = build_model_and_trainer(
             args=args,
             combined_descriptor_data=combined_descriptor_data,

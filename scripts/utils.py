@@ -1,5 +1,17 @@
 from typing import Optional, List
 import numpy as np
+from pathlib import Path
+
+
+def set_seed(seed: int = 42):
+    import os
+    import torch
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def combine_descriptors(rdkit_data, descriptor_data):
     import numpy as np
@@ -128,7 +140,6 @@ def build_model_and_trainer(args, combined_descriptor_data, n_classes, scaler, X
     from chemprop import nn, models
     from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
     import lightning.pytorch as pl
-    from pathlib import Path
 
     # Select Message Passing Scheme
     if args.model_name == "wDMPNN":
@@ -210,6 +221,9 @@ def make_repeated_splits(
 
 
 def build_sklearn_models(task_type, n_classes=None, baselines=["Linear", "RF", "XGB"]):
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier  
+    from xgboost import XGBRegressor, XGBClassifier
     models_dict = {}
     if task_type == "reg":
         for baseline in baselines:
@@ -223,22 +237,43 @@ def build_sklearn_models(task_type, n_classes=None, baselines=["Linear", "RF", "
             )
     else:
         multi = (task_type == "multi")
-        models_dict["LogReg"] = LogisticRegression(
-            penalty="l2",
-            solver="lbfgs",
-            max_iter=2000,
-            n_jobs=-1 if hasattr(LogisticRegression(), "n_jobs") else None,
-            multi_class="multinomial" if multi else "auto"
-        )
-        models_dict["RF"] = RandomForestClassifier(n_estimators=500, random_state=42, n_jobs=-1)
-        if HAS_XGB:
-            models_dict["XGB"] = XGBClassifier(
-                n_estimators=500,
-                max_depth=10,
-                objective="multi:softprob" if multi else "binary:logistic",
-                num_class=n_classes if multi else None,
-                random_state=42,
-                n_jobs=-1,
-                eval_metric="mlogloss" if multi else "logloss"
+        for baseline in baselines:
+            if baseline == "LogReg":
+                models_dict["LogReg"] = LogisticRegression(
+                    penalty="l2",
+                    solver="lbfgs",
+                    max_iter=2000,
+                    n_jobs=-1 if hasattr(LogisticRegression(), "n_jobs") else None,
+                    multi_class="multinomial" if multi else "auto"
+                )
+            elif baseline == "RF":
+                models_dict["RF"] = RandomForestClassifier(n_estimators=500, random_state=42, n_jobs=-1)
+            elif baseline == "XGB":
+                models_dict["XGB"] = XGBClassifier(
+                    n_estimators=500,
+                    max_depth=10,
+                    objective="multi:softprob" if multi else "binary:logistic",
+                    num_class=n_classes if multi else None,
+                    random_state=42,
+                    n_jobs=-1,
+                    eval_metric="mlogloss" if multi else "logloss"
             )
     return models_dict
+
+
+def load_best_checkpoint(ckpt_dir: Path):
+    if not ckpt_dir.exists():
+        return None
+    ckpts = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
+    if not ckpts:
+        return None
+    ckpts.sort()
+    return ckpt_dir / ckpts[-1]
+
+def get_encodings_from_loader(model, loader):
+    encs = []
+    with torch.no_grad():
+        for batch in loader:
+            enc = model.encoding(batch.bmg, batch.V_d, batch.X_d, i=0)
+            encs.append(enc)
+    return torch.cat(encs, dim=0).cpu().numpy()
