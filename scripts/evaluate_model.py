@@ -1,5 +1,6 @@
 import argparse
 import sys
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -8,6 +9,9 @@ from utils import (
     process_data,
     create_all_data,
     make_repeated_splits,
+    build_sklearn_models,
+    set_seed,
+    load_best_checkpoint
 )
 
 from chemprop import data, featurizers, models, nn
@@ -24,14 +28,14 @@ parser.add_argument('--dataset_name', type=str, required=True,
                     help='Name of the dataset file (without .csv extension)')
 parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
-parser.add_argument('--n_classes', type=int, default=3,
-                    help='Number of classes for multi-class classification')
 parser.add_argument('--descriptor_columns', type=str, nargs='+', default=[],
                     help='List of extra descriptor column names to use as global features')
 parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
                     help='Name of the model to use')
 parser.add_argument("--baselines", type=str, nargs="+", default=None,
                         help="Which baselines to train (Regression: Linear RF XGB; Classification: LogReg RF XGB). Omit for all.")
+parser.add_argument('--incl_rdkit', action='store_true',
+                    help='Include RDKit descriptors')
 
 args = parser.parse_args()
 
@@ -84,9 +88,7 @@ featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
 rep_model_to_row = {}
 # ensure pre-create rows for all replicate×model combos
 # (we'll fill target-specific metric keys as we compute them)
-models_dict = build_sklearn_models(args.task_type, n_classes=args.n_classes, baselines=args.baselines)
-model_names_example = list(models_dict.keys())
-models_dict = build_sklearn_models(args.task_type, n_classes=args.n_classes, baselines=args.baselines)
+models_dict = build_sklearn_models(args.task_type, baselines=args.baselines)
 model_names_example = list(models_dict.keys())
 
 # Common metadata for this run
@@ -188,7 +190,7 @@ for target in target_columns:
         y_test = df_proc.loc[test_indices[i], target].to_numpy()
 
         # Build requested baselines
-        models_dict = build_sklearn_models(args.task_type, n_classes=args.n_classes, baselines=args.baselines)
+        models_dict = build_sklearn_models(args.task_type, baselines=args.baselines)
 
         # Fit baselines on train+val, compute metrics on test only
         for name, model in models_dict.items():
@@ -215,7 +217,7 @@ for target in target_columns:
                             auc = roc_auc_score(y_test, proba[:, 1])
                         else:
                             from sklearn.preprocessing import label_binarize
-                            y_bin = label_binarize(y_test, classes=list(range(args.n_classes)))
+                            y_bin = label_binarize(y_test, classes=list(range(n_classes_per_target[target])))
                             auc = roc_auc_score(y_bin, proba, average="macro", multi_class="ovr")
                         rep_model_to_row[(rep, name)][f"{target}_ROC_AUC"] = auc
                     except Exception:

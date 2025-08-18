@@ -39,7 +39,7 @@ set_seed(SEED)
 # === Load Data ===
 df_input = pd.read_csv(input_path)
 # Read the saved exclusions from the wDMPNN preprocessing step
-drop_idx, excluded_smis = load_drop_indices(args.dataset_name)
+drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
 if drop_idx:
     print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
     df_input = df_input.drop(index=drop_idx, errors="ignore")
@@ -58,6 +58,15 @@ smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df
 
 featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
 
+def debug_nonfinite(X):
+    bad = ~np.isfinite(X)
+    if bad.any():
+        rows = np.unique(np.where(bad)[0])
+        cols = np.unique(np.where(bad)[1])
+        print(f"[debug] non-finite entries: {bad.sum()} | rows affected: {rows.size} | cols affected: {cols.size}")
+        # print column indices of offenders (small list)
+        print(f"[debug] first few bad cols: {cols[:10]}")
+        
 
 for target in target_columns:
     ys = df_input.loc[:, target].astype(float).values
@@ -97,6 +106,13 @@ for target in target_columns:
     for i in range(REPLICATES):
         
         train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
+        
+        # Example use:
+        if combined_descriptor_data is not None:
+            X_mat = np.stack([dp.X_d for dp in train_data[i] if getattr(dp, "X_d", None) is not None])
+            debug_nonfinite(X_mat)
+        
+        
         if args.task_type == 'reg':
             scaler = train.normalize_targets()
             val.normalize_targets(scaler)
@@ -107,6 +123,7 @@ for target in target_columns:
             X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler)
         
         
+
 
         train_loader = data.build_dataloader(train, num_workers=num_workers)
         val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
