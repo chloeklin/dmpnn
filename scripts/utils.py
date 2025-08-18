@@ -281,12 +281,12 @@ def get_encodings_from_loader(model, loader):
 
 
 
-def load_drop_indices(dataset_name: str):
+def load_drop_indices(root_dir, dataset_name: str):
     import pandas as pd 
     """Reads <dataset>_skipped_indices.txt and <dataset>_excluded_problematic_smiles.txt.
     Returns (sorted_indices, excluded_smiles_list)."""
-    skip_path = Path(f"{dataset_name}_skipped_indices.txt")
-    prob_path = Path(f"{dataset_name}_excluded_problematic_smiles.txt")
+    skip_path = Path(root_dir / f"{dataset_name}_skipped_indices.txt")
+    prob_path = Path(root_dir / f"{dataset_name}_excluded_problematic_smiles.txt")
 
     idxs = set()
     excluded_smis = []

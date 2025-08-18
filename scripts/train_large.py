@@ -39,7 +39,7 @@ set_seed(SEED)
 # === Load Data ===
 df_input = pd.read_csv(input_path)
 # Read the saved exclusions from the wDMPNN preprocessing step
-drop_idx, excluded_smis = load_drop_indices(args.dataset_name)
+drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
 if drop_idx:
     print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
     df_input = df_input.drop(index=drop_idx, errors="ignore")
