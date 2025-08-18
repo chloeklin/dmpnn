@@ -38,7 +38,7 @@ args = parser.parse_args()
 # Set up paths and parameters
 chemprop_dir = Path.cwd()
 input_path = chemprop_dir / "data" / f"{args.dataset_name}.csv"
-num_workers = 0  # number of workers for dataloader. 0 means using main process for data loading
+num_workers = min(8, os.cpu_count() or 1)
 smiles_column = 'smiles' if args.model_name == "DMPNN" else 'WDMPNN_Input'  # name of the column containing SMILES strings
 SEED = 42
 REPLICATES = 5
