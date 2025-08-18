@@ -131,7 +131,7 @@ for target in target_columns:
             scaler = train.normalize_targets()
             val.normalize_targets(scaler)
         X_d_transform = None
-        if has_Xd:
+        if combined_descriptor_data is not None:
             descriptor_scaler = train.normalize_inputs("X_d")
             val.normalize_inputs("X_d", descriptor_scaler)
             X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler)
@@ -141,7 +141,7 @@ for target in target_columns:
         val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
 
-        ffn_input_dim = mp.output_dim + descriptor_data.shape[1] if has_Xd else mp.output_dim
+        ffn_input_dim = mp.output_dim + combined_descriptor_data.shape[1] if combined_descriptor_data is not None else mp.output_dim
         
         # Get the number of tasks from the training data
         n_tasks = len(target_columns)

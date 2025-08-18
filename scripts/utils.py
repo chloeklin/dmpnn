@@ -14,6 +14,7 @@ def combine_descriptors(rdkit_data, descriptor_data):
 
 def preprocess_classification_labels(df_input, target_columns, task_type):
     import numpy as np
+    
     for tcol in target_columns:
         # Map strings to ints if needed
         if df_input[tcol].dtype.kind in {'U', 'S', 'O'}:
@@ -50,6 +51,7 @@ def preprocess_classification_labels(df_input, target_columns, task_type):
 
 def process_data(df_input, smiles_column, descriptor_columns, target_columns, args):
     from chemprop import featurizers
+    from chemprop.utils import make_mol
     # === Process Data ===
     smis = df_input.loc[:, smiles_column].values
     for i, smi in enumerate(smis):
@@ -67,7 +69,9 @@ def process_data(df_input, smiles_column, descriptor_columns, target_columns, ar
 
 
     descriptor_data = df_input[descriptor_columns].values if descriptor_columns else None
-    rdkit_data = featurizers.RDKit2DFeaturizer().featurize(smis) if args.incl_rdkit else None
+    feat = featurizers.RDKit2DFeaturizer()
+    mols = [make_mol(smi, keep_h=False, add_h=False, ignore_stereo=False) for smi in smis]
+    rdkit_data = [feat(mol) for mol in mols] if args.incl_rdkit else None
     combined_descriptor_data = combine_descriptors(rdkit_data, descriptor_data)
 
     if combined_descriptor_data is not None and combined_descriptor_data.ndim != 2:
