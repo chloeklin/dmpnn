@@ -93,7 +93,8 @@ for target in target_columns:
     ys = df_input.loc[:, target].astype(float).values
     if args.task_type != 'reg':
         ys = ys.astype(int)
-
+    ys = ys.reshape(-1, 1)
+    
     all_data = create_all_data(smis, ys, combined_descriptor_data, MODEL_NAME)
 
 

@@ -5,10 +5,10 @@
 #PBS -l ncpus=12
 #PBS -l ngpus=1
 #PBS -l mem=100GB
-#PBS -l walltime=05:40:00
+#PBS -l walltime=03:30:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N dmpnn_camb
+#PBS -N dmpnn_htpmd
 
 cd /scratch/um09/hl4138
 module use /g/data/dk92/apps/Modules/modulefiles
@@ -18,7 +18,7 @@ source venvs/dmpnn-venv/bin/activate
 cd dmpnn
 # python3 scripts/train_large.py --dataset_name insulator --incl_rdkit True
 # python3 scripts/train_large.py --dataset_name polyinfo --task_type multi --n_classes 21 
-# python3 scripts/train_large.py --dataset_name htpmd --descriptor_columns Molality Monomer_Molecular_Weight DoP Density --incl_rdkit True
+python3 scripts/train_large.py --dataset_name htpmd --descriptor_columns Molality Monomer_Molecular_Weight DoP Density --incl_rdkit
 # python3 scripts/train_large.py --dataset_name opv_b3lyp --incl_rdkit True
 # python3 scripts/train_large.py --dataset_name opv_camb3lyp --incl_rdkit True
  
