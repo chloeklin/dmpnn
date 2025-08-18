@@ -69,9 +69,17 @@ def process_data(df_input, smiles_column, descriptor_columns, target_columns, ar
 
 
     descriptor_data = df_input[descriptor_columns].values if descriptor_columns else None
-    feat = featurizers.RDKit2DFeaturizer()
-    mols = [make_mol(smi, keep_h=False, add_h=False, ignore_stereo=False) for smi in smis]
-    rdkit_data = [feat(mol) for mol in mols] if args.incl_rdkit else None
+    if args.incl_rdkit:
+        feat = featurizers.RDKit2DFeaturizer()
+        if args.model_name == "wDMPNN":
+            original_smis = df_input.loc[:, "smiles"].values
+            mols = [make_mol(smi, keep_h=False, add_h=False, ignore_stereo=False) for smi in original_smis]
+        else:
+            mols = [make_mol(smi, keep_h=False, add_h=False, ignore_stereo=False) for smi in smis]
+            
+        rdkit_data = [feat(mol) for mol in mols]
+    else:
+        rdkit_data = None
     combined_descriptor_data = combine_descriptors(rdkit_data, descriptor_data)
 
     if combined_descriptor_data is not None and combined_descriptor_data.ndim != 2:
