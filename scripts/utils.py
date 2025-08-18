@@ -271,9 +271,52 @@ def load_best_checkpoint(ckpt_dir: Path):
     return ckpt_dir / ckpts[-1]
 
 def get_encodings_from_loader(model, loader):
+    import torch
     encs = []
     with torch.no_grad():
         for batch in loader:
             enc = model.encoding(batch.bmg, batch.V_d, batch.X_d, i=0)
             encs.append(enc)
     return torch.cat(encs, dim=0).cpu().numpy()
+
+
+
+def load_drop_indices(dataset_name: str):
+    import pandas as pd 
+    """Reads <dataset>_skipped_indices.txt and <dataset>_excluded_problematic_smiles.txt.
+    Returns (sorted_indices, excluded_smiles_list)."""
+    skip_path = Path(f"{dataset_name}_skipped_indices.txt")
+    prob_path = Path(f"{dataset_name}_excluded_problematic_smiles.txt")
+
+    idxs = set()
+    excluded_smis = []
+
+    # one index per line
+    if skip_path.exists():
+        with skip_path.open() as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        idxs.add(int(line))
+                    except ValueError:
+                        pass  # ignore malformed lines
+
+    # "idx,smiles" per line
+    if prob_path.exists():
+        with prob_path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                # split only on first comma (SMILES can sometimes contain commas if quoted, but your file format uses a single comma)
+                parts = line.split(",", 1)
+                if len(parts) == 2:
+                    idx_str, smi = parts
+                    excluded_smis.append(smi)
+                    try:
+                        idxs.add(int(idx_str))
+                    except ValueError:
+                        pass
+
+    return sorted(idxs), excluded_smis
