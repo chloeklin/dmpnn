@@ -274,8 +274,10 @@ def load_best_checkpoint(ckpt_dir: Path):
 def get_encodings_from_loader(model, loader):
     import torch
     encs = []
+    device = next(model.parameters()).device
     with torch.no_grad():
         for batch in loader:
+            batch = batch.to(device)
             enc = model.encoding(batch.bmg, batch.V_d, batch.X_d, i=0)
             encs.append(enc)
     return torch.cat(encs, dim=0).cpu().numpy()

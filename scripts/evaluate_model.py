@@ -11,7 +11,8 @@ from utils import (
     make_repeated_splits,
     build_sklearn_models,
     set_seed,
-    load_best_checkpoint
+    load_best_checkpoint,
+    get_encodings_from_loader,
 )
 
 from chemprop import data, featurizers, models, nn
