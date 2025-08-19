@@ -165,7 +165,10 @@ for target in target_columns:
             }
 
         # Prepare datasets
-        train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
+        if args.model_name == "DMPNN":
+            train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
+        else:
+            train, val, test = data.PolymerDataset(train_data[i], featurizer), data.PolymerDataset(val_data[i], featurizer), data.PolymerDataset(test_data[i], featurizer)
         if args.task_type == 'reg':
             scaler = train.normalize_targets()
             val.normalize_targets(scaler)
