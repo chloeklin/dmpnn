@@ -183,7 +183,7 @@ for target in target_columns:
         last_ckpt = load_best_checkpoint(Path(checkpoint_path))
         if last_ckpt is None:
             # no checkpoint → skip this replicate (leave row without this target's metrics)
-            print(f"WARNING: No checkpoint found at {checkpoint_path}; skipping rep {rep} for target {target}.", file=sys.stderr)
+            print(f"WARNING: No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.", file=sys.stderr)
             continue
 
         # Load encoder and make fingerprints
@@ -217,14 +217,14 @@ for target in target_columns:
                 rep_model_to_row[(i, name)][f"{target}_R2"] = r2; rep_model_to_row[(i, name)][f"{target}_MAE"] = mae; rep_model_to_row[(i, name)][f"{target}_RMSE"] = rmse
 
             else:
-                y_pred = model.predict(X_te)
+                y_pred = model.predict(X_test)
                 acc = accuracy_score(y_test, y_pred)
                 avg = "macro" if args.task_type == "multi" else "binary"
                 f1  = f1_score(y_test, y_pred, average=avg)
-                rep_model_to_row[(i, name)][f"{target}_ACC"] = acc; row[f"{target}_F1"] = f1
+                rep_model_to_row[(i, name)][f"{target}_ACC"] = acc; rep_model_to_row[(i, name)][f"{target}_F1"] = f1
 
                 if hasattr(model, "predict_proba"):
-                    proba = model.predict_proba(X_te)
+                    proba = model.predict_proba(X_test)
                     try:
                         if args.task_type == "binary":
                             auc = roc_auc_score(y_test, proba[:, 1])
