@@ -41,7 +41,6 @@ parser.add_argument('--incl_rdkit', action='store_true',
 
 args = parser.parse_args()
 
-import pprint
 
 print("\n=== Training Configuration ===")
 print(f"Dataset       : {args.dataset_name}")
@@ -147,7 +146,7 @@ for target in target_columns:
     )
 
 
-    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
+    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
     for i in range(REPLICATES):
         # Ensure pre-create rows for all replicate×model combos
         for mname in model_names_example:
@@ -184,7 +183,7 @@ for target in target_columns:
         last_ckpt = load_best_checkpoint(Path(checkpoint_path))
         if last_ckpt is None:
             # no checkpoint → skip this replicate (leave row without this target's metrics)
-            print(f"WARNING: No checkpoint found at {ckpt_dir}; skipping rep {rep} for target {target}.", file=sys.stderr)
+            print(f"WARNING: No checkpoint found at {checkpoint_path}; skipping rep {rep} for target {target}.", file=sys.stderr)
             continue
 
         # Load encoder and make fingerprints
@@ -197,11 +196,11 @@ for target in target_columns:
         # Combine train+val to fit baselines
         X_fit = np.concatenate([X_train, X_val], axis=0)
         y_fit = np.concatenate([
-            df_proc.loc[train_indices[i], target].to_numpy(),
-            df_proc.loc[val_indices[i],   target].to_numpy()
+            df_input.loc[train_indices[i], target].to_numpy(),
+            df_input.loc[val_indices[i],   target].to_numpy()
         ], axis=0)
 
-        y_test = df_proc.loc[test_indices[i], target].to_numpy()
+        y_test = df_input.loc[test_indices[i], target].to_numpy()
 
         # Build requested baselines
         models_dict = build_sklearn_models(args.task_type, baselines=args.baselines)
@@ -215,14 +214,14 @@ for target in target_columns:
                 r2   = r2_score(y_test, y_pred)
                 mae  = mean_absolute_error(y_test, y_pred)
                 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-                rep_model_to_row[(rep, name)][f"{target}_R2"] = r2; rep_model_to_row[(rep, name)][f"{target}_MAE"] = mae; rep_model_to_row[(rep, name)][f"{target}_RMSE"] = rmse
+                rep_model_to_row[(i, name)][f"{target}_R2"] = r2; rep_model_to_row[(i, name)][f"{target}_MAE"] = mae; rep_model_to_row[(i, name)][f"{target}_RMSE"] = rmse
 
             else:
                 y_pred = model.predict(X_te)
                 acc = accuracy_score(y_test, y_pred)
                 avg = "macro" if args.task_type == "multi" else "binary"
                 f1  = f1_score(y_test, y_pred, average=avg)
-                rep_model_to_row[(rep, name)][f"{target}_ACC"] = acc; row[f"{target}_F1"] = f1
+                rep_model_to_row[(i, name)][f"{target}_ACC"] = acc; row[f"{target}_F1"] = f1
 
                 if hasattr(model, "predict_proba"):
                     proba = model.predict_proba(X_te)
@@ -233,7 +232,7 @@ for target in target_columns:
                             from sklearn.preprocessing import label_binarize
                             y_bin = label_binarize(y_test, classes=list(range(n_classes_per_target[target])))
                             auc = roc_auc_score(y_bin, proba, average="macro", multi_class="ovr")
-                        rep_model_to_row[(rep, name)][f"{target}_ROC_AUC"] = auc
+                        rep_model_to_row[(i, name)][f"{target}_ROC_AUC"] = auc
                     except Exception:
                         pass
         
@@ -243,7 +242,7 @@ for target in target_columns:
     results_df = pd.DataFrame(wide_rows).sort_values(["replicate", "model"]).reset_index(drop=True)
 
     # write
-    results_dir = Path(args.results_dir)
+    results_dir = Path(chemprop_dir / "results")
     results_dir.mkdir(parents=True, exist_ok=True)
     out_csv = results_dir / f"{args.dataset_name}_{args.model_name}_fp.csv"
     results_df.to_csv(out_csv, index=False)

@@ -276,28 +276,40 @@ def load_best_checkpoint(ckpt_dir: Path):
     return ckpt_dir / ckpts[-1]
 
 
-def safe_to_device(x, device):
-    if x is None:
-        return None
-    return x.to(device)
-
-    
 def get_encodings_from_loader(model, loader):
     import torch
     encs = []
     device = next(model.parameters()).device
     with torch.no_grad():
         for batch in loader:
-            
-            bmg = safe_to_device(getattr(batch, "bmg", None), device)
-            V_d = safe_to_device(getattr(batch, "V_d", None), device)
-            X_d = safe_to_device(getattr(batch, "X_d", None), device)
+            # 1) Get the graph object
+            bmg = getattr(batch, "bmg", None)
             if bmg is None:
-                print(batch)
-            enc = model.fingerprint(bmg, V_d, X_d)
+                raise ValueError(f"Batch has no 'bmg': {batch}")
+
+            # 2) Move it to the right device
+            if hasattr(bmg, "to") and callable(getattr(bmg, "to")):
+                # Many Chemprop BatchMolGraph versions implement .to(device)
+                bmg = bmg.to(device)
+            else:
+                # Fallback: move known tensor fields manually
+                for name in ("V", "E", "edge_index", "batch"):
+                    t = getattr(bmg, name, None)
+                    if isinstance(t, torch.Tensor):
+                        setattr(bmg, name, t.to(device, non_blocking=True))
+
+            # 3) Move optional descriptor tensors
+            V_d = getattr(batch, "V_d", None)
+            if isinstance(V_d, torch.Tensor):
+                V_d = V_d.to(device, non_blocking=True)
+
+            X_d = getattr(batch, "X_d", None)
+            if isinstance(X_d, torch.Tensor):
+                X_d = X_d.to(device, non_blocking=True)
+            
+            enc = model.fingerprint(bmg,V_d,X_d)
             encs.append(enc)
     return torch.cat(encs, dim=0).cpu().numpy()
-
 
 
 def load_drop_indices(root_dir, dataset_name: str):
