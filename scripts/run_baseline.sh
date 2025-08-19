@@ -8,7 +8,7 @@
 #PBS -l walltime=01:30:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N baseline_htpmd_desc_rdkit
+#PBS -N baseline_polyinfo
 
 cd /scratch/um09/hl4138
 module use /g/data/dk92/apps/Modules/modulefiles
@@ -18,10 +18,13 @@ source venvs/dmpnn-venv/bin/activate
 cd dmpnn
 
 ##Completed
-python3 scripts/evaluate_model.py --dataset_name htpmd --descriptor --incl_rdkit
+# python3 scripts/evaluate_model.py --dataset_name htpmd --descriptor #--incl_rdkit 
+
+# python3 scripts/evaluate_model.py --dataset_name insulator --model_name DMPNN --incl_rdkit
+
+python3 scripts/evaluate_model.py --dataset_name polyinfo --task_type multi --model_name DMPNN
+
+
+#todo
 # python3 scripts/evaluate_model.py --dataset_name htpmd --descriptor
 # python3 scripts/evaluate_model.py --dataset_name htpmd 
-
-# python3 scripts/evaluate_model.py --dataset_name insulator --model_name DMPNN
-
- 

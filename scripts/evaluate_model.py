@@ -76,7 +76,7 @@ df_input = pd.read_csv(input_path)
 drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
 if drop_idx:
     print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
-    df_input = df_input.drop(index=drop_idx, errors="ignore")
+    df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
 
 
 # Read descriptor columns from args
