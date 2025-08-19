@@ -14,6 +14,7 @@ from utils import (
     load_best_checkpoint,
     get_encodings_from_loader,
     upsert_csv,
+    load_drop_indices,
     DATASET_DESCRIPTORS
 )
 
@@ -71,6 +72,12 @@ if args.baselines is None:
 
 # === Load Data ===
 df_input = pd.read_csv(input_path)
+# Read the saved exclusions from the wDMPNN preprocessing step
+drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
+if drop_idx:
+    print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
+    df_input = df_input.drop(index=drop_idx, errors="ignore")
+
 
 # Read descriptor columns from args
 descriptor_columns = DATASET_DESCRIPTORS.get(args.dataset_name, []) if args.descriptor else []
