@@ -1,7 +1,7 @@
 from typing import Optional, List
 import numpy as np
 from pathlib import Path
-
+import pandas as pd
 
 DATASET_DESCRIPTORS = {
     "htpmd": ["Molality", "Monomer_Molecular_Weight", "DoP", "Density"],
@@ -276,41 +276,90 @@ def load_best_checkpoint(ckpt_dir: Path):
     return ckpt_dir / ckpts[-1]
 
 
+# def get_encodings_from_loader(model, loader):
+#     import torch
+#     encs = []
+#     device = next(model.parameters()).device
+#     with torch.no_grad():
+#         for batch in loader:
+#             # 1) Get the graph object
+#             bmg = getattr(batch, "bmg", None)
+#             if bmg is None:
+#                 raise ValueError(f"Batch has no 'bmg': {batch}")
+
+#             # 2) Move it to the right device
+#             if hasattr(bmg, "to") and callable(getattr(bmg, "to")):
+#                 # Many Chemprop BatchMolGraph versions implement .to(device)
+#                 bmg = bmg.to(device)
+#             else:
+#                 # Fallback: move known tensor fields manually
+#                 for name in ("V", "E", "edge_index", "batch"):
+#                     t = getattr(bmg, name, None)
+#                     if isinstance(t, torch.Tensor):
+#                         setattr(bmg, name, t.to(device, non_blocking=True))
+
+#             # 3) Move optional descriptor tensors
+#             V_d = getattr(batch, "V_d", None)
+#             if isinstance(V_d, torch.Tensor):
+#                 V_d = V_d.to(device, non_blocking=True)
+
+#             X_d = getattr(batch, "X_d", None)
+#             if isinstance(X_d, torch.Tensor):
+#                 X_d = X_d.to(device, non_blocking=True)
+            
+#             enc = model.fingerprint(bmg,V_d,X_d)
+#             encs.append(enc)
+#     return torch.cat(encs, dim=0).cpu().numpy()
 def get_encodings_from_loader(model, loader):
     import torch
     encs = []
     device = next(model.parameters()).device
+    model.eval()
+
     with torch.no_grad():
-        for batch in loader:
-            # 1) Get the graph object
+        for j, batch in enumerate(loader):
+            # 1) Graph
             bmg = getattr(batch, "bmg", None)
             if bmg is None:
-                raise ValueError(f"Batch has no 'bmg': {batch}")
+                raise ValueError(f"[batch {j}] has no 'bmg'")
 
-            # 2) Move it to the right device
-            if hasattr(bmg, "to") and callable(getattr(bmg, "to")):
-                # Many Chemprop BatchMolGraph versions implement .to(device)
-                bmg = bmg.to(device)
+            # 2) Move to device without losing the object if .to() is in-place
+            if hasattr(bmg, "to") and callable(bmg.to):
+                ret = bmg.to(device)          # may return None (in-place)
+                if ret is not None:
+                    bmg = ret
+            # Ensure key tensors are on device
+            bmg.V = bmg.V.to(device, non_blocking=True)
+            bmg.edge_index = bmg.edge_index.to(device, non_blocking=True)
+            if getattr(bmg, "batch", None) is not None:
+                bmg.batch = bmg.batch.to(device, non_blocking=True)
+            # Provide empty edge features if missing (concat expects E)
+            if getattr(bmg, "E", None) is None:
+                n_edges = bmg.edge_index.size(1)
+                bmg.E = bmg.V.new_empty((n_edges, 0))
             else:
-                # Fallback: move known tensor fields manually
-                for name in ("V", "E", "edge_index", "batch"):
-                    t = getattr(bmg, name, None)
-                    if isinstance(t, torch.Tensor):
-                        setattr(bmg, name, t.to(device, non_blocking=True))
+                bmg.E = bmg.E.to(device, non_blocking=True)
 
-            # 3) Move optional descriptor tensors
+            # 3) Optional extras
             V_d = getattr(batch, "V_d", None)
             if isinstance(V_d, torch.Tensor):
                 V_d = V_d.to(device, non_blocking=True)
+            else:
+                V_d = None
 
             X_d = getattr(batch, "X_d", None)
             if isinstance(X_d, torch.Tensor):
                 X_d = X_d.to(device, non_blocking=True)
-            
-            enc = model.fingerprint(bmg,V_d,X_d)
+            else:
+                X_d = None
+
+            # 4) Encode
+            enc = model.fingerprint(bmg, V_d, X_d)
             encs.append(enc)
+
     return torch.cat(encs, dim=0).cpu().numpy()
 
+    
 
 def load_drop_indices(root_dir, dataset_name: str):
     import pandas as pd 
@@ -351,3 +400,28 @@ def load_drop_indices(root_dir, dataset_name: str):
                         pass
 
     return sorted(idxs), excluded_smis
+
+def upsert_csv(out_csv: Path, new_df: pd.DataFrame, key_cols: list[str]) -> None:
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    if out_csv.exists():
+        old = pd.read_csv(out_csv)
+
+        # Union of columns, keeping key cols first
+        all_cols = key_cols + [c for c in (set(old.columns) | set(new_df.columns)) if c not in key_cols]
+        old = old.reindex(columns=all_cols)
+        new_df = new_df.reindex(columns=all_cols)
+
+        # Index on keys
+        old_i = old.set_index(key_cols)
+        new_i = new_df.set_index(key_cols)
+
+        # Start with old, add any new rows/cols
+        combined = old_i.combine_first(new_i)
+
+        # Overwrite with new where provided
+        combined.update(new_i)
+
+        combined.reset_index().to_csv(out_csv, index=False)
+    else:
+        new_df.to_csv(out_csv, index=False)
+

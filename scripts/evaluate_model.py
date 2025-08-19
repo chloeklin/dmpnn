@@ -13,6 +13,7 @@ from utils import (
     set_seed,
     load_best_checkpoint,
     get_encodings_from_loader,
+    upsert_csv,
     DATASET_DESCRIPTORS
 )
 
@@ -244,6 +245,7 @@ for target in target_columns:
     # write
     results_dir = Path(chemprop_dir / "results")
     results_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = results_dir / f"{args.dataset_name}_{args.model_name}_fp.csv"
-    results_df.to_csv(out_csv, index=False)
-    print(f"Wrote wide results to: {out_csv}")
+    out_csv = results_dir / f"{args.dataset_name}_{args.model_name}_baseline.csv"
+    KEY_COLS = ["dataset", "encoder", "variant", "replicate", "model"]
+    upsert_csv(out_csv, results_df, KEY_COLS)
+    print(f"Wrote/updated: {out_csv}")
