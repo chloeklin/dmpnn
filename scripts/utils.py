@@ -288,11 +288,13 @@ def get_encodings_from_loader(model, loader):
     device = next(model.parameters()).device
     with torch.no_grad():
         for batch in loader:
-            print(batch)
+            
             bmg = safe_to_device(getattr(batch, "bmg", None), device)
             V_d = safe_to_device(getattr(batch, "V_d", None), device)
             X_d = safe_to_device(getattr(batch, "X_d", None), device)
-            enc = model.encoding(bmg, V_d, X_d, i=0)
+            if bmg is None:
+                print(batch)
+            enc = model.fingerprint(bmg, V_d, X_d)
             encs.append(enc)
     return torch.cat(encs, dim=0).cpu().numpy()
 
