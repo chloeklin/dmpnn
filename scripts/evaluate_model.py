@@ -77,7 +77,7 @@ descriptor_columns = DATASET_DESCRIPTORS.get(args.dataset_name, []) if args.desc
 ignore_columns = ['WDMPNN_Input'] if args.model_name == "wDMPNN" else ['smiles']
 # Automatically detect target columns (all columns except 'smiles')
 target_columns = [c for c in df_input.columns
-                  if c not in ([smiles_column] + descriptor_columns + ignore_columns)]
+                  if c not in ([smiles_column] + DATASET_DESCRIPTORS.get(args.dataset_name, []) + ignore_columns)]
 if not target_columns:
     raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
 # Which variant are we evaluating?
@@ -91,7 +91,7 @@ if use_rdkit:
     variant_tokens.append("rdkit")
 
 variant_label = "original" if not variant_tokens else "+".join(variant_tokens)
-variant_tag = "" if variant_label == "original" else "_" + variant_label.replace("+", "_")
+variant_qstattag = "" if variant_label == "original" else "_" + variant_label.replace("+", "_")
 
 
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
