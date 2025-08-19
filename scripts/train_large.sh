@@ -18,8 +18,8 @@ source venvs/dmpnn-venv/bin/activate
 cd dmpnn
 
 ##Completed
-# python3 scripts/train_large.py --dataset_name htpmd --descriptor_columns Molality Monomer_Molecular_Weight DoP Density --incl_rdkit
-# python3 scripts/train_large.py --dataset_name htpmd --descriptor_columns Molality Monomer_Molecular_Weight DoP Density 
+# python3 scripts/train_large.py --dataset_name htpmd --descriptor --incl_rdkit
+# python3 scripts/train_large.py --dataset_name htpmd --descriptor
 # python3 scripts/train_large.py --dataset_name htpmd 
 
 # python3 scripts/train_large.py --dataset_name insulator 

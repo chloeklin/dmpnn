@@ -14,8 +14,8 @@ parser.add_argument('--dataset_name', type=str, required=True,
                     help='Name of the dataset file (without .csv extension)')
 parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
-parser.add_argument('--descriptor_columns', type=str, nargs='+', default=[],
-                    help='List of extra descriptor column names to use as global features')
+parser.add_argument('--descriptor', action='store_true',
+                    help='Use dataset-specific descriptors')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
 parser.add_argument('--model_name', type=str, default="DMPNN",
@@ -46,7 +46,7 @@ if drop_idx:
 
 
 # Read descriptor columns from args
-descriptor_columns = args.descriptor_columns or []
+descriptor_columns = DATASET_DESCRIPTORS.get(args.dataset_name, []) if args.descriptor else []
 ignore_columns = ['WDMPNN_Input']
 # Automatically detect target columns (all columns except 'smiles')
 target_columns = [c for c in df_input.columns
@@ -108,9 +108,10 @@ for target in target_columns:
         train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
         
         # Example use:
-        if combined_descriptor_data is not None:
-            X_mat = np.stack([dp.X_d for dp in train_data[i] if getattr(dp, "X_d", None) is not None])
-            debug_nonfinite(X_mat)
+        # if combined_descriptor_data is not None:
+        #     print(train_data[i][0].x_d)
+        #     X_mat = np.stack([dp.x_d for dp in train_data[i] if getattr(dp, "x_d", None) is not None])
+        #     debug_nonfinite(X_mat)
         
         
         if args.task_type == 'reg':

@@ -3,6 +3,10 @@ import numpy as np
 from pathlib import Path
 
 
+DATASET_DESCRIPTORS = {
+    "htpmd": ["Molality", "Monomer_Molecular_Weight", "DoP", "Density"],
+}
+
 def set_seed(seed: int = 42):
     import os
     import torch
