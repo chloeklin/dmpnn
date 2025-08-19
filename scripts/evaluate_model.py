@@ -74,11 +74,10 @@ df_input = pd.read_csv(input_path)
 
 # Read descriptor columns from args
 descriptor_columns = DATASET_DESCRIPTORS.get(args.dataset_name, []) if args.descriptor else []
-ignore_columns = ['WDMPNN_Input'] if args.model_name == "wDMPNN" else ['smiles']
+ignore_columns = ['WDMPNN_Input'] if args.model_name == "DMPNN" else ['smiles']
 # Automatically detect target columns (all columns except 'smiles')
 target_columns = [c for c in df_input.columns
                   if c not in ([smiles_column] + DATASET_DESCRIPTORS.get(args.dataset_name, []) + ignore_columns)]
-print(f"Target cols: {target_columns}")
 if not target_columns:
     raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
 # Which variant are we evaluating?
