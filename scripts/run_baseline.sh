@@ -22,6 +22,6 @@ cd dmpnn
 # python3 scripts/evaluate_model.py --dataset_name htpmd --descriptor_columns Molality Monomer_Molecular_Weight DoP Density 
 # python3 scripts/evaluate_model.py --dataset_name htpmd 
 
-python3 scripts/evaluate_model.py --dataset_name insulator 
+python3 scripts/evaluate_model.py --dataset_name insulator --model_name DMPNN
 
  

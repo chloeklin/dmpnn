@@ -14,8 +14,8 @@ parser.add_argument('--dataset_name', type=str, required=True,
                     help='Name of the dataset file (without .csv extension)')
 parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
-parser.add_argument('--descriptor_columns', type=str, nargs='+', default=[],
-                    help='List of extra descriptor column names to use as global features')
+parser.add_argument('--descriptor', action='store_true',
+                    help='Use dataset-specific descriptors')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
 parser.add_argument('--model_name', type=str, default="wDMPNN",

@@ -13,6 +13,7 @@ from utils import (
     set_seed,
     load_best_checkpoint,
     get_encodings_from_loader,
+    DATASET_DESCRIPTORS
 )
 
 from chemprop import data, featurizers, models, nn
@@ -29,8 +30,8 @@ parser.add_argument('--dataset_name', type=str, required=True,
                     help='Name of the dataset file (without .csv extension)')
 parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
-parser.add_argument('--descriptor_columns', type=str, nargs='+', default=[],
-                    help='List of extra descriptor column names to use as global features')
+parser.add_argument('--descriptor', action='store_true',
+                    help='Use dataset-specific descriptors')
 parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
                     help='Name of the model to use')
 parser.add_argument("--baselines", type=str, nargs="+", default=None,
@@ -39,6 +40,18 @@ parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
 
 args = parser.parse_args()
+
+import pprint
+
+print("\n=== Training Configuration ===")
+print(f"Dataset       : {args.dataset_name}")
+print(f"Task type     : {args.task_type}")
+print(f"Model         : {args.model_name}")
+print(f"Descriptors   : {'Enabled' if args.descriptor else 'Disabled'}")
+print(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
+print(f"Baselines     : {args.baselines if args.baselines else 'All'}")
+print("===============================\n")
+
 
 # Set up paths and parameters
 chemprop_dir = Path.cwd()
@@ -60,7 +73,7 @@ if args.baselines is None:
 df_input = pd.read_csv(input_path)
 
 # Read descriptor columns from args
-descriptor_columns = args.descriptor_columns or []
+descriptor_columns = DATASET_DESCRIPTORS.get(args.dataset_name, []) if args.descriptor else []
 ignore_columns = ['WDMPNN_Input'] if args.model_name == "wDMPNN" else ['smiles']
 # Automatically detect target columns (all columns except 'smiles')
 target_columns = [c for c in df_input.columns
@@ -83,7 +96,7 @@ variant_tag = "" if variant_label == "original" else "_" + variant_label.replace
 
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
 
-featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
+featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
 
  # Prepare wide-format rows: a dict per (replicate, model)
 rep_model_to_row = {}
