@@ -19,7 +19,7 @@ cd dmpnn
 
 ##Completed
 # python3 scripts/train_large.py --dataset_name htpmd --descriptor --incl_rdkit
-# python3 scripts/train_large.py --dataset_name htpmd --descriptor
+python3 scripts/train_large.py --dataset_name htpmd --descriptor
 # python3 scripts/train_large.py --dataset_name htpmd 
 
 # python3 scripts/train_large.py --dataset_name insulator 
@@ -27,7 +27,7 @@ cd dmpnn
 
 ##Ongoing
 # python3 scripts/train_large.py --dataset_name opv_b3lyp --incl_rdkit
-python3 scripts/train_large.py --dataset_name opv_b3lyp 
+# python3 scripts/train_large.py --dataset_name opv_b3lyp 
 
 # python3 scripts/train_large.py --dataset_name polyinfo --task_type multi
 # python3 scripts/train_large.py --dataset_name polyinfo --task_type multi --incl_rdkit
