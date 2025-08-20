@@ -16,6 +16,6 @@ module load python3/3.12.1 cuda/12.0.0
 source venvs/dmpnn-venv/bin/activate
 
 cd dmpnn
-# python3 scripts/train_large_wdmpnn.py --dataset_name insulator > output.txt
-python3 scripts/train_large_wdmpnn.py --dataset_name polyinfo --task_type multi > polyinfo_output.txt
+# python3 scripts/train_large.py --model_name wDMPNN --dataset_name insulator > output.txt
+python3 scripts/train_large.py --model_name wDMPNN --dataset_name polyinfo --task_type multi > polyinfo_output.txt
 

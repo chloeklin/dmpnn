@@ -2,10 +2,36 @@ from typing import Optional, List
 import numpy as np
 from pathlib import Path
 import pandas as pd
+from typing import Dict, Any
 
-DATASET_DESCRIPTORS = {
-    "htpmd": ["Molality", "Monomer_Molecular_Weight", "DoP", "Density"],
-}
+def load_config() -> Dict[str, Any]:
+    """Load configuration from YAML file."""
+    import yaml
+    import os
+    
+    config_path = Path(__file__).parent / 'train_config.yaml'
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Convert to the expected format
+    result = {
+        'GLOBAL': config.get('global', {}),
+        'MODELS': {k.upper(): v for k, v in config.get('models', {}).items()},
+        'DATASET_DESCRIPTORS': config.get('dataset_descriptors', {})
+    }
+    
+    # Handle dynamic values
+    if 'num_workers' in result['GLOBAL']:
+        result['GLOBAL']['NUM_WORKERS'] = min(
+            result['GLOBAL'].pop('num_workers'),
+            os.cpu_count() or 1
+        )
+    
+    # Convert all keys to uppercase for consistency
+    result['GLOBAL'] = {k.upper(): v for k, v in result['GLOBAL'].items()}
+    
+    return result
 
 def set_seed(seed: int = 42):
     import os
@@ -99,8 +125,8 @@ def process_data(df_input, smiles_column, descriptor_columns, target_columns, ar
     combined_descriptor_data = combine_descriptors(rdkit_data, descriptor_data)
 
     if combined_descriptor_data is not None and combined_descriptor_data.ndim != 2:
-        raise ValueError(f"X_d must be 2D, got {combined_descriptor_data.shape}")
-
+            raise ValueError(f"X_d must be 2D, got {combined_descriptor_data.shape}")
+            
     return smis, df_input, combined_descriptor_data, n_classes_per_target
 
 def create_all_data(smis, ys, combined_descriptor_data, model_name):
@@ -425,3 +451,40 @@ def upsert_csv(out_csv: Path, new_df: pd.DataFrame, key_cols: list[str]) -> None
     else:
         new_df.to_csv(out_csv, index=False)
 
+
+
+def filter_insulator_data(df_input, smiles_column):
+    """Filter insulator dataset for wDMPNN model by removing invalid SMILES."""
+    # Copy of original data for index reference
+    df_orig = df_input.copy()
+
+    # Identify rows without '*' in the SMILES string
+    missing_star_mask = ~df_orig[smiles_column].astype(str).str.contains(r"\*", regex=True)
+    missing_star_indices = df_orig[missing_star_mask].index.tolist()
+
+    # Identify rows with specific problematic SMILES
+    excluded_smis = {
+        "[*:1]CC(C)/C=C\\[*:2]C|1.0|<1-2:0.5:0.5",
+        "[*:1]CC/C=C\\[*:2]Cl|1.0|<1-2:0.5:0.5",
+        "[*:1]C1CCC(C=[*:2])C1|1.0|<1-2:0.5:0.5"
+    }
+    problem_smiles_mask = df_orig[smiles_column].isin(excluded_smis)
+    problem_smiles_indices = df_orig[problem_smiles_mask].index.tolist()
+
+    # Save missing '*' indices
+    with open(f"{args.dataset_name}_skipped_indices.txt", "w") as f:
+        for idx in missing_star_indices:
+            f.write(f"{idx}\n")
+
+    # Save excluded problematic SMILES (index + SMILES string)
+    with open(f"{args.dataset_name}_excluded_problematic_smiles.txt", "w") as f:
+        for idx in problem_smiles_indices:
+            smi = df_orig.loc[idx, smiles_column]
+            f.write(f"{idx},{smi}\n")
+
+    # Apply filtering on original DataFrame
+    final_mask = ~(missing_star_mask | problem_smiles_mask)
+    filtered_df = df_orig[final_mask].reset_index(drop=True)
+    
+    print(f"Filtered out {len(df_orig) - len(filtered_df)} invalid SMILES from insulator dataset")
+    return filtered_df

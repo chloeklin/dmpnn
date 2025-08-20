@@ -177,7 +177,9 @@ cython_debug/
 *.pt
 *.json
 *.sqlite3
+# Allow train_config.yaml but ignore all other YAML files
 *.yaml
+!train_config.yaml
 *.tfevents.*
 *.ckpt
 chemprop/_version.py

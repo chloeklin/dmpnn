@@ -68,7 +68,7 @@ if args.dataset_name == "insulator":
     # === Apply filtering on original DataFrame ===
     # Remove rows without '*' or with the specific problematic SMILES
     final_mask = ~(missing_star_mask | problem_smiles_mask)
-    df_input = df_orig[final_mask]
+    df_input = df_orig[final_mask].reset_index(drop=True)
 
 
 # Read descriptor columns from args
@@ -76,7 +76,7 @@ descriptor_columns = args.descriptor_columns or []
 ignore_columns = ['smiles']
 # Automatically detect target columns (all columns except 'smiles')
 target_columns = [c for c in df_input.columns
-                  if c not in ([smiles_column] + descriptor_columns + ignore_columns)]
+                  if c not in ([smiles_column] + DATASET_DESCRIPTORS.get(args.dataset_name, []) + descriptor_columns + ignore_columns)]
 if not target_columns:
     raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
 

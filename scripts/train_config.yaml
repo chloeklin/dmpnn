@@ -1,0 +1,34 @@
+# Global settings for all models
+global:
+  seed: 42
+  replicates: 5
+  num_workers: 8  # Will be set to min(8, os.cpu_count() or 1)
+  epochs: 300
+
+# Dataset-specific descriptors
+dataset_descriptors:
+  htpmd:
+    - Molality
+    - Monomer_Molecular_Weight
+    - DoP
+    - Density
+
+# Model-specific settings
+models:
+  DMPNN:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
+    
+  wDMPNN:
+    smiles_column: WDMPNN_Input
+    ignore_columns: [smiles]
+    
+  periodic:
+    smiles_column: smiles
+    ignore_columns: []
+
+# Paths
+paths:
+  data_dir: data
+  checkpoint_dir: checkpoints
+  results_dir: results
