@@ -186,14 +186,15 @@ for target in target_columns:
             # 2) apply the same mask to each Datapoint's X_d
             def _apply_mask(datapoints, idx):
                 for dp in datapoints:
-                    x = getattr(dp, "X_d", None)
+                    x = dp.x_d
                     if x is None:
+                        print(f"X_d is none")
                         continue
                     x = np.asarray(x)
                     if x.ndim == 1:
-                        dp.X_d = x[idx]
+                        dp.x_d = x[idx]
                     else:
-                        dp.X_d = x[:, idx]  # just in case X_d is 2D
+                        dp.x_d = x[:, idx]  # just in case X_d is 2D
 
             _apply_mask(train_data[i], keep_idx)
             _apply_mask(val_data[i], keep_idx)

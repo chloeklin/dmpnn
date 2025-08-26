@@ -1,0 +1,18 @@
+Dropping 84 rows from insulator due to exclusions.
+
+=== Training Configuration ===
+Dataset          : insulator
+Task type        : reg
+Model            : DMPNN
+SMILES column    : smiles
+Descriptor cols  : []
+Ignore columns   : ['WDMPNN_Input']
+Descriptors      : Disabled
+RDKit desc.      : Enabled
+Epochs           : 300
+Replicates       : 5
+Workers          : 8
+Random seed      : 42
+================================
+
+Using holdout validation with 5 replicate(s)
