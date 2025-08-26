@@ -9,14 +9,18 @@ from utils import (
     process_data,
     create_all_data,
     make_repeated_splits,
-    build_sklearn_models,
     set_seed,
     load_best_checkpoint,
     get_encodings_from_loader,
     upsert_csv,
     load_drop_indices,
-    DATASET_DESCRIPTORS
+    load_config,
+    filter_insulator_data,
+    build_sklearn_models
 )
+from utils import (set_seed, process_data, make_repeated_splits, 
+                  load_drop_indices, 
+                  create_all_data,)
 
 from chemprop import data, featurizers, models, nn
 
@@ -36,8 +40,6 @@ parser.add_argument('--descriptor', action='store_true',
                     help='Use dataset-specific descriptors')
 parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
                     help='Name of the model to use')
-parser.add_argument("--baselines", type=str, nargs="+", default=None,
-                        help="Which baselines to train (Regression: Linear RF XGB; Classification: LogReg RF XGB). Omit for all.")
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
 
@@ -50,43 +52,78 @@ print(f"Task type     : {args.task_type}")
 print(f"Model         : {args.model_name}")
 print(f"Descriptors   : {'Enabled' if args.descriptor else 'Disabled'}")
 print(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
-print(f"Baselines     : {args.baselines if args.baselines else 'All'}")
 print("===============================\n")
 
 
+# Load configuration
+config = load_config()
+
 # Set up paths and parameters
 chemprop_dir = Path.cwd()
-input_path = chemprop_dir / "data" / f"{args.dataset_name}.csv"
-num_workers = min(8, os.cpu_count() or 1)
-smiles_column = 'smiles' if args.model_name == "DMPNN" else 'WDMPNN_Input'  # name of the column containing SMILES strings
-SEED = 42
-REPLICATES = 5
 
-# Seed / defaults
+# Get paths from config with defaults
+paths = config.get('PATHS', {})
+data_dir = chemprop_dir / paths.get('data_dir', 'data')
+checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model_name
+results_dir = chemprop_dir / paths.get('results_dir', 'results') / args.model_name
+
+# Create necessary directories
+checkpoint_dir.mkdir(parents=True, exist_ok=True)
+results_dir.mkdir(parents=True, exist_ok=True)
+
+# Set up file paths
+input_path = chemprop_dir / data_dir / f"{args.dataset_name}.csv"
+
+# Get model-specific configuration
+model_config = config['MODELS'].get(args.model_name, {})
+if not model_config:
+    print(f"Warning: No configuration found for model '{args.model_name}'. Using defaults.")
+
+# Set parameters from config with defaults
+GLOBAL_CONFIG = config.get('GLOBAL', {})
+SEED = GLOBAL_CONFIG.get('SEED', 42)
+REPLICATES = GLOBAL_CONFIG.get('REPLICATES', 5)
+EPOCHS = GLOBAL_CONFIG.get('EPOCHS', 300)
+num_workers = min(
+    GLOBAL_CONFIG.get('NUM_WORKERS', 8),
+    os.cpu_count() or 1
+)
+
+# Model-specific parameters
+smiles_column = model_config.get('smiles_column', 'smiles')
+ignore_columns = model_config.get('ignore_columns', [])
+MODEL_NAME = args.model_name
+
+# Get dataset descriptors from config
+DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
+descriptor_columns = DATASET_DESCRIPTORS if args.descriptor else []
+
+# === Set Random Seed ===
 set_seed(SEED)
-
-# defaults for baselines if not given
-if args.baselines is None:
-    args.baselines = ["Linear", "RF", "XGB"] if args.task_type == "reg" else ["LogReg", "RF", "XGB"]
-
 
 # === Load Data ===
 df_input = pd.read_csv(input_path)
+
+# Apply insulator dataset filtering if needed
+if args.dataset_name == "insulator" and args.model_name == "wDMPNN":
+    df_input = filter_insulator_data(df_input, smiles_column)
+
 # Read the saved exclusions from the wDMPNN preprocessing step
-drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
-if drop_idx:
-    print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
-    df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
+if args.model_name == "DMPNN":
+    drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
+    if drop_idx:
+        print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
+        df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
 
 
-# Read descriptor columns from args
-descriptor_columns = DATASET_DESCRIPTORS.get(args.dataset_name, []) if args.descriptor else []
-ignore_columns = ['WDMPNN_Input'] if args.model_name == "DMPNN" else ['smiles']
-# Automatically detect target columns (all columns except 'smiles')
+# Automatically detect target columns (all columns except ignored ones)
 target_columns = [c for c in df_input.columns
-                  if c not in ([smiles_column] + DATASET_DESCRIPTORS.get(args.dataset_name, []) + ignore_columns)]
+                 if c not in ([smiles_column] + 
+                            DATASET_DESCRIPTORS + 
+                            ignore_columns)]
 if not target_columns:
     raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
+
 # Which variant are we evaluating?
 use_desc = bool(descriptor_columns)
 use_rdkit = bool(args.incl_rdkit)
@@ -109,7 +146,7 @@ featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name =
 rep_model_to_row = {}
 # ensure pre-create rows for all replicate×model combos
 # (we'll fill target-specific metric keys as we compute them)
-models_dict = build_sklearn_models(args.task_type, baselines=args.baselines)
+models_dict = build_sklearn_models(args.task_type)
 model_names_example = list(models_dict.keys())
 
 # Common metadata for this run
@@ -214,7 +251,7 @@ for target in target_columns:
         y_test = df_input.loc[test_indices[i], target].to_numpy()
 
         # Build requested baselines
-        models_dict = build_sklearn_models(args.task_type, baselines=args.baselines)
+        models_dict = build_sklearn_models(args.task_type)
 
         # Fit baselines on train+val, compute metrics on test only
         for name, model in models_dict.items():

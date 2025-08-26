@@ -9,7 +9,7 @@ import pandas as pd
 
 from chemprop import data, featurizers, nn
 from utils import (set_seed, process_data, make_repeated_splits, 
-                  DATASET_DESCRIPTORS, load_drop_indices, 
+                  load_drop_indices, 
                   create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data)
 
 
@@ -40,6 +40,7 @@ paths = config.get('PATHS', {})
 data_dir = chemprop_dir / paths.get('data_dir', 'data')
 checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model_name
 results_dir = chemprop_dir / paths.get('results_dir', 'results') / args.model_name
+feat_select_dir = chemprop_dir / paths.get('feat_select_dir', 'out') / args.model_name / args.dataset_name
 
 # Create necessary directories
 checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -56,7 +57,7 @@ if not model_config:
 # Set parameters from config with defaults
 GLOBAL_CONFIG = config.get('GLOBAL', {})
 SEED = GLOBAL_CONFIG.get('SEED', 42)
-REPLICATES = GLOBAL_CONFIG.get('REPLICATES', 5)
+
 EPOCHS = GLOBAL_CONFIG.get('EPOCHS', 300)
 num_workers = min(
     GLOBAL_CONFIG.get('NUM_WORKERS', 8),
@@ -67,7 +68,7 @@ num_workers = min(
 smiles_column = model_config.get('smiles_column', 'smiles')
 ignore_columns = model_config.get('ignore_columns', [])
 MODEL_NAME = args.model_name
-
+REPLICATES = GLOBAL_CONFIG.get('REPLICATES', 5)
 # Get dataset descriptors from config
 DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
 descriptor_columns = DATASET_DESCRIPTORS if args.descriptor else []
@@ -129,23 +130,27 @@ for target in target_columns:
     ys = ys.reshape(-1, 1) # reshaping target to be 2D
     all_data = create_all_data(smis, ys, combined_descriptor_data, MODEL_NAME)
 
+    # decide CV vs holdout
+    n_splits = 5 if len(ys) < 2000 else 1
+    local_reps = 1 if n_splits > 1 else REPLICATES  # don't clobber the global
 
     # === Split via Random/Stratified Split with 5 Repetitions ===
     if args.task_type in ['binary', 'multi']:
-        y_class = df_input[target].to_numpy(dtype=int, copy=False)
         train_indices, val_indices, test_indices =  make_repeated_splits(
             task_type=args.task_type,
-            replicates=REPLICATES,
+            replicates=local_reps,
             seed=SEED,
-            y_class=y_class
+            y_class=ys,
+            n_splits=n_splits
             
         )
     else:
         train_indices, val_indices, test_indices =  make_repeated_splits(
             task_type=args.task_type,
-            replicates=REPLICATES,
+            replicates=local_reps,
             seed=SEED,
-            mols=[d.mol for d in all_data]
+            y_reg=ys,
+            n_splits=n_splits
         )
     
 
@@ -154,12 +159,42 @@ for target in target_columns:
         all_data, train_indices, val_indices, test_indices
     )
 
+    if combined_descriptor_data is not None:
+        Xd_df = pd.DataFrame(combined_descriptor_data)  # optional: give col names
+
+        for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
+            # 1) fit selector on TRAIN ONLY
+            sel = select_features_remove_constant_and_correlated(
+                X_train=Xd_df.iloc[tr],
+                y_train=pd.Series(ys.squeeze()[tr]) if args.task_type == "reg" else pd.Series(ys.squeeze()[tr]),
+                corr_threshold=0.90,
+                method="pearson" if args.task_type == "reg" else "spearman",
+                min_unique=2,
+                verbose=True
+            )
+            keep = sel["kept"]
+            keep_idx = Xd_df.columns.get_indexer(keep)
+
+            # 2) apply same mask to each split’s descriptor matrix
+            # If your split objects are dict-like:
+            train_data[i]["X_d"] = train_data[i]["X_d"][:, keep_idx]
+            val_data[i]["X_d"]   = val_data[i]["X_d"][:, keep_idx]
+            test_data[i]["X_d"]  = test_data[i]["X_d"][:, keep_idx]
+
+            # (optional) save the mask
+            (feat_select_dir / target / f"split_{i}.txt").write_text("\n".join(keep))
+
+
     # === Train ===
     results_all = []
-
-    for i in range(REPLICATES):
+    num_splits = len(train_data)  # robust for both CV and holdout
+    for i in range(num_splits):
         # Get train/val/test for current repetition
-        train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer) if MODEL_NAME == "DMPNN" else data.PolymerDataset(train_data[i], featurizer), data.PolymerDataset(val_data[i], featurizer), data.PolymerDataset(test_data[i], featurizer) 
+        DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
+        train = DS(train_data[i], featurizer)
+        val   = DS(val_data[i], featurizer)
+        test  = DS(test_data[i], featurizer)
+
         # normalise targets
         if args.task_type == 'reg':
             scaler = train.normalize_targets()

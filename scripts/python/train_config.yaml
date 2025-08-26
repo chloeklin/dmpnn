@@ -32,3 +32,4 @@ paths:
   data_dir: data
   checkpoint_dir: checkpoints
   results_dir: results
+  feat_select_dir: out
