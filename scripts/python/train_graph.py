@@ -170,22 +170,22 @@ for target in target_columns:
     if combined_descriptor_data is not None:
         Xd_df = pd.DataFrame(combined_descriptor_data)  # optional: give col names
             
-            for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-            # 1) fit selector on TRAIN ONLY
-                sel = select_features_remove_constant_and_correlated(
-                    X_train=Xd_df.iloc[tr],
-                y_train=pd.Series(ys.squeeze()[tr]) if args.task_type == "reg" else pd.Series(ys.squeeze()[tr]),
-                    corr_threshold=0.90,
-                    method="pearson" if args.task_type == "reg" else "spearman",
-                    min_unique=2,
-                    verbose=True
-                )
-                keep = sel["kept"]
-                keep_idx = Xd_df.columns.get_indexer(keep)
+        for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
+        # 1) fit selector on TRAIN ONLY
+            sel = select_features_remove_constant_and_correlated(
+                X_train=Xd_df.iloc[tr],
+            y_train=pd.Series(ys.squeeze()[tr]) if args.task_type == "reg" else pd.Series(ys.squeeze()[tr]),
+                corr_threshold=0.90,
+                method="pearson" if args.task_type == "reg" else "spearman",
+                min_unique=2,
+                verbose=True
+            )
+            keep = sel["kept"]
+            keep_idx = Xd_df.columns.get_indexer(keep)
 
             # 2) apply same mask to each split’s descriptor matrix
             # If your split objects are dict-like:
-                    train_data[i]["X_d"] = train_data[i]["X_d"][:, keep_idx]
+            train_data[i]["X_d"] = train_data[i]["X_d"][:, keep_idx]
             val_data[i]["X_d"]   = val_data[i]["X_d"][:, keep_idx]
             test_data[i]["X_d"]  = test_data[i]["X_d"][:, keep_idx]
 
