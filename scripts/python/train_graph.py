@@ -168,7 +168,8 @@ for target in target_columns:
     )
 
     if combined_descriptor_data is not None:
-        Xd_df = pd.DataFrame(combined_descriptor_data)  # optional: give col names
+        orig_Xd = np.asarray(combined_descriptor_data, dtype=np.float32)
+        Xd_df = pd.DataFrame(orig_Xd)
             
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
         # 1) fit selector on TRAIN ONLY
@@ -183,22 +184,16 @@ for target in target_columns:
             keep = sel["kept"]
             keep_idx = Xd_df.columns.get_indexer(keep)
 
-            # 2) apply the same mask to each Datapoint's X_d
-            def _apply_mask(datapoints, idx):
-                for dp in datapoints:
-                    x = dp.x_d
-                    if x is None:
-                        print(f"X_d is none")
-                        continue
-                    x = np.asarray(x)
-                    if x.ndim == 1:
-                        dp.x_d = x[idx]
-                    else:
-                        dp.x_d = x[:, idx]  # just in case X_d is 2D
+            # 2) apply same mask row-wise from the ORIGINAL matrix
+            def _apply_mask_from_source(datapoints, row_indices, col_indices):
+                for dp, ridx in zip(datapoints, row_indices):
+                    row = orig_Xd[ridx]                  # pick THIS datapoint's row
+                    dp.x_d = row[col_indices].astype(np.float32, copy=False)
 
-            _apply_mask(train_data[i], keep_idx)
-            _apply_mask(val_data[i], keep_idx)
-            _apply_mask(test_data[i], keep_idx)
+            _apply_mask_from_source(train_data[i], tr, keep_idx)
+            _apply_mask_from_source(val_data[i],   va, keep_idx)
+            _apply_mask_from_source(test_data[i],  te, keep_idx)
+
 
 
 
