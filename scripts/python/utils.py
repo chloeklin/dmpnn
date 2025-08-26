@@ -1003,7 +1003,7 @@ def upsert_csv(out_csv: Path, new_df: pd.DataFrame, key_cols: list[str]) -> None
 
 
 
-def filter_insulator_data(df_input, smiles_column):
+def filter_insulator_data(args, df_input, smiles_column):
     """Filter insulator dataset for wDMPNN model by removing invalid SMILES."""
     # Copy of original data for index reference
     df_orig = df_input.copy()

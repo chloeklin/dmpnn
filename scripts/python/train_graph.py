@@ -10,7 +10,7 @@ import pandas as pd
 from chemprop import data, featurizers, nn
 from utils import (set_seed, process_data, make_repeated_splits, 
                   load_drop_indices, 
-                  create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data)
+                  create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data, select_features_remove_constant_and_correlated)
 
 
 
@@ -45,6 +45,7 @@ feat_select_dir = chemprop_dir / paths.get('feat_select_dir', 'out') / args.mode
 # Create necessary directories
 checkpoint_dir.mkdir(parents=True, exist_ok=True)
 results_dir.mkdir(parents=True, exist_ok=True)
+feat_select_dir.mkdir(parents=True, exist_ok=True)
 
 # Set up file paths
 input_path = chemprop_dir / data_dir / f"{args.dataset_name}.csv"
@@ -81,7 +82,7 @@ df_input = pd.read_csv(input_path)
 
 # Apply insulator dataset filtering if needed
 if args.dataset_name == "insulator" and args.model_name == "wDMPNN":
-    df_input = filter_insulator_data(df_input, smiles_column)
+    df_input = filter_insulator_data(args, df_input, smiles_column)
 
 # Read the saved exclusions from the wDMPNN preprocessing step
 if args.model_name == "DMPNN":
@@ -130,9 +131,16 @@ for target in target_columns:
     ys = ys.reshape(-1, 1) # reshaping target to be 2D
     all_data = create_all_data(smis, ys, combined_descriptor_data, MODEL_NAME)
 
-    # decide CV vs holdout
+    # Decide CV vs holdout
+    # For small datasets (<2000 samples), use 5-fold CV with 1 replicate
+    # For larger datasets, use a single train/val/test split with multiple replicates
     n_splits = 5 if len(ys) < 2000 else 1
-    local_reps = 1 if n_splits > 1 else REPLICATES  # don't clobber the global
+    local_reps = 1 if n_splits > 1 else REPLICATES
+    
+    if n_splits > 1:
+        print(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
+    else:
+        print(f"Using holdout validation with {local_reps} replicate(s)")
 
     # === Split via Random/Stratified Split with 5 Repetitions ===
     if args.task_type in ['binary', 'multi']:
@@ -161,23 +169,23 @@ for target in target_columns:
 
     if combined_descriptor_data is not None:
         Xd_df = pd.DataFrame(combined_descriptor_data)  # optional: give col names
-
-        for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
+            
+            for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
             # 1) fit selector on TRAIN ONLY
-            sel = select_features_remove_constant_and_correlated(
-                X_train=Xd_df.iloc[tr],
+                sel = select_features_remove_constant_and_correlated(
+                    X_train=Xd_df.iloc[tr],
                 y_train=pd.Series(ys.squeeze()[tr]) if args.task_type == "reg" else pd.Series(ys.squeeze()[tr]),
-                corr_threshold=0.90,
-                method="pearson" if args.task_type == "reg" else "spearman",
-                min_unique=2,
-                verbose=True
-            )
-            keep = sel["kept"]
-            keep_idx = Xd_df.columns.get_indexer(keep)
+                    corr_threshold=0.90,
+                    method="pearson" if args.task_type == "reg" else "spearman",
+                    min_unique=2,
+                    verbose=True
+                )
+                keep = sel["kept"]
+                keep_idx = Xd_df.columns.get_indexer(keep)
 
             # 2) apply same mask to each split’s descriptor matrix
             # If your split objects are dict-like:
-            train_data[i]["X_d"] = train_data[i]["X_d"][:, keep_idx]
+                    train_data[i]["X_d"] = train_data[i]["X_d"][:, keep_idx]
             val_data[i]["X_d"]   = val_data[i]["X_d"][:, keep_idx]
             test_data[i]["X_d"]  = test_data[i]["X_d"][:, keep_idx]
 
