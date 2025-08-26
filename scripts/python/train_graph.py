@@ -183,11 +183,21 @@ for target in target_columns:
             keep = sel["kept"]
             keep_idx = Xd_df.columns.get_indexer(keep)
 
-            # 2) apply same mask to each split’s descriptor matrix
-            # If your split objects are dict-like:
-            train_data[i]["X_d"] = train_data[i]["X_d"][:, keep_idx]
-            val_data[i]["X_d"]   = val_data[i]["X_d"][:, keep_idx]
-            test_data[i]["X_d"]  = test_data[i]["X_d"][:, keep_idx]
+            # 2) apply the same mask to each Datapoint's X_d
+            def _apply_mask(datapoints, idx):
+                for dp in datapoints:
+                    x = getattr(dp, "X_d", None)
+                    if x is None:
+                        continue
+                    x = np.asarray(x)
+                    if x.ndim == 1:
+                        dp.X_d = x[idx]
+                    else:
+                        dp.X_d = x[:, idx]  # just in case X_d is 2D
+
+            _apply_mask(train_data[i], keep_idx)
+            _apply_mask(val_data[i], keep_idx)
+            _apply_mask(test_data[i], keep_idx)
 
             # (optional) save the mask
             (feat_select_dir / target / f"split_{i}.txt").write_text("\n".join(keep))
