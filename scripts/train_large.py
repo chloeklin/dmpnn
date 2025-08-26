@@ -9,8 +9,8 @@ import pandas as pd
 
 from chemprop import data, featurizers, nn
 from utils import (set_seed, process_data, make_repeated_splits, 
-                  DATASET_DESCRIPTORS, load_drop_indices, 
-                  create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data)
+                  load_drop_indices, create_all_data, build_model_and_trainer, 
+                  get_metric_list, load_config, filter_insulator_data)
 
 
 
@@ -159,7 +159,11 @@ for target in target_columns:
 
     for i in range(REPLICATES):
         # Get train/val/test for current repetition
-        train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer) if MODEL_NAME == "DMPNN" else data.PolymerDataset(train_data[i], featurizer), data.PolymerDataset(val_data[i], featurizer), data.PolymerDataset(test_data[i], featurizer) 
+        if MODEL_NAME == "DMPNN":
+            train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer) 
+        else:
+            data.PolymerDataset(train_data[i], featurizer), data.PolymerDataset(val_data[i], featurizer), data.PolymerDataset(test_data[i], featurizer) 
+        
         # normalise targets
         if args.task_type == 'reg':
             scaler = train.normalize_targets()
