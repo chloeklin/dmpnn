@@ -10,12 +10,12 @@
 #PBS -l jobfs=100GB
 #PBS -N wdmpnn_polyinfo
 
-cd /scratch/um09/hl4138
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.0.0
-source venvs/dmpnn-venv/bin/activate
+source /home/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138
 
 cd dmpnn
-# python3 scripts/train_graph.py --model_name wDMPNN --dataset_name insulator > output.txt
-python3 scripts/train_graph.py --model_name wDMPNN --dataset_name polyinfo --task_type multi > polyinfo_output.txt
+python3 scripts/train_graph.py --model_name wDMPNN --dataset_name insulator > output.txt
+# python3 scripts/train_graph.py --model_name wDMPNN --dataset_name polyinfo --task_type multi > polyinfo_output.txt
 
