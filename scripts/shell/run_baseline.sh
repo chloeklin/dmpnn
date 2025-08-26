@@ -13,7 +13,7 @@
 
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.0.0
-source /home/hl4138/dmpnn-venv/bin/activate
+source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138
 
 cd dmpnn
