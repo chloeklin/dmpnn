@@ -199,8 +199,6 @@ for target in target_columns:
             _apply_mask(val_data[i], keep_idx)
             _apply_mask(test_data[i], keep_idx)
 
-            # (optional) save the mask
-            (feat_select_dir / target / f"split_{i}.txt").write_text("\n".join(keep))
 
 
     # === Train ===
