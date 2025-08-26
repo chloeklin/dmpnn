@@ -55,7 +55,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any
     # Convert to the expected format with consistent key casing
     result = {
         'GLOBAL': {k.upper(): v for k, v in config.get('global', {}).items()},
-        'MODELS': {k.upper(): v for k, v in config.get('models', {}).items()},
+        'MODELS': {k: v for k, v in config.get('models', {}).items()},
         'DATASET_DESCRIPTORS': config.get('dataset_descriptors', {})
     }
     
