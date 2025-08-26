@@ -174,7 +174,7 @@ for target in target_columns:
         # 1) fit selector on TRAIN ONLY
             sel = select_features_remove_constant_and_correlated(
                 X_train=Xd_df.iloc[tr],
-            y_train=pd.Series(ys.squeeze()[tr]) if args.task_type == "reg" else pd.Series(ys.squeeze()[tr]),
+                y_train=pd.Series(ys.squeeze()[tr]) if args.task_type == "reg" else pd.Series(ys.squeeze()[tr]),
                 corr_threshold=0.90,
                 method="pearson" if args.task_type == "reg" else "spearman",
                 min_unique=2,
@@ -217,6 +217,10 @@ for target in target_columns:
             val.normalize_targets(scaler)
         # normalise descriptors (if any)
         X_d_transform = None
+        Xtr = np.vstack([np.asarray(getattr(dp, "X_d", None)) for dp in train_data[i]])
+        print("tabular dtype?", Xtr.dtype)  # chemprop will likely be float32
+        print("finite?", np.isfinite(Xtr).all())
+        print("max abs per first 10 feats:", np.nanmax(np.abs(Xtr), axis=0)[:10])
         if combined_descriptor_data is not None:
             descriptor_scaler = train.normalize_inputs("X_d")
             val.normalize_inputs("X_d", descriptor_scaler)
