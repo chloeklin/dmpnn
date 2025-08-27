@@ -5,31 +5,31 @@
 # Takes dataset name, model type, and optional flags for RDKit descriptors and additional descriptors.
 #
 # Usage:
-#   ./generate_training_script.sh <dataset> <model> [incl_rdkit] [descriptor] [task_type]
+#   ./generate_training_script.sh <dataset> <model> <walltime> [incl_rdkit] [descriptor] [task_type]
 #
 # Examples:
-#   ./generate_training_script.sh insulator DMPNN
-#   ./generate_training_script.sh insulator tabular incl_rdkit
-#   ./generate_training_script.sh htpmd wDMPNN incl_rdkit descriptor
-#   ./generate_training_script.sh polyinfo DMPNN incl_rdkit descriptor multi
+#   ./generate_training_script.sh insulator DMPNN 2:00:00
+#   ./generate_training_script.sh insulator tabular 1:30:00 incl_rdkit
+#   ./generate_training_script.sh htpmd wDMPNN 4:00:00 incl_rdkit descriptor
+#   ./generate_training_script.sh polyinfo DMPNN 3:00:00 incl_rdkit descriptor multi
 
-# Check if dataset name and model are provided
-if [ $# -lt 2 ]; then
-    echo "Usage: $0 <dataset> <model> [incl_rdkit] [descriptor] [task_type]"
+# Check if dataset name, model, and walltime are provided
+if [ $# -lt 3 ]; then
+    echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [descriptor] [task_type]"
     echo ""
     echo "Available models: tabular, DMPNN, wDMPNN"
+    echo "Walltime format: HH:MM:SS (e.g., 2:00:00 for 2 hours)"
     echo ""
     echo "Examples:"
     echo "  $0 insulator DMPNN"
     echo "  $0 insulator tabular incl_rdkit"
-    echo "  $0 htpmd wDMPNN incl_rdkit descriptor"
-    echo "  $0 polyinfo DMPNN incl_rdkit descriptor multi"
     exit 1
 fi
 
 # Parse arguments
-DATASET=$1
-MODEL=$2
+DATASET="$1"
+MODEL="$2"
+WALLTIME="$3"
 INCL_RDKIT=""
 DESCRIPTOR=""
 TASK_TYPE="reg"
@@ -44,8 +44,8 @@ case $MODEL in
         ;;
 esac
 
-# Check for optional flags (skip first two arguments)
-for arg in "${@:3}"; do
+# Check for optional flags (skip first three arguments)
+for arg in "${@:4}"; do
     case $arg in
         incl_rdkit)
             INCL_RDKIT="--incl_rdkit"
@@ -108,7 +108,7 @@ cat > "$OUTPUT_SCRIPT" << EOF
 #PBS -l ncpus=12
 #PBS -l ngpus=1
 #PBS -l mem=100GB
-#PBS -l walltime=2:00:00
+#PBS -l walltime=$WALLTIME
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
 #PBS -N ${OUTPUT_PREFIX}_${DATASET}${SUFFIX}
