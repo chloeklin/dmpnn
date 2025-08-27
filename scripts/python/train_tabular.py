@@ -310,7 +310,7 @@ def main():
         df_detailed = df_detailed[base_cols + metric_cols]
         
         # Write to CSV with timestamp
-        detailed_csv = results_dir / f"{args.dataset_name}_tabular.csv"
+        detailed_csv = results_dir / f"{args.dataset_name}_tabular{"_descriptors" if args.incl_desc else ""}{"_rdkit" if args.incl_rdkit else ""}.csv"
         df_detailed.to_csv(detailed_csv, index=False)
         logger.info(f"Saved split-level results to {detailed_csv}")    
 
