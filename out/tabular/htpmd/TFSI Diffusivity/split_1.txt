@@ -1,4 +1,3 @@
-AB_5
 AB_6
 AB_7
 AB_14
@@ -107,3 +106,6 @@ RD_fr_sulfone
 RD_fr_term_acetylene
 RD_fr_unbrch_alkane
 RD_fr_urea
+Molality
+DoP
+Density
