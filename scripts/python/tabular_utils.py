@@ -466,7 +466,7 @@ def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: L
     if kind == "homo":
         smiles = df["smiles"].tolist()
         ab = atom_bond_block_from_smiles(smiles, pool=pool, add_counts=add_counts)
-        # blocks.append(ab); names += [f"AB_{i}" for i in range(ab.shape[1])]
+        blocks.append(ab); names += [f"AB_{i}" for i in range(ab.shape[1])]
         if use_rdkit:
             rd = rdkit_block_from_smiles(smiles)
             blocks.append(rd); names += [f"RD_{n}" for n in RD_DESC_NAMES]
@@ -481,7 +481,7 @@ def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: L
         abA = atom_bond_block_from_smiles(sA, pool=pool, add_counts=add_counts)
         abB = atom_bond_block_from_smiles(sB, pool=pool, add_counts=add_counts)
         ab = weighted_average(abA, abB, fA, fB)   # weighting is reasonable for AB too
-        # blocks.append(ab); names += [f"AB_{i}" for i in range(ab.shape[1])]
+        blocks.append(ab); names += [f"AB_{i}" for i in range(ab.shape[1])]
         if use_rdkit:
             rdA = rdkit_block_from_smiles(sA)
             rdB = rdkit_block_from_smiles(sB)

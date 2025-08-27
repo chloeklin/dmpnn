@@ -5,13 +5,14 @@
 # Takes dataset name, model type, and optional flags for RDKit descriptors and additional descriptors.
 #
 # Usage:
-#   ./generate_training_script.sh <dataset> <model> <walltime> [incl_rdkit] [descriptor] [task_type]
+#   ./generate_training_script.sh <dataset> <model> <walltime> [incl_rdkit] [descriptor] [task_type] [--no-submit]
 #
 # Examples:
 #   ./generate_training_script.sh insulator DMPNN 2:00:00
 #   ./generate_training_script.sh insulator tabular 1:30:00 incl_rdkit
 #   ./generate_training_script.sh htpmd wDMPNN 4:00:00 incl_rdkit descriptor
 #   ./generate_training_script.sh polyinfo DMPNN 3:00:00 incl_rdkit descriptor multi
+#   ./generate_training_script.sh insulator DMPNN 2:00:00 --no-submit  # Create script only, don't submit
 
 # Check if dataset name, model, and walltime are provided
 if [ $# -lt 3 ]; then
@@ -44,7 +45,12 @@ case $MODEL in
         ;;
 esac
 
-# Check for optional flags (skip first three arguments)
+# Parse optional arguments
+DESCRIPTOR=""
+INCL_RDKIT=""
+TASK_TYPE="reg"
+SUBMIT_JOB=true
+
 for arg in "${@:4}"; do
     case $arg in
         incl_rdkit)
@@ -55,6 +61,12 @@ for arg in "${@:4}"; do
             ;;
         binary|multi)
             TASK_TYPE=$arg
+            ;;
+        --no-submit)
+            SUBMIT_JOB=false
+            ;;
+        *)
+            echo "Warning: Unknown argument '$arg' ignored"
             ;;
     esac
 done
@@ -94,7 +106,7 @@ if [ -n "$INCL_RDKIT" ]; then
 fi
 
 # Output script filename
-OUTPUT_SCRIPT="scripts/shell/train_${DATASET}${SUFFIX}.sh"
+OUTPUT_SCRIPT="train_${DATASET}${SUFFIX}.sh"
 
 # Create output directory if it doesn't exist
 mkdir -p scripts/shell
@@ -133,7 +145,23 @@ EOF
 chmod +x "$OUTPUT_SCRIPT"
 
 echo "Generated training script: $OUTPUT_SCRIPT"
-echo "To submit the job, run: qsub $OUTPUT_SCRIPT"
+
+# Submit job automatically unless --no-submit flag is used
+if [ "$SUBMIT_JOB" = true ]; then
+    echo "Submitting job to PBS queue..."
+    JOB_ID=$(qsub "$OUTPUT_SCRIPT")
+    if [ $? -eq 0 ]; then
+        echo "Job submitted successfully: $JOB_ID"
+        echo "Monitor with: qstat -u $USER"
+    else
+        echo "Error: Failed to submit job"
+        exit 1
+    fi
+else
+    echo "Script created but not submitted (--no-submit flag used)"
+    echo "To submit manually, run: qsub $OUTPUT_SCRIPT"
+fi
+
 echo ""
 echo "Generated script content:"
 echo "------------------------"
