@@ -194,6 +194,14 @@ for target in target_columns:
             _apply_mask_from_source(val_data[i],   va, keep_idx)
             _apply_mask_from_source(test_data[i],  te, keep_idx)
 
+            # quick sanity check (will raise if shapes/dtypes are wrong)
+            def _check(dps):
+                arrs = [np.asarray(dp.x_d, dtype=np.float32) for dp in dps]
+                X = np.stack(arrs, axis=0)   # will fail if lengths differ
+                print("tabular dtype?", X.dtype, "finite?", np.isfinite(X).all())
+                return X
+            _check(train_data[i])
+
 
 
 

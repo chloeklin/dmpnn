@@ -16,3 +16,9 @@ Random seed      : 42
 ================================
 
 Using holdout validation with 5 replicate(s)
+tabular dtype? float32 finite? False
+tabular dtype? float32 finite? False
+tabular dtype? float32 finite? False
+tabular dtype? float32 finite? False
+tabular dtype? float32 finite? False
+tabular dtype? object
