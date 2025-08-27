@@ -241,10 +241,12 @@ def process_data(
         ValueError: If input data is invalid or processing fails
         KeyError: If required columns are missing from the input DataFrame
     """
+
     # Validate input
     if not isinstance(df_input, pd.DataFrame):
         raise TypeError(f"df_input must be a pandas DataFrame, got {type(df_input).__name__}")
     
+    from tabular_utils import rdkit_block_from_smiles
     # Check required columns
     required_columns = {smiles_column, *target_columns}
     missing_columns = required_columns - set(df_input.columns)
@@ -292,41 +294,10 @@ def process_data(
     # Process RDKit descriptors if requested
     rdkit_data = None
     if getattr(args, 'incl_rdkit', False):
-        try:
-            from chemprop import featurizers
-            from chemprop.utils import make_mol
-            
-            # Use original SMILES for wDMPNN model if available
-            use_smiles = df_input["smiles"].values if hasattr(args, 'model_name') and args.model_name == "wDMPNN" else smis
-            
-            # Convert SMILES to molecules
-            mols = []
-            for smi in use_smiles:
-                try:
-                    mol = make_mol(smi, keep_h=False, add_h=False, ignore_stereo=False)
-                    mols.append(mol)
-                except Exception as e:
-                    if verbose:
-                        print(f"Warning: Failed to process SMILES {smi}: {str(e)}")
-                    mols.append(None)
-            
-            # Compute RDKit descriptors
-            feat = featurizers.RDKit2DFeaturizer()
-            rdkit_data = []
-            for mol in mols:
-                try:
-                    rdkit_data.append(feat(mol) if mol is not None else np.full(feat.dim(), np.nan))
-                except Exception as e:
-                    if verbose:
-                        print(f"Warning: Failed to compute RDKit features: {str(e)}")
-                    rdkit_data.append(np.full(feat.dim(), np.nan))
-            
-            rdkit_data = np.array(rdkit_data, dtype=np.float32)
-            
-        except ImportError as e:
-            if verbose:
-                print(f"Warning: RDKit features requested but could not import required modules: {e}")
-    
+        # Use original SMILES for wDMPNN model if available
+        use_smiles = df_input["smiles"].values if hasattr(args, 'model_name') and args.model_name == "wDMPNN" else smis
+        rdkit_data = rdkit_block_from_smiles(use_smiles)
+
     # Combine RDKit and additional descriptors
     combined_descriptor_data = combine_descriptors(rdkit_data, descriptor_data)
     
@@ -601,8 +572,8 @@ def build_model_and_trainer(
     agg = nn.MeanAggregation()
     mpnn = models.MPNN(
         message_passing=mp, 
-        aggregation=agg, 
-        ffn=ffn, 
+        agg=agg, 
+        predictor=ffn, 
         batch_norm=batch_norm, 
         metrics=metric_list or [],
         X_d_transform=X_d_transform
@@ -1054,7 +1025,19 @@ def select_features_remove_constant_and_correlated(
     positive_class: Optional[Union[str, int, float]] = None,  # only used if y is binary and you care
     verbose: bool = True
 ) -> Dict[str, Union[List[str], Callable[[pd.DataFrame], pd.DataFrame]]]:
-    logger = logging.getLogger("tabular-baselines")
+    # Get logger from calling module context
+    import inspect
+    frame = inspect.currentframe()
+    try:
+        caller_frame = frame.f_back
+        caller_module = inspect.getmodule(caller_frame)
+        if caller_module and hasattr(caller_module, 'logger'):
+            logger = caller_module.logger
+        else:
+            # Fallback to a generic logger
+            logger = logging.getLogger(__name__)
+    finally:
+        del frame
     X = X_train.copy()
 
     # 1) Drop constant / low-unique

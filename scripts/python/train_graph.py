@@ -1,4 +1,5 @@
 import argparse
+import logging
 import re
 from pathlib import Path
 import os
@@ -12,7 +13,9 @@ from utils import (set_seed, process_data, make_repeated_splits,
                   load_drop_indices, 
                   create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data, select_features_remove_constant_and_correlated)
 
-
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Train a Chemprop model for regression or classification')
@@ -53,7 +56,7 @@ input_path = chemprop_dir / data_dir / f"{args.dataset_name}.csv"
 # Get model-specific configuration
 model_config = config['MODELS'].get(args.model_name, {})
 if not model_config:
-    print(f"Warning: No configuration found for model '{args.model_name}'. Using defaults.")
+    logger.warning(f"No configuration found for model '{args.model_name}'. Using defaults.")
 
 # Set parameters from config with defaults
 GLOBAL_CONFIG = config.get('GLOBAL', {})
@@ -88,7 +91,7 @@ if args.dataset_name == "insulator" and args.model_name == "wDMPNN":
 if args.model_name == "DMPNN":
     drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
     if drop_idx:
-        print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
+        logger.info(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
         df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
 
 
@@ -102,20 +105,20 @@ if not target_columns:
 
 
 
-print("\n=== Training Configuration ===")
-print(f"Dataset          : {args.dataset_name}")
-print(f"Task type        : {args.task_type}")
-print(f"Model            : {args.model_name}")
-print(f"SMILES column    : {smiles_column}")
-print(f"Descriptor cols  : {descriptor_columns}")
-print(f"Ignore columns   : {ignore_columns}")
-print(f"Descriptors      : {'Enabled' if args.descriptor else 'Disabled'}")
-print(f"RDKit desc.      : {'Enabled' if args.incl_rdkit else 'Disabled'}")
-print(f"Epochs           : {EPOCHS}")
-print(f"Replicates       : {REPLICATES}")
-print(f"Workers          : {num_workers}")
-print(f"Random seed      : {SEED}")
-print("================================\n")
+logger.info("\n=== Training Configuration ===")
+logger.info(f"Dataset          : {args.dataset_name}")
+logger.info(f"Task type        : {args.task_type}")
+logger.info(f"Model            : {args.model_name}")
+logger.info(f"SMILES column    : {smiles_column}")
+logger.info(f"Descriptor cols  : {descriptor_columns}")
+logger.info(f"Ignore columns   : {ignore_columns}")
+logger.info(f"Descriptors      : {'Enabled' if args.descriptor else 'Disabled'}")
+logger.info(f"RDKit desc.      : {'Enabled' if args.incl_rdkit else 'Disabled'}")
+logger.info(f"Epochs           : {EPOCHS}")
+logger.info(f"Replicates       : {REPLICATES}")
+logger.info(f"Workers          : {num_workers}")
+logger.info(f"Random seed      : {SEED}")
+logger.info("================================\n")
 
 
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
@@ -138,9 +141,9 @@ for target in target_columns:
     local_reps = 1 if n_splits > 1 else REPLICATES
     
     if n_splits > 1:
-        print(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
+        logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
     else:
-        print(f"Using holdout validation with {local_reps} replicate(s)")
+        logger.info(f"Using holdout validation with {local_reps} replicate(s)")
 
     # === Split via Random/Stratified Split with 5 Repetitions ===
     if args.task_type in ['binary', 'multi']:
@@ -168,7 +171,13 @@ for target in target_columns:
     )
 
     if combined_descriptor_data is not None:
+        # Debug: Check for non-finite values in the original data
         orig_Xd = np.asarray(combined_descriptor_data, dtype=np.float32)
+        logger.debug(f"Original descriptor data shape: {orig_Xd.shape}")
+        logger.debug(f"Original descriptor data - finite values: {np.isfinite(orig_Xd).all()}")
+        logger.debug(f"Original descriptor data - NaN count: {np.isnan(orig_Xd).sum()}")
+        logger.debug(f"Original descriptor data - Inf count: {np.isinf(orig_Xd).sum()}")
+        
         Xd_df = pd.DataFrame(orig_Xd)
             
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
@@ -194,13 +203,40 @@ for target in target_columns:
             _apply_mask_from_source(val_data[i],   va, keep_idx)
             _apply_mask_from_source(test_data[i],  te, keep_idx)
 
-            # quick sanity check (will raise if shapes/dtypes are wrong)
+            # Enhanced sanity check with more detailed debugging
             def _check(dps):
-                arrs = [np.asarray(dp.x_d, dtype=np.float32) for dp in dps]
+                arrs = []
+                for dp in dps:
+                    x = np.asarray(dp.x_d, dtype=np.float32)
+                    if not np.isfinite(x).all():
+                        nan_mask = ~np.isfinite(x)
+                        logger.debug(f"Found {nan_mask.sum()} non-finite values in a datapoint")
+                        logger.debug(f"Non-finite indices: {np.where(nan_mask)[0]}")
+                        logger.debug(f"Non-finite values: {x[nan_mask]}")
+                    arrs.append(x)
+                
                 X = np.stack(arrs, axis=0)   # will fail if lengths differ
-                print("tabular dtype?", X.dtype, "finite?", np.isfinite(X).all())
+                logger.debug(f"Final tabular data - shape: {X.shape}, dtype: {X.dtype}")
+                logger.debug(f"Final tabular data - finite values: {np.isfinite(X).all()}")
+                logger.debug(f"Final tabular data - NaN count: {np.isnan(X).sum()}")
+                logger.debug(f"Final tabular data - Inf count: {np.isinf(X).sum()}")
+                
+                if not np.isfinite(X).all():
+                    # Print some statistics about the non-finite values
+                    nan_mask = ~np.isfinite(X)
+                    logger.debug("\nNon-finite value statistics:")
+                    logger.debug(f"Total non-finite values: {nan_mask.sum()}")
+                    logger.debug(f"Non-finite values per feature: {np.sum(nan_mask, axis=0)}")
+                    logger.debug(f"Samples with non-finite values: {np.any(nan_mask, axis=1).sum()}")
+                
                 return X
+                
+            logger.debug("\n=== Training Data Check ===")
             _check(train_data[i])
+            logger.debug("\n=== Validation Data Check ===")
+            _check(val_data[i])
+            logger.debug("\n=== Test Data Check ===")
+            _check(test_data[i])
 
 
 
@@ -209,22 +245,68 @@ for target in target_columns:
     results_all = []
     num_splits = len(train_data)  # robust for both CV and holdout
     for i in range(num_splits):
-        # Get train/val/test for current repetition
+        # Function to clean and process tabular data
+        def clean_tabular_data(datapoints):
+            if not datapoints or not hasattr(datapoints[0], 'x_d'):
+                return None
+                
+            # Convert to numpy array with float32 dtype
+            X = np.vstack([np.asarray(dp.x_d, dtype=np.float32) for dp in datapoints])
+            
+            # Replace inf with NaN and then fill with column medians (same as tabular script)
+            inf_mask = ~np.isfinite(X)
+            if np.any(inf_mask):
+                logger.debug(f"Found {np.sum(inf_mask)} non-finite values in tabular data")
+                X[inf_mask] = np.nan
+                
+                # Use median imputation with same logic as tabular script
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=RuntimeWarning)
+                    col_medians = np.nanmedian(X, axis=0)
+                    # Replace NaN medians (from all-NaN columns) with 0
+                    col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
+                
+                # Apply imputation
+                nan_inds = np.where(np.isnan(X))
+                X[nan_inds] = np.take(col_medians, nan_inds[1])
+            
+            # Update the data points with cleaned features
+            for idx, dp in enumerate(datapoints):
+                dp.x_d = X[idx].astype(np.float32)
+            
+            return X
+        
+        # Clean data before creating datasets
+        logger.debug("\n=== Cleaning tabular data ===")
+        Xtr = clean_tabular_data(train_data[i])
+        logger.debug("Training data processed - shape:", Xtr.shape if Xtr is not None else "No tabular data")
+        
+        Xval = clean_tabular_data(val_data[i])
+        logger.debug("Validation data processed - shape:", Xval.shape if Xval is not None else "No tabular data")
+        
+        Xtest = clean_tabular_data(test_data[i])
+        logger.debug("Test data processed - shape:", Xtest.shape if Xtest is not None else "No tabular data")
+        
+        # Create datasets after cleaning
         DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
         train = DS(train_data[i], featurizer)
-        val   = DS(val_data[i], featurizer)
-        test  = DS(test_data[i], featurizer)
+        val = DS(val_data[i], featurizer)
+        test = DS(test_data[i], featurizer)
 
-        # normalise targets
+        # Normalize targets
         if args.task_type == 'reg':
             scaler = train.normalize_targets()
             val.normalize_targets(scaler)
-        # normalise descriptors (if any)
+        # Normalize descriptors (if any)
         X_d_transform = None
-        Xtr = np.vstack([np.asarray(getattr(dp, "X_d", None)) for dp in train_data[i]])
-        print("tabular dtype?", Xtr.dtype)  # chemprop will likely be float32
-        print("finite?", np.isfinite(Xtr).all())
-        print("max abs per first 10 feats:", np.nanmax(np.abs(Xtr), axis=0)[:10])
+        # Verify data is clean
+        Xtr = np.vstack([np.asarray(dp.x_d, dtype=np.float32) for dp in train_data[i]])
+        logger.debug("\n=== Data Verification ===")
+        logger.debug("Tabular data shape:", Xtr.shape)
+        logger.debug("Finite values:", np.isfinite(Xtr).all())
+        logger.debug("Max absolute values (first 10 features):", np.nanmax(np.abs(Xtr), axis=0)[:10])
+        
         if combined_descriptor_data is not None:
             descriptor_scaler = train.normalize_inputs("X_d")
             val.normalize_inputs("X_d", descriptor_scaler)
@@ -282,8 +364,8 @@ for target in target_columns:
     mean_metrics = results_df.mean()
     std_metrics = results_df.std()
 
-    print(f"\n[{target}] Mean across {REPLICATES} splits:\n{mean_metrics}")
-    print(f"\n[{target}] Std across {REPLICATES} splits:\n{std_metrics}")
+    logger.info(f"\n[{target}] Mean across {REPLICATES} splits:\n{mean_metrics}")
+    logger.info(f"\n[{target}] Std across {REPLICATES} splits:\n{std_metrics}")
 
 
     # Optional: save to file

@@ -44,7 +44,7 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     Returns:
         List of dictionaries containing evaluation metrics
     """
-    logger = logging.getLogger("tabular-baselines")
+    logger = logging.getLogger(__name__)
 
     # Choose CV for small datasets; holdout for large (as per your plan)
     n_splits = 5 if len(y) < 2000 else 1
@@ -73,6 +73,14 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
         # Extract and process features
         X, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit)
+
+        orig_Xd = np.asarray(X, dtype=np.float32)
+        logger.debug(f"Original descriptor data shape: {orig_Xd.shape}")
+        logger.debug(f"Original descriptor data - finite values: {np.isfinite(orig_Xd).all()}")
+        logger.debug(f"Original descriptor data - NaN count: {np.isnan(orig_Xd).sum()}")
+        logger.debug(f"Original descriptor data - Inf count: {np.isinf(orig_Xd).sum()}")
+
+
         X_tr, X_val, X_te = X[train_idx], X[val_idx], X[test_idx]
         
         # 0) Convert to DataFrame so we can keep column names for selection
@@ -192,7 +200,7 @@ def main():
     logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
     )
-    logger = logging.getLogger("tabular-baselines")
+    logger = logging.getLogger(__name__)
 
     # ----------------------------- Setup -----------------------------
 
