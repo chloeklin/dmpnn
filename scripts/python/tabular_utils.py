@@ -457,10 +457,7 @@ def weighted_average(A: np.ndarray, B: np.ndarray, fa: np.ndarray, fb: np.ndarra
 
 def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: List[str], kind: str, use_rdkit: bool, pool: str = 'mean', add_counts: bool = False) -> Tuple[np.ndarray, List[str]]:
     use_descriptor = len(descriptor_columns) > 0
-    if not (use_descriptor or use_rdkit):
-        use_descriptor = True
-        use_rdkit = True
-
+    
     blocks, names = [], []
 
     if kind == "homo":
