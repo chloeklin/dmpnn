@@ -132,7 +132,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # ${MODEL} training
-python3 scripts/python/$SCRIPT_NAME $ARGS > ${OUTPUT_PREFIX}_${DATASET}${SUFFIX}.txt
+python3 scripts/python/$SCRIPT_NAME $ARGS 
 
 
 ##TODO
