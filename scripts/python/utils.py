@@ -242,10 +242,6 @@ def process_data(
         KeyError: If required columns are missing from the input DataFrame
     """
 
-    # Validate input
-    if not isinstance(df_input, pd.DataFrame):
-        raise TypeError(f"df_input must be a pandas DataFrame, got {type(df_input).__name__}")
-    
     from tabular_utils import rdkit_block_from_smiles
     # Check required columns
     required_columns = {smiles_column, *target_columns}
@@ -471,7 +467,6 @@ def build_model_and_trainer(
     combined_descriptor_data: Optional[np.ndarray],
     n_classes: Optional[int],
     scaler: Optional[Any],
-    X_d_transform: Optional[Any],
     checkpoint_path: Union[str, Path],
     batch_norm: bool = True,
     metric_list: Optional[List[Any]] = None,
@@ -488,7 +483,6 @@ def build_model_and_trainer(
         combined_descriptor_data: Combined RDKit and custom descriptors
         n_classes: Number of classes (for classification tasks)
         scaler: Scaler object for regression tasks
-        X_d_transform: Transform for descriptor data
         checkpoint_path: Directory to save model checkpoints
         batch_norm: Whether to use batch normalization
         metric_list: List of metrics to track during training
@@ -540,7 +534,7 @@ def build_model_and_trainer(
     descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
     input_dim = mp.output_dim + descriptor_dim
     
-    # Configure output transform for regression
+    # Predictions are unscaled to original units before metrics via output_transform
     output_transform = None
     if args.task_type == 'reg':
         output_transform = (
@@ -576,7 +570,6 @@ def build_model_and_trainer(
         predictor=ffn, 
         batch_norm=batch_norm, 
         metrics=metric_list or [],
-        X_d_transform=X_d_transform
     )
     
     # Create checkpoint directory

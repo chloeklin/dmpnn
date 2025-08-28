@@ -1,11 +1,12 @@
 import argparse
+import json
 import logging
 import numpy as np
 import pandas as pd
 # from rdkit import Chem
 from pathlib import Path
 
-
+import joblib
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 
 # Local imports
@@ -22,7 +23,6 @@ from utils import (
     load_config,
     build_sklearn_models,
     make_repeated_splits,
-    select_features_remove_constant_and_correlated
 )
 
 
@@ -72,69 +72,138 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     detailed_rows = []
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
         # Extract and process features
-        X, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit)
-
-        # Clean data before converting to float32
-        X = np.asarray(X, dtype=np.float64)  # Use float64 first for better precision
+        ab_block, descriptor_block, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit)
         
-        # Replace inf with NaN
-        inf_mask = np.isinf(X)
-        if np.any(inf_mask):
-            logger.warning(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
-            X[inf_mask] = np.nan
+        orig_desc_names = [n for n in feat_names if not n.startswith('AB_')]
+
+        # Process AB block (no cleaning/selection needed)
+        ab_tr, ab_val, ab_te = ab_block[train_idx], ab_block[val_idx], ab_block[test_idx]
+        ab_names = [name for name in feat_names if name.startswith('AB_')]
         
-        # Handle NaN values with median imputation
-        nan_mask = np.isnan(X)
-        if np.any(nan_mask):
-            logger.warning(f"Found {np.sum(nan_mask)} NaN values, using median imputation")
-            from sklearn.impute import SimpleImputer
-            imputer = SimpleImputer(strategy='median')
-            X = imputer.fit_transform(X)
-        
-        # Clip extreme values to prevent float32 overflow
-        float32_max = np.finfo(np.float32).max
-        float32_min = np.finfo(np.float32).min
-        X = np.clip(X, float32_min, float32_max)
-        
-        # Now safely convert to float32
-        orig_Xd = X.astype(np.float32)
-        logger.debug(f"Original descriptor data shape: {orig_Xd.shape}")
-        logger.debug(f"Original descriptor data - finite values: {np.isfinite(orig_Xd).all()}")
-        logger.debug(f"Original descriptor data - NaN count: {np.isnan(orig_Xd).sum()}")
-        logger.debug(f"Original descriptor data - Inf count: {np.isinf(orig_Xd).sum()}")
+        # Process descriptor block separately (clean and select features)
+        if descriptor_block is not None:
+            # Clean descriptor data before converting to float32
+            desc_X = np.asarray(descriptor_block, dtype=np.float64)  # Use float64 first
+            
+            # Replace inf with NaN
+            inf_mask = np.isinf(desc_X)
+            if np.any(inf_mask):
+                logger.warning(f"Found {np.sum(inf_mask)} infinite values in descriptors, replacing with NaN")
+                desc_X[inf_mask] = np.nan
+            
+            # Clip extreme values to prevent float32 overflow
+            float32_max = np.finfo(np.float32).max
+            float32_min = np.finfo(np.float32).min
+            desc_X = np.clip(desc_X, float32_min, float32_max)
+            
+            # Now safely convert to float32
+            desc_X = desc_X.astype(np.float32)
+            logger.debug(f"Descriptor data shape: {desc_X.shape}")
+            logger.debug(f"Descriptor data - finite values: {np.isfinite(desc_X).all()}")
+            
+            # 1) Remove constants on FULL descriptor dataset BEFORE imputation (like train_graph.py)
+            desc_full_df = pd.DataFrame(desc_X, columns=orig_desc_names)
+            non_na_uniques = desc_full_df.nunique(dropna=True)
+            constant_mask = (non_na_uniques >= 2).values             # True = keep
+            constant_features = [n for n, keep in zip(orig_desc_names, constant_mask) if not keep]
+            const_kept_names = [n for n, keep in zip(orig_desc_names, constant_mask) if keep]
 
+            # Remove constants from full dataset
+            const_keep_idx = np.where(constant_mask)[0]
+            desc_X_no_const = desc_X[:, const_keep_idx]
+            
+            # Split descriptor data AFTER constant removal but BEFORE imputation
+            desc_tr, desc_val, desc_te = desc_X_no_const[train_idx], desc_X_no_const[val_idx], desc_X_no_const[test_idx]
+            
+            # Handle NaN values with median imputation fitted only on training data
+            nan_mask = np.isnan(desc_tr)
+            if np.any(nan_mask):
+                logger.warning(f"Found {np.sum(nan_mask)} NaN values in training descriptors, using median imputation")
+                from sklearn.impute import SimpleImputer
+                imputer = SimpleImputer(strategy='median')
+                desc_tr = imputer.fit_transform(desc_tr)
+                desc_val = imputer.transform(desc_val)
+                desc_te = imputer.transform(desc_te)
+            else:
+                # Create dummy imputer for consistency even if no NaNs
+                from sklearn.impute import SimpleImputer
+                imputer = SimpleImputer(strategy='median')
+                imputer.fit(desc_tr)  # Fit on training data for consistency
+            
+            # correlation on TRAIN ONLY, using constant-removed training set
+            desc_tr_df = pd.DataFrame(desc_tr, columns=const_kept_names)
+            if len(const_kept_names) > 1:
+                corr = desc_tr_df.corr(method=("pearson" if args.task_type=="reg" else "spearman")).abs()
+                upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+                to_drop = {c for c in upper.columns if (upper[c] >= 0.90).any()}
+                keep_names = [n for n in const_kept_names if n not in to_drop]
+            else:
+                to_drop = set()
+                keep_names = const_kept_names[:]
+    
 
-        X_tr, X_val, X_te = X[train_idx], X[val_idx], X[test_idx]
-        
-        # 0) Convert to DataFrame so we can keep column names for selection
-        X_tr_df = pd.DataFrame(X_tr, columns=feat_names)
-        X_val_df = pd.DataFrame(X_val, columns=feat_names)
-        X_te_df = pd.DataFrame(X_te, columns=feat_names)
+            # final selection by name
+            desc_tr_selected = desc_tr_df[keep_names].values
+            desc_val_selected = pd.DataFrame(desc_val, columns=const_kept_names)[keep_names].values
+            desc_te_selected  = pd.DataFrame(desc_te,  columns=const_kept_names)[keep_names].values
 
-        sel_info = select_features_remove_constant_and_correlated(
-            X_train=X_tr_df,
-            y_train=pd.Series(y[train_idx]),
-            corr_threshold=0.90,       
-            method="spearman" if args.task_type != "reg" else "pearson",
-            min_unique=2,
-            verbose=True
-        )
+            # masks to SAVE
+            # constant_mask: length == len(orig_desc_names)      (global, split-invariant)
+            # corr_mask:     length == len(const_kept_names)     (per split)
+            corr_mask = np.isin(const_kept_names, keep_names)
 
-        # 2) Apply the same mask to train/val/test
-        X_tr = sel_info["transform"](X_tr_df).values
-        X_val = sel_info["transform"](X_val_df).values
-        X_te = sel_info["transform"](X_te_df).values
-        feat_names = sel_info["kept"]
+            # define the selected names (you use this below)
+            selected_desc_names = keep_names    
+            
+            
+            # Combine AB block with selected descriptor block
+            X_tr = np.concatenate([ab_tr, desc_tr_selected], axis=1)
+            X_val = np.concatenate([ab_val, desc_val_selected], axis=1)
+            X_te = np.concatenate([ab_te, desc_te_selected], axis=1)
+            feat_names = ab_names + keep_names
+            
+        else:
+            # Only AB block available
+            X_tr, X_val, X_te = ab_tr, ab_val, ab_te
+            feat_names = ab_names
 
-        out_dir.mkdir(parents=True, exist_ok=True)
-        mask_path = out_dir / f"split_{i}.txt"
-        with open(mask_path, "w") as f:
-            f.write("\n".join(sel_info["kept"]))
+        # Save preprocessing metadata and objects
+        if descriptor_block is not None:
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            preprocessing_metadata = {
+                "n_desc_before_any_selection": len(orig_desc_names),
+                "n_desc_after_constant_removal": len(const_kept_names),
+                "n_desc_after_corr_removal": len(keep_names),
+                "constant_features_removed": constant_features,         # list of names
+                "correlated_features_removed": sorted(list(to_drop)),  # list of names
+                "selected_features": selected_desc_names,              # list of names
+                "imputation_strategy": "median",
+                "correlation_threshold": 0.90,
+                "orig_desc_names": orig_desc_names,                    # to make masks resolvable later
+                "const_kept_names": const_kept_names
+            }
+            with open(out_dir / f"preprocessing_metadata_split_{i}.json", "w") as f:
+                json.dump(preprocessing_metadata, f, indent=2)
+
+            # objects + masks
+            joblib.dump(imputer, out_dir / f"descriptor_imputer_{i}.pkl")
+
+            # boolean masks for reproducibility
+            # constant_mask aligns with orig_desc_names (True = keep)
+            np.save(out_dir / f"constant_mask_{i}.npy", constant_mask)
+            # corr_mask aligns with const_kept_names (True = keep)
+            np.save(out_dir / f"corr_mask_{i}.npy", corr_mask)
+
+            # for quick diff-friendly lists too
+            with open(out_dir / f"split_{i}.txt", "w") as f:
+                f.write("\n".join(selected_desc_names))
 
 
         if X_tr.shape[1] == 0:
-            logger.warning("Feature selection yielded 0 columns; reverting to full set for this split.")
-            X_tr, X_val, X_te = X[train_idx], X[val_idx], X[test_idx]
+            logger.warning("Feature selection yielded 0 columns; reverting to AB features only for this split.")
+            X_tr, X_val, X_te = ab_tr, ab_val, ab_te
+            feat_names = ab_names
 
         # Initialize target scaler for regression tasks
         target_scaler = None
@@ -154,9 +223,18 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         for name, (model, needs_scaler) in model_specs.items():
             # Apply scaling for models that require it (linear/logistic)
             scaler = StandardScaler() if needs_scaler else None
-            Xtr_fit = scaler.fit_transform(X_tr) if scaler is not None else X_tr
-            Xval_fit = scaler.transform(X_val) if scaler is not None else X_val
-            Xte_fit = scaler.transform(X_te) if scaler is not None else X_te
+
+            if scaler is not None:
+                Xtr_fit = scaler.fit_transform(X_tr)
+                Xval_fit = scaler.transform(X_val)
+                Xte_fit = scaler.transform(X_te)
+                
+                # save per split **and** per model
+                joblib.dump(scaler, out_dir / f"feature_scaler_split_{i}_{name}.pkl")
+            else:
+                Xtr_fit = X_tr
+                Xval_fit = X_val
+                Xte_fit = X_te
 
             if args.task_type == "reg":
                 if name == "XGB":
@@ -211,12 +289,12 @@ def main():
                         help='Name of the dataset file (without .csv extension), expected at data/{name}.csv')
     parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                         help='Task type: "reg" (regression), "binary", or "multi" (multi-class)')
-    parser.add_argument('--incl_desc', action='store_true',
-                        help='Use atom+bond pooled features (graph-pooled tabular baseline)')
+    parser.add_argument('--use_dataset_descriptors', dest='incl_desc', action='store_true',
+                        help='Include dataset-specific descriptors from config (in addition to pooled atom/bond features)')
     parser.add_argument('--incl_rdkit', action='store_true',
                         help='Include RDKit 2D descriptors')
-    parser.add_argument("--polymer_type", type=str, choices=["homo", "polymer"], default="homo",
-                        help='Type of polymer: "homo" for homopolymer or "polymer" for copolymer')
+    parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
+                        help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
     args = parser.parse_args()
 
 
@@ -333,7 +411,8 @@ def main():
         df_detailed = df_detailed[base_cols + metric_cols]
         
         # Write to CSV with timestamp
-        detailed_csv = results_dir / f"{args.dataset_name}_tabular{"_descriptors" if args.incl_desc else ""}{"_rdkit" if args.incl_rdkit else ""}.csv"
+        suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "")
+        detailed_csv = results_dir / f"{args.dataset_name}_tabular{suffix}.csv"
         df_detailed.to_csv(detailed_csv, index=False)
         logger.info(f"Saved split-level results to {detailed_csv}")    
 

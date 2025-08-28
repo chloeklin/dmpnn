@@ -1,17 +1,15 @@
 import argparse
 import logging
-import re
-from pathlib import Path
 import os
-import torch
 import numpy as np
 import pandas as pd
+from pathlib import Path
+import json
 
-
-from chemprop import data, featurizers, nn
+from chemprop import data, featurizers
 from utils import (set_seed, process_data, make_repeated_splits, 
                   load_drop_indices, 
-                  create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data, select_features_remove_constant_and_correlated)
+                  create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -63,6 +61,7 @@ GLOBAL_CONFIG = config.get('GLOBAL', {})
 SEED = GLOBAL_CONFIG.get('SEED', 42)
 
 EPOCHS = GLOBAL_CONFIG.get('EPOCHS', 300)
+PATIENCE = GLOBAL_CONFIG.get('PATIENCE', 30)
 num_workers = min(
     GLOBAL_CONFIG.get('NUM_WORKERS', 8),
     os.cpu_count() or 1
@@ -88,7 +87,7 @@ if args.dataset_name == "insulator" and args.model_name == "wDMPNN":
     df_input = filter_insulator_data(args, df_input, smiles_column)
 
 # Read the saved exclusions from the wDMPNN preprocessing step
-if args.model_name == "DMPNN":
+if args.model_name != "wDMPNN":
     drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
     if drop_idx:
         logger.info(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
@@ -171,39 +170,161 @@ for target in target_columns:
     )
 
     if combined_descriptor_data is not None:
-        # Debug: Check for non-finite values in the original data
-        orig_Xd = np.asarray(combined_descriptor_data, dtype=np.float32)
-        logger.debug(f"Original descriptor data shape: {orig_Xd.shape}")
-        logger.debug(f"Original descriptor data - finite values: {np.isfinite(orig_Xd).all()}")
-        logger.debug(f"Original descriptor data - NaN count: {np.isnan(orig_Xd).sum()}")
-        logger.debug(f"Original descriptor data - Inf count: {np.isinf(orig_Xd).sum()}")
+        # Initial data preparation (no imputation yet to avoid leakage)
+        orig_Xd = np.asarray(combined_descriptor_data, dtype=np.float64)  # Use float64 first
         
-        Xd_df = pd.DataFrame(orig_Xd)
+        # Replace inf with NaN
+        inf_mask = np.isinf(orig_Xd)
+        if np.any(inf_mask):
+            logger.warning(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
+            orig_Xd[inf_mask] = np.nan
+        
+        
+        # Store float32 limits for later use
+        float32_max = np.finfo(np.float32).max
+        float32_min = np.finfo(np.float32).min
+        
+        logger.debug(f"Original descriptor data shape: {orig_Xd.shape}")
+        logger.debug(f"Original descriptor data - Inf count: {np.sum(inf_mask)}")
+        
+        # Create temporary DataFrame for constant feature detection (with NaNs)
+        Xd_temp_df = pd.DataFrame(orig_Xd)
+        
+        # 1) Remove constants on FULL dataset (consistent across splits)
+        non_na_uniques = Xd_temp_df.nunique(dropna=True)
+        constant_features = non_na_uniques[non_na_uniques < 2].index.tolist()
+        if constant_features:
+            logger.info(f"Removing {len(constant_features)} constant features from full dataset")
+            # Remove constant features from original data
+            orig_Xd = np.delete(orig_Xd, constant_features, axis=1)
+        
+        # Check for NaN values but don't impute yet
+        nan_mask = np.isnan(orig_Xd)
+        if np.any(nan_mask):
+            logger.warning(f"Found {np.sum(nan_mask)} NaN values, will use per-split median imputation")
+        
+
+        # Store base cleaning metadata (imputer stats will be added per split)
+        base_cleaning_metadata = {
+            "imputation_strategy": "median",
+            "float32_max": float(float32_max),
+            "float32_min": float(float32_min),
+            "inf_values_found": bool(np.any(inf_mask)),
+            "nan_values_found": bool(np.any(nan_mask))
+        }
+        
+        data_metadata = {
+            "original_data_shape": list(orig_Xd.shape),
+            "descriptor_columns": descriptor_columns if descriptor_columns else [],
+            "rdkit_included": args.incl_rdkit,
+            "constant_features_removed": constant_features,
+            "post_constant_shape": list(orig_Xd.shape)  # After constant removal
+        }
+        
+        split_metadata = {
+            "train_indices": [idx.tolist() for idx in train_indices],
+            "val_indices": [idx.tolist() for idx in val_indices], 
+            "test_indices": [idx.tolist() for idx in test_indices],
+            "random_seed": SEED,
+            "correlation_threshold": 0.90,
+            "correlation_method": "pearson" if args.task_type == "reg" else "spearman"
+        }
+        
+        # Initialize preprocessing metadata and object storage
+        split_preprocessing_metadata = {}
+        split_imputers = {}
             
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-        # 1) fit selector on TRAIN ONLY
-            sel = select_features_remove_constant_and_correlated(
-                X_train=Xd_df.iloc[tr],
-                y_train=pd.Series(ys.squeeze()[tr]) if args.task_type == "reg" else pd.Series(ys.squeeze()[tr]),
-                corr_threshold=0.90,
-                method="pearson" if args.task_type == "reg" else "spearman",
-                min_unique=2,
-                verbose=True
-            )
-            keep = sel["kept"]
-            keep_idx = Xd_df.columns.get_indexer(keep)
+            # Initialize default values
+            correlated_features = []
+            # Per-split data cleaning: fit imputer on training data only
+            from sklearn.impute import SimpleImputer
+            
+            # Get training data for this split (after constant removal)
+            train_data_split = orig_Xd[tr]
+            
+            # Fit imputer on training data only
+            imputer = None
+            if np.any(nan_mask):
+                imputer = SimpleImputer(strategy='median')
+                train_data_clean = imputer.fit_transform(train_data_split)
+            else:
+                train_data_clean = train_data_split.copy()
+            
+            # Apply imputation to all splits using training-fitted imputer
+            if imputer is not None:
+                all_data_clean = imputer.transform(orig_Xd)
+            else:
+                all_data_clean = orig_Xd.copy()
+            
+            # Clip and convert to float32
+            all_data_clean = np.clip(all_data_clean, float32_min, float32_max)
+            all_data_clean = all_data_clean.astype(np.float32)
+            
+            # Create DataFrame for correlation analysis
+            train_df = pd.DataFrame(all_data_clean[tr])
+            
+            # Find highly correlated features in training set
+            if train_df.shape[1] > 1:
+                corr_matrix = train_df.corr(method="pearson" if args.task_type == "reg" else "spearman").abs()
+                upper_tri = corr_matrix.where(
+                    np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+                )
+                correlated_features = [column for column in upper_tri.columns if any(upper_tri[column] >= 0.90)]
+                
+                if correlated_features:
+                    logger.info(f"Split {i}: Removing {len(correlated_features)} correlated features based on training set")
+                    keep_features = [col for col in range(train_df.shape[1]) if col not in correlated_features]
+                else:
+                    keep_features = list(range(train_df.shape[1]))
+            else:
+                keep_features = list(range(train_df.shape[1]))
+            
+            # Create mask for features to keep after correlation removal
+            mask = np.zeros(all_data_clean.shape[1], dtype=bool)
+            mask[keep_features] = True
+            
+            # Update cleaning metadata with per-split imputer statistics
+            cleaning_metadata = base_cleaning_metadata.copy()
+            cleaning_metadata["imputer_statistics"] = imputer.statistics_.tolist() if imputer is not None else None
 
-            # 2) apply same mask row-wise from the ORIGINAL matrix
-            def _apply_mask_from_source(datapoints, row_indices, col_indices):
+            # Store split-specific preprocessing metadata
+            preprocessing_metadata = {
+                "cleaning": cleaning_metadata,
+                "data_info": data_metadata,
+                "splits": split_metadata,
+                "split_specific": {
+                    "split_id": i,
+                    "correlated_features": correlated_features,
+                    "keep_features": keep_features,
+                    "correlation_mask": mask.tolist()
+                },
+                "target": target,
+                "task_type": args.task_type
+            }
+            
+            # Store metadata and imputer for later saving (after checkpoint_path is created)
+            split_preprocessing_metadata[i] = preprocessing_metadata
+            split_imputers[i] = imputer
+
+            # Apply preprocessing and masking to datapoints
+            def _apply_preprocessing_and_mask(datapoints, row_indices):
                 for dp, ridx in zip(datapoints, row_indices):
-                    row = orig_Xd[ridx]                  # pick THIS datapoint's row
-                    dp.x_d = row[col_indices].astype(np.float32, copy=False)
-
-            _apply_mask_from_source(train_data[i], tr, keep_idx)
-            _apply_mask_from_source(val_data[i],   va, keep_idx)
-            _apply_mask_from_source(test_data[i],  te, keep_idx)
+                    # Get cleaned data for this row
+                    row_clean = all_data_clean[ridx]  # Already imputed, clipped, and converted
+                    # Apply correlation mask (zero out dropped features)
+                    out = np.zeros_like(row_clean, dtype=np.float32)
+                    out[mask] = row_clean[mask]
+                    dp.x_d = out
+            
+            _apply_preprocessing_and_mask(train_data[i], tr)
+            _apply_preprocessing_and_mask(val_data[i], va)
+            _apply_preprocessing_and_mask(test_data[i], te)
 
             # Enhanced sanity check with more detailed debugging
+            logger.debug(f"Split {i}: Applied preprocessing - shape: {all_data_clean.shape}")
+            logger.debug(f"Split {i}: Features kept: {np.sum(mask)} out of {len(mask)}")
+            logger.debug(f"Split {i}: Imputer fitted on {len(tr)} training samples")
             def _check(dps):
                 arrs = []
                 for dp in dps:
@@ -245,73 +366,41 @@ for target in target_columns:
     results_all = []
     num_splits = len(train_data)  # robust for both CV and holdout
     for i in range(num_splits):
-        # Function to clean and process tabular data
-        def clean_tabular_data(datapoints):
-            if not datapoints or not hasattr(datapoints[0], 'x_d'):
-                return None
-                
-            # Convert to numpy array with float64 dtype first for better precision
-            X = np.vstack([np.asarray(dp.x_d, dtype=np.float64) for dp in datapoints])
-            
-            # Replace inf with NaN
-            inf_mask = np.isinf(X)
-            if np.any(inf_mask):
-                logger.warning(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
-                X[inf_mask] = np.nan
-            
-            # Handle NaN values with median imputation
-            nan_mask = np.isnan(X)
-            if np.any(nan_mask):
-                logger.warning(f"Found {np.sum(nan_mask)} NaN values, using median imputation")
-                from sklearn.impute import SimpleImputer
-                imputer = SimpleImputer(strategy='median')
-                X = imputer.fit_transform(X)
-            
-            # Clip extreme values to prevent float32 overflow
-            float32_max = np.finfo(np.float32).max
-            float32_min = np.finfo(np.float32).min
-            X = np.clip(X, float32_min, float32_max)
-            
-            # Update the data points with cleaned features (now safely convert to float32)
-            for idx, dp in enumerate(datapoints):
-                dp.x_d = X[idx].astype(np.float32)
-            
-            return X
-        
-        # Clean data before creating datasets
-        logger.debug("\n=== Cleaning tabular data ===")
-        Xtr = clean_tabular_data(train_data[i])
-        logger.debug("Training data processed - shape:", Xtr.shape if Xtr is not None else "No tabular data")
-        
-        Xval = clean_tabular_data(val_data[i])
-        logger.debug("Validation data processed - shape:", Xval.shape if Xval is not None else "No tabular data")
-        
-        Xtest = clean_tabular_data(test_data[i])
-        logger.debug("Test data processed - shape:", Xtest.shape if Xtest is not None else "No tabular data")
-        
         # Create datasets after cleaning
         DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
         train = DS(train_data[i], featurizer)
         val = DS(val_data[i], featurizer)
         test = DS(test_data[i], featurizer)
 
-        # Normalize targets
+        # Chemprop convention:
+        # - Fit scaler on train, apply to train/val targets (for training stability)
+        # - DO NOT scale test targets; predictions are unscaled by output_transform
         if args.task_type == 'reg':
-            scaler = train.normalize_targets()
+            scaler  = train.normalize_targets()
             val.normalize_targets(scaler)
-        # Normalize descriptors (if any)
-        X_d_transform = None
-        # Verify data is clean
-        Xtr = np.vstack([np.asarray(dp.x_d, dtype=np.float32) for dp in train_data[i]])
-        logger.debug("\n=== Data Verification ===")
-        logger.debug("Tabular data shape:", Xtr.shape)
-        logger.debug("Finite values:", np.isfinite(Xtr).all())
-        logger.debug("Max absolute values (first 10 features):", np.nanmax(np.abs(Xtr), axis=0)[:10])
+            # test targets intentionally left unscaled
         
+
         if combined_descriptor_data is not None:
+            # normalise descriptors
             descriptor_scaler = train.normalize_inputs("X_d")
             val.normalize_inputs("X_d", descriptor_scaler)
-            X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler)
+            test.normalize_inputs("X_d", descriptor_scaler)
+            
+            # Re-apply zero mask after scaling to prevent mean-subtraction from unzeroing features
+            correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'])
+            
+            def _reapply_zero_mask(datapoints):
+                for dp in datapoints:
+                    if hasattr(dp, 'x_d') and dp.x_d is not None:
+                        # Re-zero the dropped features after scaling
+                        dp.x_d[~correlation_mask] = 0.0
+            
+            _reapply_zero_mask(train)
+            _reapply_zero_mask(val)
+            _reapply_zero_mask(test)
+            
+            logger.debug(f"Re-applied zero mask after scaling for split {i}")
         
         # Create dataloaders
         train_loader = data.build_dataloader(train, num_workers=num_workers)
@@ -336,16 +425,49 @@ for target in target_columns:
             f"__rep{i}"
         )
         checkpoint_path.mkdir(parents=True, exist_ok=True)
+        
+        # Save preprocessing metadata and objects now that checkpoint_path exists
+        if combined_descriptor_data is not None:
+            # Save JSON metadata
+            metadata_path = checkpoint_path / f"preprocessing_metadata_split_{i}.json"
+            with open(metadata_path, 'w') as f:
+                json.dump(split_preprocessing_metadata[i], f, indent=2)
+            logger.info(f"Saved preprocessing metadata to {metadata_path}")
+            
+            # Save preprocessing objects separately using joblib and numpy
+            from joblib import dump
+            
+            # Save imputer if it exists
+            if split_imputers[i] is not None:
+                dump(split_imputers[i], checkpoint_path / "descriptor_imputer.pkl")
+                logger.info(f"Saved descriptor imputer to {checkpoint_path / 'descriptor_imputer.pkl'}")
+            
+            # Save descriptor scaler
+            dump(descriptor_scaler, checkpoint_path / "descriptor_scaler.pkl")
+            logger.info(f"Saved descriptor scaler to {checkpoint_path / 'descriptor_scaler.pkl'}")
+            
+            # Save correlation mask as numpy array
+            correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'])
+            np.save(checkpoint_path / "correlation_mask.npy", correlation_mask)
+            logger.info(f"Saved correlation mask to {checkpoint_path / 'correlation_mask.npy'}")
+            
+            # Save constant features removed as numpy array
+            constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
+            np.save(checkpoint_path / "constant_features_removed.npy", np.array(constant_features, dtype=np.int64))
+            logger.info(f"Saved constant features to {checkpoint_path / 'constant_features_removed.npy'}")
+        
         scaler_arg = scaler if args.task_type == 'reg' else None
         mpnn, trainer = build_model_and_trainer(
             args=args,
             combined_descriptor_data=combined_descriptor_data,
             n_classes=n_classes_arg,
             scaler=scaler_arg,
-            X_d_transform=X_d_transform,
             checkpoint_path=checkpoint_path,
             batch_norm=batch_norm,
-            metric_list=metric_list
+            metric_list=metric_list,
+            early_stopping_patience=PATIENCE,
+            max_epochs=EPOCHS,
+            
         )
         last_ckpt = None
         if os.path.exists(checkpoint_path):
@@ -365,9 +487,15 @@ for target in target_columns:
     mean_metrics = results_df.mean()
     std_metrics = results_df.std()
 
-    logger.info(f"\n[{target}] Mean across {REPLICATES} splits:\n{mean_metrics}")
-    logger.info(f"\n[{target}] Std across {REPLICATES} splits:\n{std_metrics}")
+    n_evals = len(results_all)
+    logger.info(f"\n[{target}] Mean across {n_evals} splits:\n{mean_metrics}")
+    logger.info(f"\n[{target}] Std across {n_evals} splits:\n{std_metrics}")
 
 
     # Optional: save to file
-    results_df.to_csv(results_dir / f"{args.dataset_name}_{target}{"_descriptors" if descriptor_columns is not None else ""}{"_rdkit" if args.incl_rdkit else ""}_{MODEL_NAME}_results.csv", index=False)
+    suffix_desc  = "_descriptors" if args.descriptor else ""
+    suffix_rdkit = "_rdkit"       if args.incl_rdkit else ""
+    results_df.to_csv(
+        results_dir / f"{args.dataset_name}_{target}{suffix_desc}{suffix_rdkit}_{MODEL_NAME}_results.csv",
+        index=False
+    )

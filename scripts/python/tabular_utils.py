@@ -31,6 +31,12 @@ except ImportError:
     import warnings
     warnings.warn("RDKit not available. Some functionality will be limited.")
 
+
+ATOM_FEAT_LEN = 100 + 6 + 5 + 4 + 5 + 5 + 1 + 1   # = 127
+BOND_FEAT_LEN = 4 + 1 + 1 + 6                      # = 12
+AB_POOLED_LEN = ATOM_FEAT_LEN + BOND_FEAT_LEN      # = 139
+
+
 # -------------------------- RDKit descriptors ------------------------
 
 # Initialize RDKit descriptors lazily
@@ -358,12 +364,10 @@ def atom_bond_block_from_smiles(smiles: List[str], pool: str = 'mean', add_count
         
         # Handle invalid molecules
         if m is None or m.GetNumAtoms() == 0:
-            # Create placeholder with NaN values (will be imputed later)
-            placeholder_size = 10  # Arbitrary size for placeholder
-            if add_counts:
-                placeholder_size += 2  # For atom and bond counts
-            feats.append(np.full(placeholder_size, np.nan, dtype=float))
+            vec = np.full(AB_POOLED_LEN + (2 if add_counts else 0), np.nan, dtype=float)
+            feats.append(vec)
             continue
+
             
         try:
             # Compute atom features
@@ -394,9 +398,8 @@ def atom_bond_block_from_smiles(smiles: List[str], pool: str = 'mean', add_count
             feats.append(vec)
             
         except Exception as e:
-            # If any error occurs, add NaN vector (will be imputed)
-            feat_size = atom_mat.shape[1] + bond_mat.shape[1] + (2 if add_counts else 0)
-            feats.append(np.full(feat_size, np.nan, dtype=float))
+            # Fall back to canonical size even if mats aren't defined
+            feats.append(np.full(AB_POOLED_LEN + (2 if add_counts else 0), np.nan, dtype=float))
     
     # Convert to numpy array and impute missing values
     try:
@@ -455,21 +458,35 @@ def weighted_average(A: np.ndarray, B: np.ndarray, fa: np.ndarray, fb: np.ndarra
 
 # ------------------------ Feature assembly ---------------------------
 
-def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: List[str], kind: str, use_rdkit: bool, pool: str = 'mean', add_counts: bool = False) -> Tuple[np.ndarray, List[str]]:
+def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: List[str], kind: str, use_rdkit: bool, pool: str = 'mean', add_counts: bool = False) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     use_descriptor = len(descriptor_columns) > 0
     
-    blocks, names = [], []
+    ab_block = None
+    descriptor_block = None
+    names = []
 
     if kind == "homo":
         smiles = df["smiles"].tolist()
-        ab = atom_bond_block_from_smiles(smiles, pool=pool, add_counts=add_counts)
-        blocks.append(ab); names += [f"AB_{i}" for i in range(ab.shape[1])]
+        ab_block = atom_bond_block_from_smiles(smiles, pool=pool, add_counts=add_counts)
+        names += [f"AB_{i}" for i in range(ab_block.shape[1])]
+        
+        # Combine RDKit and descriptor blocks
+        desc_blocks = []
+        desc_names = []
+        
         if use_rdkit:
-            rd = rdkit_block_from_smiles(smiles)
-            blocks.append(rd); names += [f"RD_{n}" for n in RD_DESC_NAMES]
+            rdkit_block = rdkit_block_from_smiles(smiles)
+            desc_blocks.append(rdkit_block)
+            desc_names += [f"RD_{n}" for n in RD_DESC_NAMES]
+            
         if use_descriptor:
-            desc = df[descriptor_columns].values
-            blocks.append(desc); names += descriptor_columns
+            dataset_desc_block = df[descriptor_columns].values
+            desc_blocks.append(dataset_desc_block)
+            desc_names += descriptor_columns
+            
+        if desc_blocks:
+            descriptor_block = np.concatenate(desc_blocks, axis=1)
+            names += desc_names
             
     else:
         sA, sB = df["smiles_A"].tolist(), df["smiles_B"].tolist()
@@ -477,8 +494,13 @@ def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: L
 
         abA = atom_bond_block_from_smiles(sA, pool=pool, add_counts=add_counts)
         abB = atom_bond_block_from_smiles(sB, pool=pool, add_counts=add_counts)
-        ab = weighted_average(abA, abB, fA, fB)   # weighting is reasonable for AB too
-        blocks.append(ab); names += [f"AB_{i}" for i in range(ab.shape[1])]
+        ab_block = weighted_average(abA, abB, fA, fB)
+        names += [f"AB_{i}" for i in range(ab_block.shape[1])]
+        
+        # Combine RDKit and descriptor blocks
+        desc_blocks = []
+        desc_names = []
+        
         if use_rdkit:
             rdA = rdkit_block_from_smiles(sA)
             rdB = rdkit_block_from_smiles(sB)
@@ -490,22 +512,28 @@ def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: L
             rdA_z = sc.transform(rdA)
             rdB_z = sc.transform(rdB)
 
-            rd = weighted_average(rdA_z, rdB_z, fA, fB)
-            blocks.append(rd); names += [f"RD_{n}" for n in RD_DESC_NAMES]
+            rdkit_block = weighted_average(rdA_z, rdB_z, fA, fB)
+            desc_blocks.append(rdkit_block)
+            desc_names += [f"RD_{n}" for n in RD_DESC_NAMES]
 
         if use_descriptor:
-            desc = df[descriptor_columns].values
-            blocks.append(desc); names += descriptor_columns
+            dataset_desc_block = df[descriptor_columns].values
+            desc_blocks.append(dataset_desc_block)
+            desc_names += descriptor_columns
+            
+        if desc_blocks:
+            descriptor_block = np.concatenate(desc_blocks, axis=1)
+            names += desc_names
 
-    if not blocks:
+    if ab_block is None and descriptor_block is None:
         raise ValueError("No features selected. Use --descriptor and/or --incl_rdkit.")
-    X = np.concatenate(blocks, axis=1)
-    return X, names
+    
+    return ab_block, descriptor_block, names
 
 
 def eval_regression(y_true, y_pred) -> Dict[str, float]:
     return {
-        "rmse": mean_squared_error(y_true, y_pred),
+        "mse": mean_squared_error(y_true, y_pred),
         "mae": mean_absolute_error(y_true, y_pred),
         "r2": r2_score(y_true, y_pred)
     }

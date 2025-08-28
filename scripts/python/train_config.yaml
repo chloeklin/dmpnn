@@ -4,6 +4,7 @@ global:
   replicates: 5
   num_workers: 8  # Will be set to min(8, os.cpu_count() or 1)
   epochs: 300
+  patience: 30
 
 # Dataset-specific descriptors
 dataset_descriptors:
