@@ -250,28 +250,29 @@ for target in target_columns:
             if not datapoints or not hasattr(datapoints[0], 'x_d'):
                 return None
                 
-            # Convert to numpy array with float32 dtype
-            X = np.vstack([np.asarray(dp.x_d, dtype=np.float32) for dp in datapoints])
+            # Convert to numpy array with float64 dtype first for better precision
+            X = np.vstack([np.asarray(dp.x_d, dtype=np.float64) for dp in datapoints])
             
-            # Replace inf with NaN and then fill with column medians (same as tabular script)
-            inf_mask = ~np.isfinite(X)
+            # Replace inf with NaN
+            inf_mask = np.isinf(X)
             if np.any(inf_mask):
-                logger.debug(f"Found {np.sum(inf_mask)} non-finite values in tabular data")
+                logger.warning(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
                 X[inf_mask] = np.nan
-                
-                # Use median imputation with same logic as tabular script
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=RuntimeWarning)
-                    col_medians = np.nanmedian(X, axis=0)
-                    # Replace NaN medians (from all-NaN columns) with 0
-                    col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
-                
-                # Apply imputation
-                nan_inds = np.where(np.isnan(X))
-                X[nan_inds] = np.take(col_medians, nan_inds[1])
             
-            # Update the data points with cleaned features
+            # Handle NaN values with median imputation
+            nan_mask = np.isnan(X)
+            if np.any(nan_mask):
+                logger.warning(f"Found {np.sum(nan_mask)} NaN values, using median imputation")
+                from sklearn.impute import SimpleImputer
+                imputer = SimpleImputer(strategy='median')
+                X = imputer.fit_transform(X)
+            
+            # Clip extreme values to prevent float32 overflow
+            float32_max = np.finfo(np.float32).max
+            float32_min = np.finfo(np.float32).min
+            X = np.clip(X, float32_min, float32_max)
+            
+            # Update the data points with cleaned features (now safely convert to float32)
             for idx, dp in enumerate(datapoints):
                 dp.x_d = X[idx].astype(np.float32)
             

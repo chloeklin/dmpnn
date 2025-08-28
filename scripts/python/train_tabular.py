@@ -74,7 +74,30 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         # Extract and process features
         X, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit)
 
-        orig_Xd = np.asarray(X, dtype=np.float32)
+        # Clean data before converting to float32
+        X = np.asarray(X, dtype=np.float64)  # Use float64 first for better precision
+        
+        # Replace inf with NaN
+        inf_mask = np.isinf(X)
+        if np.any(inf_mask):
+            logger.warning(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
+            X[inf_mask] = np.nan
+        
+        # Handle NaN values with median imputation
+        nan_mask = np.isnan(X)
+        if np.any(nan_mask):
+            logger.warning(f"Found {np.sum(nan_mask)} NaN values, using median imputation")
+            from sklearn.impute import SimpleImputer
+            imputer = SimpleImputer(strategy='median')
+            X = imputer.fit_transform(X)
+        
+        # Clip extreme values to prevent float32 overflow
+        float32_max = np.finfo(np.float32).max
+        float32_min = np.finfo(np.float32).min
+        X = np.clip(X, float32_min, float32_max)
+        
+        # Now safely convert to float32
+        orig_Xd = X.astype(np.float32)
         logger.debug(f"Original descriptor data shape: {orig_Xd.shape}")
         logger.debug(f"Original descriptor data - finite values: {np.isfinite(orig_Xd).all()}")
         logger.debug(f"Original descriptor data - NaN count: {np.isnan(orig_Xd).sum()}")
