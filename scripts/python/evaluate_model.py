@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
+import json
 
 from utils import (
     process_data,
@@ -18,9 +19,6 @@ from utils import (
     filter_insulator_data,
     build_sklearn_models
 )
-from utils import (set_seed, process_data, make_repeated_splits, 
-                  load_drop_indices, 
-                  create_all_data,)
 
 from chemprop import data, featurizers, models, nn
 
@@ -190,6 +188,153 @@ for target in target_columns:
         all_data, train_indices, val_indices, test_indices
     )
 
+    # Apply same preprocessing as train_graph.py
+    if combined_descriptor_data is not None:
+        # Load preprocessing metadata and objects for each split
+        preprocessing_metadata = {}
+        preprocessing_components = {}
+        
+        for i in range(REPLICATES):
+            checkpoint_path = (
+                Path("out") / args.model_name / args.dataset_name / 
+                f"{args.dataset_name}__{target}"
+                f"{'__desc' if descriptor_columns else ''}"
+                f"{'__rdkit' if args.incl_rdkit else ''}"
+                f"__rep{i}"
+            )
+            metadata_path = checkpoint_path / f"preprocessing_metadata_split_{i}.json"
+            
+            # Load JSON metadata
+            if metadata_path.exists():
+                with open(metadata_path, 'r') as f:
+                    preprocessing_metadata[i] = json.load(f)
+                print(f"Loaded preprocessing metadata for split {i}")
+            else:
+                print(f"Warning: No preprocessing metadata found for split {i}")
+                preprocessing_metadata[i] = None
+                continue
+            
+            # Load preprocessing components separately
+            from joblib import load
+            components = {}
+            
+            # Load imputer if it exists
+            imputer_path = checkpoint_path / "descriptor_imputer.pkl"
+            if imputer_path.exists():
+                components['imputer'] = load(imputer_path)
+                print(f"Loaded descriptor imputer for split {i}")
+            else:
+                components['imputer'] = None
+            
+            # Load descriptor scaler
+            scaler_path = checkpoint_path / "descriptor_scaler.pkl"
+            if scaler_path.exists():
+                components['descriptor_scaler'] = load(scaler_path)
+                print(f"Loaded descriptor scaler for split {i}")
+            else:
+                components['descriptor_scaler'] = None
+                print(f"Warning: No descriptor scaler found for split {i}")
+            
+            # Load correlation mask
+            mask_path = checkpoint_path / "correlation_mask.npy"
+            if mask_path.exists():
+                components['correlation_mask'] = np.load(mask_path)
+                print(f"Loaded correlation mask for split {i}")
+            else:
+                components['correlation_mask'] = None
+                print(f"Warning: No correlation mask found for split {i}")
+            
+            # Load constant features
+            const_path = checkpoint_path / "constant_features_removed.npy"
+            if const_path.exists():
+                components['constant_features_removed'] = np.load(const_path)
+                print(f"Loaded constant features for split {i}")
+            else:
+                components['constant_features_removed'] = None
+                print(f"Warning: No constant features found for split {i}")
+            
+            preprocessing_components[i] = components
+
+        # Initial data preparation (same as train_graph.py)
+        orig_Xd = np.asarray(combined_descriptor_data, dtype=np.float64)
+        
+        # Replace inf with NaN
+        inf_mask = np.isinf(orig_Xd)
+        if np.any(inf_mask):
+            print(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
+            orig_Xd[inf_mask] = np.nan
+        
+        # Remove constant features using saved numpy array
+        if preprocessing_components[0] is not None and preprocessing_components[0]['constant_features_removed'] is not None:
+            constant_features = preprocessing_components[0]['constant_features_removed']
+            if len(constant_features) > 0:
+                print(f"Removing {len(constant_features)} constant features")
+                orig_Xd = np.delete(orig_Xd, constant_features, axis=1)
+        
+        # Apply per-split preprocessing using saved components
+        for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
+            if preprocessing_metadata[i] is None or preprocessing_components[i] is None:
+                print(f"Warning: Skipping split {i} due to missing metadata or components")
+                continue
+            
+            # Get saved preprocessing components
+            saved_imputer = preprocessing_components[i]['imputer']
+            correlation_mask = preprocessing_components[i]['correlation_mask']
+            
+            # Apply imputation using saved imputer object
+            if saved_imputer is not None:
+                all_data_clean = saved_imputer.transform(orig_Xd)
+            else:
+                all_data_clean = orig_Xd.copy()
+            
+            # Apply clipping and conversion (get limits from metadata)
+            cleaning_meta = preprocessing_metadata[i]['cleaning']
+            float32_min = cleaning_meta['float32_min']
+            float32_max = cleaning_meta['float32_max']
+            all_data_clean = np.clip(all_data_clean, float32_min, float32_max)
+            all_data_clean = all_data_clean.astype(np.float32)
+            
+            # Apply preprocessing to datapoints
+            def _apply_saved_preprocessing(datapoints, row_indices):
+                for dp, ridx in zip(datapoints, row_indices):
+                    row_clean = all_data_clean[ridx]
+                    # Apply mask (zero out dropped features)
+                    out = np.zeros_like(row_clean, dtype=np.float32)
+                    out[correlation_mask] = row_clean[correlation_mask]
+                    dp.x_d = out
+            
+            _apply_saved_preprocessing(train_data[i], tr)
+            _apply_saved_preprocessing(val_data[i], va)
+            _apply_saved_preprocessing(test_data[i], te)
+            
+            print(f"Applied saved preprocessing for split {i} using joblib/numpy components")
+
+            # Use saved descriptor scaler if available
+            if combined_descriptor_data is not None and preprocessing_components[i] is not None:
+                saved_descriptor_scaler = preprocessing_components[i]['descriptor_scaler']
+                if saved_descriptor_scaler is not None:
+                    # Apply the saved scaler directly
+                    train_data[i].normalize_inputs("X_d", saved_descriptor_scaler)
+                    val_data[i].normalize_inputs("X_d", saved_descriptor_scaler)
+                    test_data[i].normalize_inputs("X_d", saved_descriptor_scaler)
+                    
+                    # Re-apply zero mask after scaling (same as training)
+                    correlation_mask = preprocessing_components[i]['correlation_mask']
+                    
+                    def _reapply_zero_mask(dataset):
+                        for dp in dataset:
+                            if hasattr(dp, 'x_d') and dp.x_d is not None:
+                                dp.x_d[~correlation_mask] = 0.0
+                    
+                    _reapply_zero_mask(train_data[i])
+                    _reapply_zero_mask(val_data[i])
+                    _reapply_zero_mask(test_data[i])
+                    
+                    print(f"Applied saved descriptor scaler and re-applied zero mask for split {i}")
+                else:
+                    print(f"Warning: No saved descriptor scaler found for split {i}")
+                    preprocessing_metadata[i] = None
+                    continue
 
     featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
     for i in range(REPLICATES):
@@ -206,15 +351,17 @@ for target in target_columns:
             train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
         else:
             train, val, test = data.PolymerDataset(train_data[i], featurizer), data.PolymerDataset(val_data[i], featurizer), data.PolymerDataset(test_data[i], featurizer)
+        # Normalize targets
         if args.task_type == 'reg':
             scaler = train.normalize_targets()
             val.normalize_targets(scaler)
+            test.normalize_targets(scaler)
         # Normalize input descriptors (to match training’s scaling, if used)
         X_d_transform = None
         if combined_descriptor_data is not None:
             descriptor_scaler = train.normalize_inputs("X_d")
             val.normalize_inputs("X_d", descriptor_scaler)
-            X_d_transform = nn.ScaleTransform.from_standard_scaler(descriptor_scaler)
+            test.normalize_inputs("X_d", descriptor_scaler)
 
         train_loader = data.build_dataloader(train, num_workers=num_workers)
         val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
