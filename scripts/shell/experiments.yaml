@@ -1,0 +1,161 @@
+experiments:
+  # Polyinfo dataset experiments
+  - dataset: polyinfo
+    model: DMPNN
+    walltime: "6:00:00"
+    incl_rdkit: true
+    task_type: multi
+  
+  - dataset: polyinfo
+    model: DMPNN
+    walltime: "6:00:00"
+    task_type: multi
+    
+  - dataset: polyinfo
+    model: tabular
+    walltime: "2:00:00"
+    incl_ab: true
+    incl_rdkit: true
+    task_type: multi
+    
+  - dataset: polyinfo
+    model: tabular
+    walltime: "1:30:00"
+    incl_ab: true
+    task_type: multi
+
+  - dataset: polyinfo
+    model: tabular
+    walltime: "1:30:00"
+    incl_rdkit: true
+    task_type: multi
+
+  # Insulator dataset experiments
+  - dataset: insulator
+    model: DMPNN
+    walltime: "6:00:00"
+    task_type: reg
+
+  - dataset: insulator
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "6:00:00"
+    task_type: reg
+    
+  - dataset: insulator
+    model: wDMPNN
+    walltime: "6:00:00"
+    task_type: reg
+  
+  - dataset: insulator
+    model: wDMPNN
+    incl_rdkit: true
+    walltime: "6:00:00"
+    task_type: reg
+    
+  - dataset: insulator
+    model: tabular
+    walltime: "1:30:00"
+    incl_rdkit: true
+    task_type: reg
+
+  - dataset: insulator
+    model: tabular
+    walltime: "1:30:00"
+    incl_ab: true
+    task_type: reg
+
+  - dataset: insulator
+    model: tabular
+    walltime: "1:30:00"
+    incl_ab: true
+    incl_rdkit: true
+    task_type: reg
+
+  # HTPMD dataset experiments
+  - dataset: htpmd
+    model: tabular
+    walltime: "1:30:00"
+    incl_ab: true
+    task_type: reg
+    
+  - dataset: htpmd
+    model: tabular
+    walltime: "2:00:00"
+    incl_desc: true
+    task_type: reg
+
+  - dataset: htpmd
+    model: tabular
+    walltime: "2:00:00"
+    incl_rdkit: true
+    task_type: reg
+
+  - dataset: htpmd
+    model: tabular
+    walltime: "2:00:00"
+    incl_ab: true
+    incl_rdkit: true
+    task_type: reg
+
+  - dataset: htpmd
+    model: tabular
+    walltime: "2:00:00"
+    incl_ab: true
+    incl_desc: true
+    incl_rdkit: true
+    task_type: reg
+
+  # OPV B3LYP experiments
+  # - dataset: opv_b3lyp
+  #   model: tabular
+  #   walltime: "1:30:00"
+  #   incl_ab: true
+  #   task_type: reg
+    
+  # - dataset: opv_b3lyp
+  #   model: tabular
+  #   walltime: "2:00:00"
+  #   incl_rdkit: true
+  #   task_type: reg
+
+  # - dataset: opv_b3lyp
+  #   model: tabular
+  #   walltime: "2:00:00"
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   task_type: reg
+
+  # OPV CAM-B3LYP experiments
+  - dataset: opv_camb3lyp
+    model: tabular
+    walltime: "12:00:00"
+    incl_ab: true
+    task_type: reg
+    
+  - dataset: opv_camb3lyp
+    model: tabular
+    walltime: "12:00:00"
+    incl_rdkit: true
+    task_type: reg
+
+
+  - dataset: opv_camb3lyp
+    model: tabular
+    walltime: "12:00:00"
+    incl_ab: true
+    incl_rdkit: true
+    task_type: reg
+
+
+  - dataset: opv_camb3lyp
+    model: DMPNN
+    walltime: "12:00:00"
+    task_type: reg
+    
+  - dataset: opv_camb3lyp
+    model: DMPNN
+    walltime: "12:00:00"
+    incl_rdkit: true
+    task_type: reg
+
