@@ -91,7 +91,7 @@ try:
             continue
         
         # Build arguments
-        args = ['generate_training_script.sh', dataset, model, walltime]
+        args = ['./generate_training_script.sh', dataset, model, walltime]
         
         # Add optional flags
         if exp.get('incl_rdkit', False):
