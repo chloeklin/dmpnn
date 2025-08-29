@@ -5,25 +5,27 @@
 # Takes dataset name, model type, and optional flags for RDKit descriptors and additional descriptors.
 #
 # Usage:
-#   ./generate_training_script.sh <dataset> <model> <walltime> [incl_rdkit] [descriptor] [task_type] [--no-submit]
+#   ./generate_training_script.sh <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type] [--no-submit]
 #
 # Examples:
 #   ./generate_training_script.sh insulator DMPNN 2:00:00
-#   ./generate_training_script.sh insulator tabular 1:30:00 incl_rdkit
-#   ./generate_training_script.sh htpmd wDMPNN 4:00:00 incl_rdkit descriptor
-#   ./generate_training_script.sh polyinfo DMPNN 3:00:00 incl_rdkit descriptor multi
+#   ./generate_training_script.sh insulator tabular 1:30:00 incl_rdkit incl_ab
+#   ./generate_training_script.sh htpmd wDMPNN 4:00:00 incl_rdkit incl_desc
+#   ./generate_training_script.sh polyinfo DMPNN 3:00:00 incl_rdkit incl_desc multi
+#   ./generate_training_script.sh insulator tabular 2:00:00 incl_ab incl_desc incl_rdkit
 #   ./generate_training_script.sh insulator DMPNN 2:00:00 --no-submit  # Create script only, don't submit
 
 # Check if dataset name, model, and walltime are provided
 if [ $# -lt 3 ]; then
-    echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [descriptor] [task_type]"
+    echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type]"
     echo ""
     echo "Available models: tabular, DMPNN, wDMPNN"
     echo "Walltime format: HH:MM:SS (e.g., 2:00:00 for 2 hours)"
+    echo "Optional flags: incl_rdkit, incl_desc, incl_ab, binary, multi"
     echo ""
     echo "Examples:"
-    echo "  $0 insulator DMPNN"
-    echo "  $0 insulator tabular incl_rdkit"
+    echo "  $0 insulator DMPNN 2:00:00"
+    echo "  $0 insulator tabular 1:30:00 incl_rdkit incl_ab"
     exit 1
 fi
 
@@ -32,7 +34,8 @@ DATASET="$1"
 MODEL="$2"
 WALLTIME="$3"
 INCL_RDKIT=""
-DESCRIPTOR=""
+INCL_DESC=""
+INCL_AB=""
 TASK_TYPE="reg"
 
 # Validate model type
@@ -46,9 +49,6 @@ case $MODEL in
 esac
 
 # Parse optional arguments
-DESCRIPTOR=""
-INCL_RDKIT=""
-TASK_TYPE="reg"
 SUBMIT_JOB=true
 
 for arg in "${@:4}"; do
@@ -56,8 +56,11 @@ for arg in "${@:4}"; do
         incl_rdkit)
             INCL_RDKIT="--incl_rdkit"
             ;;
-        descriptor)
-            DESCRIPTOR="--descriptor"
+        incl_desc)
+            INCL_DESC="--incl_desc"
+            ;;
+        incl_ab)
+            INCL_AB="--incl_ab"
             ;;
         binary|multi)
             TASK_TYPE=$arg
@@ -73,11 +76,14 @@ done
 
 # Build suffix for filenames
 SUFFIX="_${MODEL}"
-if [ -n "$DESCRIPTOR" ]; then
+if [ -n "$INCL_DESC" ]; then
     SUFFIX="${SUFFIX}_desc"
 fi
 if [ -n "$INCL_RDKIT" ]; then
     SUFFIX="${SUFFIX}_rdkit"
+fi
+if [ -n "$INCL_AB" ]; then
+    SUFFIX="${SUFFIX}_ab"
 fi
 if [ "$TASK_TYPE" != "reg" ]; then
     SUFFIX="${SUFFIX}_${TASK_TYPE}"
@@ -98,11 +104,14 @@ fi
 if [ "$TASK_TYPE" != "reg" ]; then
     ARGS="$ARGS --task_type $TASK_TYPE"
 fi
-if [ -n "$DESCRIPTOR" ]; then
-    ARGS="$ARGS $DESCRIPTOR"
+if [ -n "$INCL_DESC" ]; then
+    ARGS="$ARGS $INCL_DESC"
 fi
 if [ -n "$INCL_RDKIT" ]; then
     ARGS="$ARGS $INCL_RDKIT"
+fi
+if [ -n "$INCL_AB" ]; then
+    ARGS="$ARGS $INCL_AB"
 fi
 
 # Output script filename

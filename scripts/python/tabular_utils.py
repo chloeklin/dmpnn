@@ -458,7 +458,7 @@ def weighted_average(A: np.ndarray, B: np.ndarray, fa: np.ndarray, fb: np.ndarra
 
 # ------------------------ Feature assembly ---------------------------
 
-def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: List[str], kind: str, use_rdkit: bool, pool: str = 'mean', add_counts: bool = False) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: List[str], kind: str, use_rdkit: bool, use_ab: bool = True, pool: str = 'mean', add_counts: bool = False) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     use_descriptor = len(descriptor_columns) > 0
     
     ab_block = None
@@ -467,8 +467,11 @@ def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: L
 
     if kind == "homo":
         smiles = df["smiles"].tolist()
-        ab_block = atom_bond_block_from_smiles(smiles, pool=pool, add_counts=add_counts)
-        names += [f"AB_{i}" for i in range(ab_block.shape[1])]
+        
+        # Only include AB features if requested
+        if use_ab:
+            ab_block = atom_bond_block_from_smiles(smiles, pool=pool, add_counts=add_counts)
+            names += [f"AB_{i}" for i in range(ab_block.shape[1])]
         
         # Combine RDKit and descriptor blocks
         desc_blocks = []
@@ -491,11 +494,12 @@ def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: L
     else:
         sA, sB = df["smiles_A"].tolist(), df["smiles_B"].tolist()
         fA, fB = df["frac_A"].astype(float).values, df["frac_B"].astype(float).values
-
-        abA = atom_bond_block_from_smiles(sA, pool=pool, add_counts=add_counts)
-        abB = atom_bond_block_from_smiles(sB, pool=pool, add_counts=add_counts)
-        ab_block = weighted_average(abA, abB, fA, fB)
-        names += [f"AB_{i}" for i in range(ab_block.shape[1])]
+        # Only include AB features if requested
+        if use_ab:
+            abA = atom_bond_block_from_smiles(sA, pool=pool, add_counts=add_counts)
+            abB = atom_bond_block_from_smiles(sB, pool=pool, add_counts=add_counts)
+            ab_block = weighted_average(abA, abB, fA, fB)
+            names += [f"AB_{i}" for i in range(ab_block.shape[1])]
         
         # Combine RDKit and descriptor blocks
         desc_blocks = []

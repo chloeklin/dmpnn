@@ -21,7 +21,7 @@ parser.add_argument('--dataset_name', type=str, required=True,
                     help='Name of the dataset file (without .csv extension)')
 parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
-parser.add_argument('--descriptor', action='store_true',
+parser.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
@@ -74,7 +74,7 @@ MODEL_NAME = args.model_name
 REPLICATES = GLOBAL_CONFIG.get('REPLICATES', 5)
 # Get dataset descriptors from config
 DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
-descriptor_columns = DATASET_DESCRIPTORS if args.descriptor else []
+descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
 
 # === Set Random Seed ===
 set_seed(SEED)
@@ -111,7 +111,7 @@ logger.info(f"Model            : {args.model_name}")
 logger.info(f"SMILES column    : {smiles_column}")
 logger.info(f"Descriptor cols  : {descriptor_columns}")
 logger.info(f"Ignore columns   : {ignore_columns}")
-logger.info(f"Descriptors      : {'Enabled' if args.descriptor else 'Disabled'}")
+logger.info(f"Descriptors      : {'Enabled' if args.incl_desc else 'Disabled'}")
 logger.info(f"RDKit desc.      : {'Enabled' if args.incl_rdkit else 'Disabled'}")
 logger.info(f"Epochs           : {EPOCHS}")
 logger.info(f"Replicates       : {REPLICATES}")
@@ -124,6 +124,9 @@ smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df
 
 featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
       
+
+# Store all results for aggregate saving
+all_results = []
 
 for target in target_columns:
     # Extract target values
@@ -492,10 +495,23 @@ for target in target_columns:
     logger.info(f"\n[{target}] Std across {n_evals} splits:\n{std_metrics}")
 
 
-    # Optional: save to file
-    suffix_desc  = "_descriptors" if args.descriptor else ""
+    # Add target column to results and store for aggregation
+    results_df['target'] = target
+    all_results.append(results_df)
+    
+    # Save progressive aggregate results after each target (same filename, updated each time)
+    suffix_desc  = "_descriptors" if args.incl_desc else ""
     suffix_rdkit = "_rdkit"       if args.incl_rdkit else ""
-    results_df.to_csv(
-        results_dir / f"{args.dataset_name}_{target}{suffix_desc}{suffix_rdkit}_{MODEL_NAME}_results.csv",
-        index=False
-    )
+    aggregate_csv = results_dir / f"{args.dataset_name}{suffix_desc}{suffix_rdkit}_{MODEL_NAME}_results.csv"
+    
+    # Combine all completed targets so far
+    current_aggregate_df = pd.concat(all_results, ignore_index=True)
+    
+    # Organize columns: target, split, then metrics
+    base_cols = ["target", "split"]
+    metric_cols = sorted([c for c in current_aggregate_df.columns if c not in base_cols])
+    current_aggregate_df = current_aggregate_df[base_cols + metric_cols]
+    
+    # Overwrite the same file with updated results
+    current_aggregate_df.to_csv(aggregate_csv, index=False)
+    logger.info(f"Updated aggregate results with {target} -> {aggregate_csv}")
