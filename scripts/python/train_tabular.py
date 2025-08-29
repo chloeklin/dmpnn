@@ -72,13 +72,15 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     detailed_rows = []
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
         # Extract and process features
-        ab_block, descriptor_block, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit)
+        ab_block, descriptor_block, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit, use_ab=args.incl_ab)
         
         orig_desc_names = [n for n in feat_names if not n.startswith('AB_')]
 
-        # Process AB block (no cleaning/selection needed)
-        ab_tr, ab_val, ab_te = ab_block[train_idx], ab_block[val_idx], ab_block[test_idx]
-        ab_names = [name for name in feat_names if name.startswith('AB_')]
+        # Process AB block (no cleaning/selection needed) - only if AB features are included
+        if ab_block is not None:
+            ab_tr, ab_val, ab_te = ab_block[train_idx], ab_block[val_idx], ab_block[test_idx]
+            ab_names = [name for name in feat_names if name.startswith('AB_')]
+
         
         # Process descriptor block separately (clean and select features)
         if descriptor_block is not None:
@@ -157,19 +159,26 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
             
             
             # Combine AB block with selected descriptor block
-            X_tr = np.concatenate([ab_tr, desc_tr_selected], axis=1)
-            X_val = np.concatenate([ab_val, desc_val_selected], axis=1)
-            X_te = np.concatenate([ab_te, desc_te_selected], axis=1)
-            feat_names = ab_names + keep_names
-            
+            if ab_block is not None:
+                X_tr = np.concatenate([ab_tr, desc_tr_selected], axis=1)
+                X_val = np.concatenate([ab_val, desc_val_selected], axis=1)
+                X_te = np.concatenate([ab_te, desc_te_selected], axis=1)
+                feat_names = ab_names + keep_names
+            else:
+                # Only descriptor block available
+                X_tr, X_val, X_te = desc_tr_selected, desc_val_selected, desc_te_selected
+                feat_names = keep_names
+        
         else:
-            # Only AB block available
+            # Only AB block available (or no features if AB disabled)
             X_tr, X_val, X_te = ab_tr, ab_val, ab_te
             feat_names = ab_names
 
+        # Ensure output directory exists for saving preprocessing objects
+        out_dir.mkdir(parents=True, exist_ok=True)
+        
         # Save preprocessing metadata and objects
         if descriptor_block is not None:
-            out_dir.mkdir(parents=True, exist_ok=True)
 
             preprocessing_metadata = {
                 "n_desc_before_any_selection": len(orig_desc_names),
@@ -291,8 +300,12 @@ def main():
                         help='Task type: "reg" (regression), "binary", or "multi" (multi-class)')
     parser.add_argument('--use_dataset_descriptors', dest='incl_desc', action='store_true',
                         help='Include dataset-specific descriptors from config (in addition to pooled atom/bond features)')
+    parser.add_argument('--incl_desc', action='store_true',
+                    help='Use dataset-specific descriptors')
     parser.add_argument('--incl_rdkit', action='store_true',
                         help='Include RDKit 2D descriptors')
+    parser.add_argument('--incl_ab', action='store_true',
+                        help='Include atom/bond pooled features')
     parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
     args = parser.parse_args()
@@ -411,7 +424,7 @@ def main():
         df_detailed = df_detailed[base_cols + metric_cols]
         
         # Write to CSV with timestamp
-        suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "")
+        suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "") + ("_ab" if args.incl_ab else "")
         detailed_csv = results_dir / f"{args.dataset_name}_tabular{suffix}.csv"
         df_detailed.to_csv(detailed_csv, index=False)
         logger.info(f"Saved split-level results to {detailed_csv}")    
