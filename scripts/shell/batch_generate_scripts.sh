@@ -115,7 +115,7 @@ try:
         print(f"Generating: {' '.join(args[1:])}")
         
         # Call the generate_training_script.sh
-        result = subprocess.run(args, capture_output=True, text=True)
+        result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         
         if result.returncode != 0:
             print(f"Error generating script for {dataset}-{model}: {result.stderr}")
