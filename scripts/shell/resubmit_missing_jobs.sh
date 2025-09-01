@@ -23,7 +23,15 @@ get_expected_csv() {
     local base_name=$(basename "$script_name" .sh)
     
     # Parse script to determine dataset, model, and flags
-    local dataset=$(echo "$base_name" | sed 's/train_\([^_]*\)_.*/\1/')
+    # Extract dataset name - everything between 'train_' and the model/type part
+    local dataset=""
+    if [[ "$base_name" == *"DMPNN"* ]] || [[ "$base_name" == *"wDMPNN"* ]] || [[ "$base_name" == *"PPG"* ]]; then
+        # Graph training - dataset is everything before the model name
+        dataset=$(echo "$base_name" | sed 's/train_\(.*\)_\(DMPNN\|wDMPNN\|PPG\).*/\1/')
+    else
+        # Tabular training - dataset is everything before '_tabular'
+        dataset=$(echo "$base_name" | sed 's/train_\(.*\)_tabular.*/\1/')
+    fi
     
     if [[ "$base_name" == *"DMPNN"* ]] || [[ "$base_name" == *"wDMPNN"* ]] || [[ "$base_name" == *"PPG"* ]]; then
         # Graph training - aggregate results format (no target in filename)
