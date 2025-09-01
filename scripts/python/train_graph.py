@@ -12,6 +12,7 @@ from chemprop import data, featurizers
 from utils import (set_seed, process_data, make_repeated_splits, 
                   load_drop_indices, 
                   create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data)
+from tabular_utils import (build_experiment_paths, validate_checkpoint_compatibility, manage_preprocessing_cache)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -316,10 +317,8 @@ for target in target_columns:
                 for dp, ridx in zip(datapoints, row_indices):
                     # Get cleaned data for this row
                     row_clean = all_data_clean[ridx]  # Already imputed, clipped, and converted
-                    # Apply correlation mask (zero out dropped features)
-                    out = np.zeros_like(row_clean, dtype=np.float32)
-                    out[mask] = row_clean[mask]
-                    dp.x_d = out
+                    # Apply correlation mask (keep only non-correlated features)
+                    dp.x_d = row_clean[mask].astype(np.float32)
             
             _apply_preprocessing_and_mask(train_data[i], tr)
             _apply_preprocessing_and_mask(val_data[i], va)
@@ -380,36 +379,10 @@ for target in target_columns:
         # - Fit scaler on train, apply to train/val targets (for training stability)
         # - DO NOT scale test targets; predictions are unscaled by output_transform
         if args.task_type == 'reg':
-            scaler  = train.normalize_targets()
+            scaler = train.normalize_targets()
             val.normalize_targets(scaler)
             # test targets intentionally left unscaled
         
-
-        if combined_descriptor_data is not None:
-            # normalise descriptors
-            descriptor_scaler = train.normalize_inputs("X_d")
-            val.normalize_inputs("X_d", descriptor_scaler)
-            test.normalize_inputs("X_d", descriptor_scaler)
-            
-            # Re-apply zero mask after scaling to prevent mean-subtraction from unzeroing features
-            correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'])
-            
-            def _reapply_zero_mask(datapoints):
-                for dp in datapoints:
-                    if hasattr(dp, 'x_d') and dp.x_d is not None:
-                        # Re-zero the dropped features after scaling
-                        dp.x_d[~correlation_mask] = 0.0
-            
-            _reapply_zero_mask(train)
-            _reapply_zero_mask(val)
-            _reapply_zero_mask(test)
-            
-            logger.debug(f"Re-applied zero mask after scaling for split {i}")
-        
-        # Create dataloaders
-        train_loader = data.build_dataloader(train, num_workers=num_workers)
-        val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
-        test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
 
         # Modular metric selection
         n_classes_arg = n_classes_per_target[target] if args.task_type == 'multi' else None
@@ -420,74 +393,83 @@ for target in target_columns:
             df_input=df_input
         )
         batch_norm = False
-        # Create checkpoint directory structure with feature configuration
-        desc_suffix = "__desc" if descriptor_columns else ""
-        rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
         
-        checkpoint_path = (
-            checkpoint_dir / 
-            f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
+        # Build experiment paths
+        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+            args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
         
-        # Create separate preprocessing directory to avoid Lightning conflicts
-        preprocessing_path = (
-            chemprop_dir / "preprocessing" / "DMPNN" /
-            f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
+        # 1) Try to load cached scaler & masks BEFORE normalization
+        preprocessing_reused, cached_scaler, correlation_mask, constant_features = manage_preprocessing_cache(
+            preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, None, logger
         )
-        preprocessing_path.mkdir(parents=True, exist_ok=True)
         
-        # Check for compatible checkpoints, remove incompatible ones
-        import glob
-        checkpoint_compatible = False
-        if checkpoint_path.exists():
-            ckpt_files = glob.glob(str(checkpoint_path / "*.ckpt"))
-            if ckpt_files:
-                # Check if preprocessing metadata exists and matches current preprocessing
-                metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
-                if metadata_file.exists():
-                    try:
-                        with open(metadata_file, 'r') as f:
-                            saved_metadata = json.load(f)
-                        
-                        # Compare key preprocessing parameters
-                        current_n_features = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
-                        saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
-                        
-                        if current_n_features == saved_n_features:
-                            checkpoint_compatible = True
-                            logger.info(f"Found compatible checkpoint with {current_n_features} features")
-                        else:
-                            logger.warning(f"Checkpoint incompatible: {saved_n_features} vs {current_n_features} features")
-                    except Exception as e:
-                        logger.warning(f"Could not validate checkpoint compatibility: {e}")
-                
-                if not checkpoint_compatible:
-                    # Remove incompatible checkpoints
-                    import shutil
-                    shutil.rmtree(checkpoint_path)
-                    logger.info(f"Removed incompatible checkpoint directory: {checkpoint_path}")
-                    checkpoint_path.mkdir(parents=True, exist_ok=True)
+        # Safety check: ensure cached correlation_mask matches local computation
+        m_local = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
+        cm = np.array(correlation_mask, dtype=bool)
+        assert m_local.shape == cm.shape and np.all(m_local == cm), \
+            "Local correlation mask != cached correlation mask (split consistency issue)"
+
+        # 2) Normalize using the decided scaler
+        if combined_descriptor_data is not None:
+            if cached_scaler is not None:
+                descriptor_scaler = cached_scaler
+                train.normalize_inputs("X_d", descriptor_scaler)
+                val.normalize_inputs("X_d", descriptor_scaler)
+                test.normalize_inputs("X_d", descriptor_scaler)
+            else:
+                descriptor_scaler = train.normalize_inputs("X_d")
+                val.normalize_inputs("X_d", descriptor_scaler)
+                test.normalize_inputs("X_d", descriptor_scaler)
+                # persist the fitted scaler
+                _ = manage_preprocessing_cache(
+                    preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, descriptor_scaler, logger
+                )
+            
+            # No need to re-apply zero mask since dp.x_d is already sliced to kept features only
+            logger.debug(f"Descriptor features already filtered to kept features only for split {i}")
+        else:
+            descriptor_scaler = None
         
-        # Save preprocessing metadata and objects
+        # Create dataloaders
+        train_loader = data.build_dataloader(train, num_workers=num_workers)
+        val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
+        test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
         
-        # Save descriptor scaler
-        dump(descriptor_scaler, preprocessing_path / "descriptor_scaler.pkl")
-        logger.info(f"Saved descriptor scaler to {preprocessing_path / 'descriptor_scaler.pkl'}")
+        # Clean up incompatible checkpoints if preprocessing changed
+        if not preprocessing_reused and checkpoint_path.exists():
+            import shutil
+            shutil.rmtree(checkpoint_path)
+            logger.info(f"Removed incompatible checkpoint directory: {checkpoint_path}")
+            checkpoint_path.mkdir(parents=True, exist_ok=True)
         
-        # Save correlation mask as numpy array
-        correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'])
-        np.save(preprocessing_path / "correlation_mask.npy", correlation_mask)
-        logger.info(f"Saved correlation mask to {preprocessing_path / 'correlation_mask.npy'}")
+        # Create processed descriptor data for model building (with constant features dropped)
+        if combined_descriptor_data is not None:
+            # Apply same preprocessing as applied to datapoints
+            processed_descriptor_data = combined_descriptor_data.copy()
+            
+            # Remove constant features (same as done in preprocessing)
+            if constant_features:
+                processed_descriptor_data = np.delete(processed_descriptor_data, constant_features, axis=1)
+            
+            # Apply correlation mask to get final feature count
+            processed_descriptor_data = processed_descriptor_data[:, correlation_mask]
+            
+            logger.info(f"Model input descriptor shape: {processed_descriptor_data.shape} (after constant removal and correlation filtering)")
+        else:
+            processed_descriptor_data = None
         
-        # Save constant features removed as numpy array
-        constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
-        np.save(preprocessing_path / "constant_features_removed.npy", np.array(constant_features, dtype=np.int64))
-        logger.info(f"Saved constant features to {preprocessing_path / 'constant_features_removed.npy'}")
+        # Assertion to prevent descriptor dimension regression
+        desc_len_seen = len(train[0].x_d) if getattr(train[0], "x_d", None) is not None else 0
+        if processed_descriptor_data is not None:
+            logger.info(f"[split {i}] datapoint descriptor dim: {desc_len_seen}, processed dim: {processed_descriptor_data.shape[1]}")
+            assert processed_descriptor_data.shape[1] == desc_len_seen, \
+                "Descriptor dim mismatch: datapoints vs processed_descriptor_data."
         
         scaler_arg = scaler if args.task_type == 'reg' else None
         mpnn, trainer = build_model_and_trainer(
             args=args,
-            combined_descriptor_data=combined_descriptor_data,
+            combined_descriptor_data=processed_descriptor_data,
             n_classes=n_classes_arg,
             scaler=scaler_arg,
             checkpoint_path=checkpoint_path,
@@ -497,36 +479,13 @@ for target in target_columns:
             max_epochs=EPOCHS,
             
         )
-        last_ckpt = None
-        if os.path.exists(checkpoint_path):
-            ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
-            if ckpt_files:
-                # Check if preprocessing metadata exists and matches current preprocessing
-                metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
-                if metadata_file.exists():
-                    try:
-                        with open(metadata_file, 'r') as f:
-                            saved_metadata = json.load(f)
-                        
-                        # Compare key preprocessing parameters
-                        current_n_features = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
-                        saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
-                        
-                        if current_n_features == saved_n_features:
-                            last_ckpt = str(Path(checkpoint_path) / sorted(ckpt_files)[-1])
-                            logger.info(f"Loading checkpoint: {last_ckpt} (features match: {current_n_features})")
-                        else:
-                            logger.warning(f"Skipping checkpoint due to feature mismatch: current={current_n_features}, saved={saved_n_features}")
-                            logger.warning("Starting training from scratch")
-                    except Exception as e:
-                        logger.warning(f"Could not validate checkpoint compatibility: {e}")
-                        logger.warning("Starting training from scratch")
-                else:
-                    # No metadata file, assume incompatible
-                    logger.warning("No preprocessing metadata found for checkpoint validation")
-                    logger.warning("Starting training from scratch")
+        # Validate checkpoint compatibility and get resume path
+        descriptor_dim = processed_descriptor_data.shape[1] if processed_descriptor_data is not None else 0
+        last_ckpt = validate_checkpoint_compatibility(
+            checkpoint_path, preprocessing_path, i, descriptor_dim, logger
+        )
 
-        # Train - force fresh start if no compatible checkpoint
+        # Train
         
         trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
         results = trainer.test(dataloaders=test_loader)
@@ -552,11 +511,9 @@ for target in target_columns:
     all_results.append(results_df)
     
     # Save progressive aggregate results after each target (same filename, updated each time)
-    suffix_desc  = "_descriptors" if args.incl_desc else ""
-    suffix_rdkit = "_rdkit"       if args.incl_rdkit else ""
     model_results_dir = results_dir / MODEL_NAME
     model_results_dir.mkdir(exist_ok=True)
-    aggregate_csv = model_results_dir / f"{args.dataset_name}{suffix_desc}{suffix_rdkit}_results.csv"
+    aggregate_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}_results.csv"
     
     # Combine all completed targets so far
     current_aggregate_df = pd.concat(all_results, ignore_index=True)

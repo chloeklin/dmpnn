@@ -28,6 +28,149 @@ from sklearn.impute import SimpleImputer
 
 # Lazy imports for heavy dependencies
 RDKIT_AVAILABLE = False
+
+
+def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i):
+    """Build all paths needed for experiment tracking."""
+    desc_suffix = "__desc" if descriptor_columns else ""
+    rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+    
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
+    
+    checkpoint_path = checkpoint_dir / base_name
+    preprocessing_path = chemprop_dir / "preprocessing" / "DMPNN" / base_name
+    
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix
+
+
+def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
+    """Check if existing checkpoints are compatible with current preprocessing.
+    
+    Args:
+        checkpoint_path: Path to checkpoint directory
+        preprocessing_path: Path to preprocessing metadata
+        i: Split index
+        descriptor_dim: Number of descriptor features after all preprocessing (int)
+        logger: Logger instance
+    """
+    import os
+    
+    if not checkpoint_path.exists():
+        return None
+        
+    ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
+    if not ckpt_files:
+        return None
+        
+    metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+    if not metadata_file.exists():
+        logger.warning("No preprocessing metadata found for checkpoint validation")
+        return None
+        
+    try:
+        with open(metadata_file, 'r') as f:
+            saved_metadata = json.load(f)
+        
+        # Use the processed descriptor dimension directly
+        current_n_features = descriptor_dim
+        saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
+        
+        if current_n_features == saved_n_features:
+            last_ckpt = str(checkpoint_path / sorted(ckpt_files)[-1])
+            logger.info(f"Loading checkpoint: {last_ckpt} (features match: {current_n_features})")
+            return last_ckpt
+        else:
+            logger.warning(f"Checkpoint feature mismatch: current={current_n_features}, saved={saved_n_features}")
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Could not validate checkpoint compatibility: {e}")
+        return None
+
+
+def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, 
+                             descriptor_scaler, logger):
+    """Handle loading/saving of preprocessing cache."""
+    from joblib import load, dump
+    
+    # Define file paths
+    metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+    scaler_file = preprocessing_path / "descriptor_scaler.pkl"
+    correlation_mask_file = preprocessing_path / "correlation_mask.npy"
+    constant_features_file = preprocessing_path / "constant_features_removed.npy"
+    
+    preprocessing_path.mkdir(parents=True, exist_ok=True)
+    
+    # Check if preprocessing can be reused
+    preprocessing_exists = (
+        metadata_file.exists() and 
+        correlation_mask_file.exists() and 
+        constant_features_file.exists()
+    )
+    
+    if preprocessing_exists:
+        try:
+            with open(metadata_file, 'r') as f:
+                existing_metadata = json.load(f)
+            
+            # Get current preprocessing parameters for comparison
+            current_constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
+            current_correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
+            current_n_features_final = np.sum(current_correlation_mask)
+            
+            # Get saved preprocessing parameters
+            saved_constant_features = existing_metadata.get('data_info', {}).get('constant_features_removed', [])
+            saved_n_features_final = existing_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
+            
+            # Load saved masks for detailed comparison
+            saved_correlation_mask = np.load(correlation_mask_file).astype(bool)
+            saved_constant_features_array = np.load(constant_features_file)
+            
+            # Deterministic reuse: require exact match of preprocessing parameters
+            masks_match = np.array_equal(current_correlation_mask, saved_correlation_mask)
+            constants_match = (current_constant_features == saved_constant_features or 
+                             np.array_equal(np.array(current_constant_features), saved_constant_features_array))
+            counts_match = (current_n_features_final == saved_n_features_final)
+            
+            if masks_match and constants_match and counts_match:
+                # Load existing preprocessing objects with type safety
+                correlation_mask = saved_correlation_mask
+                constant_features = saved_constant_features
+                
+                # Only load scaler if we don't already have one
+                if descriptor_scaler is None and scaler_file.exists():
+                    descriptor_scaler = load(scaler_file)
+                    logger.info(f"Loaded existing descriptor scaler from {scaler_file}")
+                
+                logger.info(f"Reusing existing preprocessing for split {i} with {current_n_features_final} final features")
+                return True, descriptor_scaler, correlation_mask, constant_features
+            else:
+                logger.info(f"Preprocessing parameters changed (masks_match={masks_match}, constants_match={constants_match}, counts_match={counts_match}), recomputing...")
+                
+        except Exception as e:
+            logger.warning(f"Could not load existing preprocessing: {e}, recomputing...")
+    
+    # Save new preprocessing - add n_features_after_preprocessing to metadata
+    correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
+    n_features_final = np.sum(correlation_mask)
+    
+    # Add the missing field to metadata
+    split_preprocessing_metadata[i]['data_info']['n_features_after_preprocessing'] = int(n_features_final)
+    
+    if descriptor_scaler is not None:
+        dump(descriptor_scaler, scaler_file)
+        logger.info(f"Saved descriptor scaler to {scaler_file}")
+    
+    np.save(correlation_mask_file, correlation_mask)
+    
+    constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
+    np.save(constant_features_file, np.array(constant_features, dtype=np.int64))
+    
+    with open(metadata_file, 'w') as f:
+        json.dump(split_preprocessing_metadata[i], f, indent=2)
+    
+    logger.info(f"Saved preprocessing metadata for split {i} with {n_features_final} final features")
+    return False, descriptor_scaler, correlation_mask, constant_features
 try:
     from rdkit import Chem
     from rdkit.Chem import Descriptors, rdchem
