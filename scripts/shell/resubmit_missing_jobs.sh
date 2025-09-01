@@ -60,19 +60,20 @@ get_expected_csv() {
         local suffix=""
         
         # Build suffix based on flags present in script name
-        if [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"rdkit"* ]] && [[ "$base_name" == *"ab"* ]]; then
+        # Use more specific patterns to avoid false matches
+        if [[ "$base_name" == *"_desc_"* ]] && [[ "$base_name" == *"_rdkit_"* ]] && [[ "$base_name" == *"_ab"* ]]; then
             suffix="_descriptors_rdkit_ab"
-        elif [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"rdkit"* ]]; then
+        elif [[ "$base_name" == *"_desc_"* ]] && [[ "$base_name" == *"_rdkit"* ]]; then
             suffix="_descriptors_rdkit"
-        elif [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"ab"* ]]; then
+        elif [[ "$base_name" == *"_desc_"* ]] && [[ "$base_name" == *"_ab"* ]]; then
             suffix="_descriptors_ab"
-        elif [[ "$base_name" == *"rdkit"* ]] && [[ "$base_name" == *"ab"* ]]; then
+        elif [[ "$base_name" == *"_rdkit_"* ]] && [[ "$base_name" == *"_ab"* ]]; then
             suffix="_rdkit_ab"
-        elif [[ "$base_name" == *"desc"* ]]; then
+        elif [[ "$base_name" == *"_desc"* ]]; then
             suffix="_descriptors"
-        elif [[ "$base_name" == *"rdkit"* ]]; then
+        elif [[ "$base_name" == *"_rdkit"* ]]; then
             suffix="_rdkit"
-        elif [[ "$base_name" == *"ab"* ]]; then
+        elif [[ "$base_name" == *"_ab"* ]]; then
             suffix="_ab"
         fi
         
