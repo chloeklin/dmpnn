@@ -1,3 +1,4 @@
+preprocessing/*
 out/*
 *.e*
 *.o*
