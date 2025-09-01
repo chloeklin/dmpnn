@@ -42,7 +42,7 @@ chemprop_dir = Path.cwd()
 paths = config.get('PATHS', {})
 data_dir = chemprop_dir / paths.get('data_dir', 'data')
 checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model_name
-results_dir = chemprop_dir / paths.get('results_dir', 'results') / args.model_name
+results_dir = chemprop_dir / paths.get('results_dir', 'results')
 feat_select_dir = chemprop_dir / paths.get('feat_select_dir', 'out') / args.model_name / args.dataset_name
 
 # Create necessary directories
@@ -436,29 +436,53 @@ for target in target_columns:
         )
         preprocessing_path.mkdir(parents=True, exist_ok=True)
         
-        # Clear any existing checkpoints to prevent Lightning auto-resume with incompatible models
+        # Check for compatible checkpoints, remove incompatible ones
         import glob
-        existing_ckpts = glob.glob(str(checkpoint_path / "*.ckpt"))
-        if existing_ckpts:
-            for ckpt in existing_ckpts:
-                os.remove(ckpt)
-                logger.info(f"Removed incompatible checkpoint: {ckpt}")
+        checkpoint_compatible = False
+        if checkpoint_path.exists():
+            ckpt_files = glob.glob(str(checkpoint_path / "*.ckpt"))
+            if ckpt_files:
+                # Check if preprocessing metadata exists and matches current preprocessing
+                metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+                if metadata_file.exists():
+                    try:
+                        with open(metadata_file, 'r') as f:
+                            saved_metadata = json.load(f)
+                        
+                        # Compare key preprocessing parameters
+                        current_n_features = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
+                        saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
+                        
+                        if current_n_features == saved_n_features:
+                            checkpoint_compatible = True
+                            logger.info(f"Found compatible checkpoint with {current_n_features} features")
+                        else:
+                            logger.warning(f"Checkpoint incompatible: {saved_n_features} vs {current_n_features} features")
+                    except Exception as e:
+                        logger.warning(f"Could not validate checkpoint compatibility: {e}")
+                
+                if not checkpoint_compatible:
+                    # Remove incompatible checkpoints
+                    import shutil
+                    shutil.rmtree(checkpoint_path)
+                    logger.info(f"Removed incompatible checkpoint directory: {checkpoint_path}")
+                    checkpoint_path.mkdir(parents=True, exist_ok=True)
         
         # Save preprocessing metadata and objects
-            
-            # Save descriptor scaler
-            dump(descriptor_scaler, preprocessing_path / "descriptor_scaler.pkl")
-            logger.info(f"Saved descriptor scaler to {preprocessing_path / 'descriptor_scaler.pkl'}")
-            
-            # Save correlation mask as numpy array
-            correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'])
-            np.save(preprocessing_path / "correlation_mask.npy", correlation_mask)
-            logger.info(f"Saved correlation mask to {preprocessing_path / 'correlation_mask.npy'}")
-            
-            # Save constant features removed as numpy array
-            constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
-            np.save(preprocessing_path / "constant_features_removed.npy", np.array(constant_features, dtype=np.int64))
-            logger.info(f"Saved constant features to {preprocessing_path / 'constant_features_removed.npy'}")
+        
+        # Save descriptor scaler
+        dump(descriptor_scaler, preprocessing_path / "descriptor_scaler.pkl")
+        logger.info(f"Saved descriptor scaler to {preprocessing_path / 'descriptor_scaler.pkl'}")
+        
+        # Save correlation mask as numpy array
+        correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'])
+        np.save(preprocessing_path / "correlation_mask.npy", correlation_mask)
+        logger.info(f"Saved correlation mask to {preprocessing_path / 'correlation_mask.npy'}")
+        
+        # Save constant features removed as numpy array
+        constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
+        np.save(preprocessing_path / "constant_features_removed.npy", np.array(constant_features, dtype=np.int64))
+        logger.info(f"Saved constant features to {preprocessing_path / 'constant_features_removed.npy'}")
         
         scaler_arg = scaler if args.task_type == 'reg' else None
         mpnn, trainer = build_model_and_trainer(
