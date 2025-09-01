@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import json
+from sklearn.impute import SimpleImputer
+from joblib import dump
 
 from chemprop import data, featurizers
 from utils import (set_seed, process_data, make_repeated_splits, 
@@ -25,7 +27,7 @@ parser.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
-parser.add_argument('--model_name', type=str, default="DMPNN",choices=["DMPNN", "wDMPNN","periodic"],
+parser.add_argument('--model_name', type=str, default="DMPNN", choices=["DMPNN", "wDMPNN", "PPG"],
                     help='Name of the model to use')
 args = parser.parse_args()
 
@@ -241,7 +243,6 @@ for target in target_columns:
             # Initialize default values
             correlated_features = []
             # Per-split data cleaning: fit imputer on training data only
-            from sklearn.impute import SimpleImputer
             
             # Get training data for this split (after constant removal)
             train_data_split = orig_Xd[tr]
@@ -436,9 +437,7 @@ for target in target_columns:
             with open(metadata_path, 'w') as f:
                 json.dump(split_preprocessing_metadata[i], f, indent=2)
             logger.info(f"Saved preprocessing metadata to {metadata_path}")
-            
-            # Save preprocessing objects separately using joblib and numpy
-            from joblib import dump
+        
             
             # Save imputer if it exists
             if split_imputers[i] is not None:
@@ -482,13 +481,16 @@ for target in target_columns:
         trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
         results = trainer.test(dataloaders=test_loader)
         test_metrics = results[0]
+        test_metrics['split'] = i  # Add split index to metrics
         results_all.append(test_metrics)
     
 
     # Convert to DataFrame
     results_df = pd.DataFrame(results_all)
-    mean_metrics = results_df.mean()
-    std_metrics = results_df.std()
+    # Calculate mean/std only for numeric metric columns (exclude 'split')
+    numeric_cols = [col for col in results_df.columns if col != 'split']
+    mean_metrics = results_df[numeric_cols].mean()
+    std_metrics = results_df[numeric_cols].std()
 
     n_evals = len(results_all)
     logger.info(f"\n[{target}] Mean across {n_evals} splits:\n{mean_metrics}")
