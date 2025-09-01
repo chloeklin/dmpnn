@@ -38,7 +38,7 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
     
     checkpoint_path = checkpoint_dir / base_name
-    preprocessing_path = chemprop_dir / "preprocessing" / "DMPNN" / base_name
+    preprocessing_path = chemprop_dir / "preprocessing" / args.model_name / base_name
     
     return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix
 
