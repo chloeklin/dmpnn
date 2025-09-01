@@ -10,6 +10,7 @@ This module provides utilities for processing tabular molecular data, including:
 
 # Standard library imports
 from typing import List, Tuple, Optional, Dict, Any, Union, Callable
+import json
 import logging
 
 # Third-party imports
