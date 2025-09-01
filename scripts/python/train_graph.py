@@ -428,12 +428,18 @@ for target in target_columns:
             checkpoint_dir / 
             f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
         )
-        checkpoint_path.mkdir(parents=True, exist_ok=True)
         
-        # Save preprocessing metadata and objects now that checkpoint_path exists
+        # Create separate preprocessing directory to avoid Lightning conflicts
+        preprocessing_path = (
+            chemprop_dir / "preprocessing" / "DMPNN" /
+            f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
+        )
+        preprocessing_path.mkdir(parents=True, exist_ok=True)
+        
+        # Save preprocessing metadata and objects to separate directory
         if combined_descriptor_data is not None:
             # Save JSON metadata
-            metadata_path = checkpoint_path / f"preprocessing_metadata_split_{i}.json"
+            metadata_path = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
             with open(metadata_path, 'w') as f:
                 json.dump(split_preprocessing_metadata[i], f, indent=2)
             logger.info(f"Saved preprocessing metadata to {metadata_path}")
@@ -441,22 +447,22 @@ for target in target_columns:
             
             # Save imputer if it exists
             if split_imputers[i] is not None:
-                dump(split_imputers[i], checkpoint_path / "descriptor_imputer.pkl")
-                logger.info(f"Saved descriptor imputer to {checkpoint_path / 'descriptor_imputer.pkl'}")
+                dump(split_imputers[i], preprocessing_path / "descriptor_imputer.pkl")
+                logger.info(f"Saved descriptor imputer to {preprocessing_path / 'descriptor_imputer.pkl'}")
             
             # Save descriptor scaler
-            dump(descriptor_scaler, checkpoint_path / "descriptor_scaler.pkl")
-            logger.info(f"Saved descriptor scaler to {checkpoint_path / 'descriptor_scaler.pkl'}")
+            dump(descriptor_scaler, preprocessing_path / "descriptor_scaler.pkl")
+            logger.info(f"Saved descriptor scaler to {preprocessing_path / 'descriptor_scaler.pkl'}")
             
             # Save correlation mask as numpy array
             correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'])
-            np.save(checkpoint_path / "correlation_mask.npy", correlation_mask)
-            logger.info(f"Saved correlation mask to {checkpoint_path / 'correlation_mask.npy'}")
+            np.save(preprocessing_path / "correlation_mask.npy", correlation_mask)
+            logger.info(f"Saved correlation mask to {preprocessing_path / 'correlation_mask.npy'}")
             
             # Save constant features removed as numpy array
             constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
-            np.save(checkpoint_path / "constant_features_removed.npy", np.array(constant_features, dtype=np.int64))
-            logger.info(f"Saved constant features to {checkpoint_path / 'constant_features_removed.npy'}")
+            np.save(preprocessing_path / "constant_features_removed.npy", np.array(constant_features, dtype=np.int64))
+            logger.info(f"Saved constant features to {preprocessing_path / 'constant_features_removed.npy'}")
         
         scaler_arg = scaler if args.task_type == 'reg' else None
         mpnn, trainer = build_model_and_trainer(
@@ -476,7 +482,7 @@ for target in target_columns:
             ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
             if ckpt_files:
                 # Check if preprocessing metadata exists and matches current preprocessing
-                metadata_file = checkpoint_path / f"preprocessing_metadata_split_{i}.json"
+                metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
                 if metadata_file.exists():
                     try:
                         with open(metadata_file, 'r') as f:
@@ -500,7 +506,15 @@ for target in target_columns:
                     logger.warning("No preprocessing metadata found for checkpoint validation")
                     logger.warning("Starting training from scratch")
 
-        # Train
+        # Train - force fresh start if no compatible checkpoint
+        if last_ckpt is None:
+            # Clear any existing checkpoints to prevent Lightning auto-resume
+            import glob
+            existing_ckpts = glob.glob(str(checkpoint_path / "*.ckpt"))
+            for ckpt in existing_ckpts:
+                os.remove(ckpt)
+                logger.info(f"Removed incompatible checkpoint: {ckpt}")
+        
         trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
         results = trainer.test(dataloaders=test_loader)
         test_metrics = results[0]
