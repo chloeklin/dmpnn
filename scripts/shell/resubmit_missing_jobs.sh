@@ -3,8 +3,16 @@
 # Script to resubmit training jobs that don't have corresponding result CSV files
 # Usage: ./resubmit_missing_jobs.sh
 
-SCRIPT_DIR="scripts/shell"
-RESULTS_DIR="results"
+# Get the directory where this script is located
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_PATH/../.." && pwd)"
+
+# Set paths relative to project root
+SCRIPT_DIR="$PROJECT_ROOT/scripts/shell"
+RESULTS_DIR="$PROJECT_ROOT/results"
+
+# Change to project root directory for consistent execution
+cd "$PROJECT_ROOT"
 
 echo "Checking for missing result CSV files and resubmitting jobs..."
 echo "=================================================="
