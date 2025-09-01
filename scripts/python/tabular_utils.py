@@ -10,16 +10,20 @@ This module provides utilities for processing tabular molecular data, including:
 
 # Standard library imports
 from typing import List, Tuple, Optional, Dict, Any, Union, Callable
+import logging
 
 # Third-party imports
 import numpy as np
 import pandas as pd
+import joblib
+from pathlib import Path
 from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     accuracy_score, precision_score, recall_score, roc_auc_score,
     f1_score, log_loss
 )
 from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
 
 # Lazy imports for heavy dependencies
 RDKIT_AVAILABLE = False
@@ -572,3 +576,270 @@ def summarize(results: List[Dict[str, float]]) -> Dict[str, float]:
         out[f"{k}_mean"] = np.nanmean(vals)
         out[f"{k}_std"] = np.nanstd(vals)
     return out
+
+
+# ------------------------ Data Preprocessing Functions ------------------------
+
+def preprocess_descriptor_data(descriptor_block: np.ndarray, train_idx: List[int], val_idx: List[int], 
+                             test_idx: List[int], orig_desc_names: List[str], 
+                             logger: logging.Logger) -> Tuple[np.ndarray, np.ndarray, np.ndarray, 
+                                                            List[str], Dict[str, Any], SimpleImputer, 
+                                                            np.ndarray, np.ndarray]:
+    """Preprocess descriptor data with constant removal, imputation, and correlation filtering.
+    
+    Args:
+        descriptor_block: Raw descriptor data array
+        train_idx: Training indices
+        val_idx: Validation indices  
+        test_idx: Test indices
+        orig_desc_names: Original descriptor column names
+        logger: Logger instance
+        
+    Returns:
+        Tuple containing:
+            - desc_tr_selected: Processed training descriptors
+            - desc_val_selected: Processed validation descriptors
+            - desc_te_selected: Processed test descriptors
+            - selected_desc_names: Names of selected descriptors
+            - preprocessing_metadata: Metadata dict
+            - imputer: Fitted imputer object
+            - constant_mask: Boolean mask for constant removal
+            - corr_mask: Boolean mask for correlation removal
+    """
+    # Clean descriptor data before converting to float32
+    desc_X = np.asarray(descriptor_block, dtype=np.float64)  # Use float64 first
+    
+    # Replace inf with NaN
+    inf_mask = np.isinf(desc_X)
+    if np.any(inf_mask):
+        logger.warning(f"Found {np.sum(inf_mask)} infinite values in descriptors, replacing with NaN")
+        desc_X[inf_mask] = np.nan
+    
+    # Clip extreme values to prevent float32 overflow
+    float32_max = np.finfo(np.float32).max
+    float32_min = np.finfo(np.float32).min
+    desc_X = np.clip(desc_X, float32_min, float32_max)
+    
+    # Now safely convert to float32
+    desc_X = desc_X.astype(np.float32)
+    logger.debug(f"Descriptor data shape: {desc_X.shape}")
+    logger.debug(f"Descriptor data - finite values: {np.isfinite(desc_X).all()}")
+    
+    # 1) Remove constants on FULL descriptor dataset BEFORE imputation
+    desc_full_df = pd.DataFrame(desc_X, columns=orig_desc_names)
+    non_na_uniques = desc_full_df.nunique(dropna=True)
+    constant_mask = (non_na_uniques >= 2).values  # True = keep
+    constant_features = [n for n, keep in zip(orig_desc_names, constant_mask) if not keep]
+    const_kept_names = [n for n, keep in zip(orig_desc_names, constant_mask) if keep]
+
+    # Remove constants from full dataset
+    const_keep_idx = np.where(constant_mask)[0]
+    desc_X_no_const = desc_X[:, const_keep_idx]
+    
+    # Split descriptor data AFTER constant removal but BEFORE imputation
+    desc_tr, desc_val, desc_te = desc_X_no_const[train_idx], desc_X_no_const[val_idx], desc_X_no_const[test_idx]
+    
+    # Handle NaN values with median imputation fitted only on training data
+    nan_mask = np.isnan(desc_tr)
+    if np.any(nan_mask):
+        logger.warning(f"Found {np.sum(nan_mask)} NaN values in training descriptors, using median imputation")
+        imputer = SimpleImputer(strategy='median')
+        desc_tr = imputer.fit_transform(desc_tr)
+        desc_val = imputer.transform(desc_val)
+        desc_te = imputer.transform(desc_te)
+    else:
+        # Create dummy imputer for consistency even if no NaNs
+        imputer = SimpleImputer(strategy='median')
+        imputer.fit(desc_tr)  # Fit on training data for consistency
+    
+    # Correlation filtering on TRAIN ONLY, using constant-removed training set
+    desc_tr_df = pd.DataFrame(desc_tr, columns=const_kept_names)
+    if len(const_kept_names) > 1:
+        corr = desc_tr_df.corr(method="pearson").abs()
+        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+        to_drop = {c for c in upper.columns if (upper[c] >= 0.90).any()}
+        keep_names = [n for n in const_kept_names if n not in to_drop]
+    else:
+        to_drop = set()
+        keep_names = const_kept_names[:]
+
+    # Final selection by name
+    desc_tr_selected = desc_tr_df[keep_names].values
+    desc_val_selected = pd.DataFrame(desc_val, columns=const_kept_names)[keep_names].values
+    desc_te_selected = pd.DataFrame(desc_te, columns=const_kept_names)[keep_names].values
+
+    # Create correlation mask
+    corr_mask = np.isin(const_kept_names, keep_names)
+    
+    # Create preprocessing metadata
+    preprocessing_metadata = {
+        "n_desc_before_any_selection": len(orig_desc_names),
+        "n_desc_after_constant_removal": len(const_kept_names),
+        "n_desc_after_corr_removal": len(keep_names),
+        "constant_features_removed": constant_features,
+        "correlated_features_removed": sorted(list(to_drop)),
+        "selected_features": keep_names,
+        "imputation_strategy": "median",
+        "correlation_threshold": 0.90,
+        "orig_desc_names": orig_desc_names,
+        "const_kept_names": const_kept_names
+    }
+    
+    return (desc_tr_selected, desc_val_selected, desc_te_selected, keep_names, 
+            preprocessing_metadata, imputer, constant_mask, corr_mask)
+
+
+def save_preprocessing_objects(out_dir: Path, split_idx: int, preprocessing_metadata: Dict[str, Any],
+                             imputer: SimpleImputer, constant_mask: np.ndarray, 
+                             corr_mask: np.ndarray, selected_desc_names: List[str]) -> None:
+    """Save preprocessing metadata and objects to disk.
+    
+    Args:
+        out_dir: Output directory path
+        split_idx: Split index for naming files
+        preprocessing_metadata: Metadata dictionary
+        imputer: Fitted imputer object
+        constant_mask: Boolean mask for constant removal
+        corr_mask: Boolean mask for correlation removal
+        selected_desc_names: Names of selected descriptors
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save metadata
+    with open(out_dir / f"preprocessing_metadata_split_{split_idx}.json", "w") as f:
+        json.dump(preprocessing_metadata, f, indent=2)
+
+    # Save objects
+    joblib.dump(imputer, out_dir / f"descriptor_imputer_{split_idx}.pkl")
+
+    # Save boolean masks for reproducibility
+    np.save(out_dir / f"constant_mask_{split_idx}.npy", constant_mask)
+    np.save(out_dir / f"corr_mask_{split_idx}.npy", corr_mask)
+
+    # Save selected features list
+    with open(out_dir / f"split_{split_idx}.txt", "w") as f:
+        f.write("\n".join(selected_desc_names))
+
+
+def load_existing_results(detailed_csv: Path, logger: logging.Logger) -> Dict[str, Dict[int, set]]:
+    """Load existing results from CSV file and return structured data.
+    
+    Args:
+        detailed_csv: Path to detailed results CSV file
+        logger: Logger instance
+        
+    Returns:
+        Dictionary mapping target -> split -> set of completed models
+    """
+    existing_results = {}
+    if detailed_csv.exists():
+        try:
+            existing_df = pd.read_csv(detailed_csv)
+            logger.info(f"Found existing results file: {detailed_csv}")
+            
+            # Group by target and split to track completed experiments
+            for _, row in existing_df.iterrows():
+                target = row['target']
+                split = row['split']
+                model = row['model']
+                
+                if target not in existing_results:
+                    existing_results[target] = {}
+                if split not in existing_results[target]:
+                    existing_results[target][split] = set()
+                existing_results[target][split].add(model)
+            
+            logger.info(f"Loaded existing results for {len(existing_results)} targets")
+        except Exception as e:
+            logger.warning(f"Could not load existing results: {e}")
+            existing_results = {}
+    
+    return existing_results
+
+
+def save_combined_results(detailed_csv: Path, existing_results_df: Optional[pd.DataFrame], 
+                         new_results: List[Dict[str, Any]], logger: logging.Logger) -> None:
+    """Save combined existing and new results to CSV file.
+    
+    Args:
+        detailed_csv: Path to output CSV file
+        existing_results_df: DataFrame of existing results (can be None)
+        new_results: List of new result dictionaries
+        logger: Logger instance
+    """
+    final_rows = []
+    
+    # Add existing results that weren't recomputed
+    if existing_results_df is not None:
+        final_rows.extend(existing_results_df.to_dict('records'))
+        logger.info(f"Loaded {len(existing_results_df)} existing result rows")
+    
+    # Add new results
+    final_rows.extend(new_results)
+    
+    # Save combined results to CSV if we have any data
+    if final_rows:
+        # Convert results to DataFrame and remove duplicates
+        df_detailed = pd.DataFrame(final_rows)
+        
+        # Remove duplicates based on target, split, model (keep last occurrence)
+        df_detailed = df_detailed.drop_duplicates(subset=['target', 'split', 'model'], keep='last')
+        
+        # Organize columns: target, split, model, then metrics
+        base_cols = ["target", "split", "model"]
+        metric_cols = sorted([c for c in df_detailed.columns if c not in base_cols])
+        df_detailed = df_detailed[base_cols + metric_cols]
+        
+        # Write to CSV
+        df_detailed.to_csv(detailed_csv, index=False)
+        logger.info(f"Saved {len(df_detailed)} total results to {detailed_csv}")
+        
+        # Log summary of what was done
+        new_results_count = len(new_results)
+        existing_count = len(final_rows) - new_results_count
+        logger.info(f"Results summary: {existing_count} existing + {new_results_count} new = {len(df_detailed)} total")
+    else:
+        logger.info("No results to save")
+
+
+def prepare_target_data(y_raw: np.ndarray, task_type: str, target_name: str, logger: logging.Logger) -> np.ndarray:
+    """Prepare target data based on task type.
+    
+    Args:
+        y_raw: Raw target values
+        task_type: Task type ('reg', 'binary', 'multi')
+        target_name: Name of target variable
+        logger: Logger instance
+        
+    Returns:
+        Processed target values
+        
+    Raises:
+        ValueError: If binary target is not actually binary or multi-class has < 3 classes
+    """
+    from sklearn.preprocessing import LabelEncoder
+    
+    if task_type == "reg":
+        # For regression, ensure numeric type
+        y_vec = y_raw.astype(float)
+        
+    elif task_type == "binary":
+        # For binary classification, handle both string and numeric labels
+        if y_raw.dtype.kind in "OUS":  # If string type
+            y_vec = LabelEncoder().fit_transform(y_raw)
+        else:
+            uniq = np.unique(y_raw)
+            # Convert to 0/1 if already binary, otherwise encode
+            y_vec = y_raw.astype(int) if set(uniq) <= {0,1} else LabelEncoder().fit_transform(y_raw)
+        # Verify binary encoding
+        if not set(np.unique(y_vec)) <= {0,1}:
+            raise ValueError(f"{target_name} is not binary.")
+        
+    else:  # multi-class classification
+        # Encode string labels to integers
+        y_vec = LabelEncoder().fit_transform(y_raw)
+        # Skip if not enough classes for multi-class
+        if len(np.unique(y_vec)) < 3:
+            raise ValueError(f"{target_name}: only {len(np.unique(y_vec))} classes; insufficient for multi-class.")
+    
+    return y_vec

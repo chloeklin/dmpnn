@@ -15,7 +15,11 @@ from tabular_utils import (
     eval_regression,
     eval_binary,
     eval_multi,
-    
+    preprocess_descriptor_data,
+    save_preprocessing_objects,
+    load_existing_results,
+    save_combined_results,
+    prepare_target_data
 )
 from utils import (
     set_seed,
@@ -28,7 +32,7 @@ from utils import (
 
 # ---------------------------- Training Loop ----------------------------
 
-def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, args):
+def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, args, existing_results=None):
     """Train and evaluate models for a single target variable.
     
     Args:
@@ -40,6 +44,7 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         seed: Random seed
         out_dir: Output directory for results
         args: Command line arguments
+        existing_results: Dict of existing results to skip completed experiments
         
     Returns:
         List of dictionaries containing evaluation metrics
@@ -84,78 +89,11 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         
         # Process descriptor block separately (clean and select features)
         if descriptor_block is not None:
-            # Clean descriptor data before converting to float32
-            desc_X = np.asarray(descriptor_block, dtype=np.float64)  # Use float64 first
-            
-            # Replace inf with NaN
-            inf_mask = np.isinf(desc_X)
-            if np.any(inf_mask):
-                logger.warning(f"Found {np.sum(inf_mask)} infinite values in descriptors, replacing with NaN")
-                desc_X[inf_mask] = np.nan
-            
-            # Clip extreme values to prevent float32 overflow
-            float32_max = np.finfo(np.float32).max
-            float32_min = np.finfo(np.float32).min
-            desc_X = np.clip(desc_X, float32_min, float32_max)
-            
-            # Now safely convert to float32
-            desc_X = desc_X.astype(np.float32)
-            logger.debug(f"Descriptor data shape: {desc_X.shape}")
-            logger.debug(f"Descriptor data - finite values: {np.isfinite(desc_X).all()}")
-            
-            # 1) Remove constants on FULL descriptor dataset BEFORE imputation (like train_graph.py)
-            desc_full_df = pd.DataFrame(desc_X, columns=orig_desc_names)
-            non_na_uniques = desc_full_df.nunique(dropna=True)
-            constant_mask = (non_na_uniques >= 2).values             # True = keep
-            constant_features = [n for n, keep in zip(orig_desc_names, constant_mask) if not keep]
-            const_kept_names = [n for n, keep in zip(orig_desc_names, constant_mask) if keep]
-
-            # Remove constants from full dataset
-            const_keep_idx = np.where(constant_mask)[0]
-            desc_X_no_const = desc_X[:, const_keep_idx]
-            
-            # Split descriptor data AFTER constant removal but BEFORE imputation
-            desc_tr, desc_val, desc_te = desc_X_no_const[train_idx], desc_X_no_const[val_idx], desc_X_no_const[test_idx]
-            
-            # Handle NaN values with median imputation fitted only on training data
-            nan_mask = np.isnan(desc_tr)
-            if np.any(nan_mask):
-                logger.warning(f"Found {np.sum(nan_mask)} NaN values in training descriptors, using median imputation")
-                from sklearn.impute import SimpleImputer
-                imputer = SimpleImputer(strategy='median')
-                desc_tr = imputer.fit_transform(desc_tr)
-                desc_val = imputer.transform(desc_val)
-                desc_te = imputer.transform(desc_te)
-            else:
-                # Create dummy imputer for consistency even if no NaNs
-                from sklearn.impute import SimpleImputer
-                imputer = SimpleImputer(strategy='median')
-                imputer.fit(desc_tr)  # Fit on training data for consistency
-            
-            # correlation on TRAIN ONLY, using constant-removed training set
-            desc_tr_df = pd.DataFrame(desc_tr, columns=const_kept_names)
-            if len(const_kept_names) > 1:
-                corr = desc_tr_df.corr(method=("pearson" if args.task_type=="reg" else "spearman")).abs()
-                upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-                to_drop = {c for c in upper.columns if (upper[c] >= 0.90).any()}
-                keep_names = [n for n in const_kept_names if n not in to_drop]
-            else:
-                to_drop = set()
-                keep_names = const_kept_names[:]
-    
-
-            # final selection by name
-            desc_tr_selected = desc_tr_df[keep_names].values
-            desc_val_selected = pd.DataFrame(desc_val, columns=const_kept_names)[keep_names].values
-            desc_te_selected  = pd.DataFrame(desc_te,  columns=const_kept_names)[keep_names].values
-
-            # masks to SAVE
-            # constant_mask: length == len(orig_desc_names)      (global, split-invariant)
-            # corr_mask:     length == len(const_kept_names)     (per split)
-            corr_mask = np.isin(const_kept_names, keep_names)
-
-            # define the selected names (you use this below)
-            selected_desc_names = keep_names    
+            # Use modularized preprocessing function
+            (desc_tr_selected, desc_val_selected, desc_te_selected, selected_desc_names, 
+             preprocessing_metadata, imputer, constant_mask, corr_mask) = preprocess_descriptor_data(
+                descriptor_block, train_idx, val_idx, test_idx, orig_desc_names, logger
+            )    
             
             
             # Combine AB block with selected descriptor block
@@ -163,50 +101,21 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                 X_tr = np.concatenate([ab_tr, desc_tr_selected], axis=1)
                 X_val = np.concatenate([ab_val, desc_val_selected], axis=1)
                 X_te = np.concatenate([ab_te, desc_te_selected], axis=1)
-                feat_names = ab_names + keep_names
+                feat_names = ab_names + selected_desc_names
             else:
                 # Only descriptor block available
                 X_tr, X_val, X_te = desc_tr_selected, desc_val_selected, desc_te_selected
-                feat_names = keep_names
+                feat_names = selected_desc_names
         
         else:
             # Only AB block available (or no features if AB disabled)
             X_tr, X_val, X_te = ab_tr, ab_val, ab_te
             feat_names = ab_names
 
-        # Ensure output directory exists for saving preprocessing objects
-        out_dir.mkdir(parents=True, exist_ok=True)
-        
         # Save preprocessing metadata and objects
         if descriptor_block is not None:
-
-            preprocessing_metadata = {
-                "n_desc_before_any_selection": len(orig_desc_names),
-                "n_desc_after_constant_removal": len(const_kept_names),
-                "n_desc_after_corr_removal": len(keep_names),
-                "constant_features_removed": constant_features,         # list of names
-                "correlated_features_removed": sorted(list(to_drop)),  # list of names
-                "selected_features": selected_desc_names,              # list of names
-                "imputation_strategy": "median",
-                "correlation_threshold": 0.90,
-                "orig_desc_names": orig_desc_names,                    # to make masks resolvable later
-                "const_kept_names": const_kept_names
-            }
-            with open(out_dir / f"preprocessing_metadata_split_{i}.json", "w") as f:
-                json.dump(preprocessing_metadata, f, indent=2)
-
-            # objects + masks
-            joblib.dump(imputer, out_dir / f"descriptor_imputer_{i}.pkl")
-
-            # boolean masks for reproducibility
-            # constant_mask aligns with orig_desc_names (True = keep)
-            np.save(out_dir / f"constant_mask_{i}.npy", constant_mask)
-            # corr_mask aligns with const_kept_names (True = keep)
-            np.save(out_dir / f"corr_mask_{i}.npy", corr_mask)
-
-            # for quick diff-friendly lists too
-            with open(out_dir / f"split_{i}.txt", "w") as f:
-                f.write("\n".join(selected_desc_names))
+            save_preprocessing_objects(out_dir, i, preprocessing_metadata, imputer, 
+                                     constant_mask, corr_mask, selected_desc_names)
 
 
         if X_tr.shape[1] == 0:
@@ -230,6 +139,14 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         model_specs = build_sklearn_models(args.task_type, num_classes, scaler_flag=True)
 
         for name, (model, needs_scaler) in model_specs.items():
+            # Check if this target-split-model combination already exists
+            if (existing_results and 
+                target_name in existing_results and 
+                i in existing_results[target_name] and 
+                name in existing_results[target_name][i]):
+                logger.info(f"Skipping {target_name} split {i} model {name} (already completed)")
+                continue
+            
             # Apply scaling for models that require it (linear/logistic)
             scaler = StandardScaler() if needs_scaler else None
 
@@ -375,59 +292,44 @@ def main():
         raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
 
 
+    # Check for existing results and determine what needs to be run
+    suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "") + ("_ab" if args.incl_ab else "")
+    detailed_csv = results_dir / f"{args.dataset_name}_tabular{suffix}.csv"
+    
+    # Load existing results using modularized function
+    existing_results = load_existing_results(detailed_csv, logger)
+
     # Process each target variable independently
     all_rows = []
     for tcol in target_columns:
         # Get raw target values
         y_raw = df_input[tcol].values
         
-        # Handle different task types (regression, binary, or multi-class)
-        if args.task_type == "reg":
-            # For regression, ensure numeric type
-            y_vec = y_raw.astype(float)
-            
-        elif args.task_type == "binary":
-            # For binary classification, handle both string and numeric labels
-            if y_raw.dtype.kind in "OUS":  # If string type
-                y_vec = LabelEncoder().fit_transform(y_raw)
-            else:
-                uniq = np.unique(y_raw)
-                # Convert to 0/1 if already binary, otherwise encode
-                y_vec = y_raw.astype(int) if set(uniq) <= {0,1} else LabelEncoder().fit_transform(y_raw)
-            # Verify binary encoding
-            assert set(np.unique(y_vec)) <= {0,1}, f"{tcol} is not binary."
-            
-        else:  # multi-class classification
-            # Encode string labels to integers
-            y_vec = LabelEncoder().fit_transform(y_raw)
-            # Skip if not enough classes for multi-class
-            if len(np.unique(y_vec)) < 3:
-                logger.warning(f"{tcol}: only {len(np.unique(y_vec))} classes; skipping for multi-class.")
-                continue
+        # Handle different task types using modularized function
+        try:
+            y_vec = prepare_target_data(y_raw, args.task_type, tcol, logger)
+        except ValueError as e:
+            logger.warning(f"Skipping {tcol}: {e}")
+            continue
         # Create output directory for this target
         out_dir = feat_select_dir / tcol
         
         # Train models and get evaluation results
-        rows = train(df_input, y_vec, tcol, descriptor_columns, REPLICATES, SEED, out_dir, args)
+        target_existing = existing_results.get(tcol, {})
+        rows = train(df_input, y_vec, tcol, descriptor_columns, REPLICATES, SEED, out_dir, args, target_existing)
 
         # Aggregate results across all targets
         all_rows.extend(rows)
 
-    # Save aggregated results to CSV if we have any data
-    if all_rows:
-        # Convert results to DataFrame
-        df_detailed = pd.DataFrame(all_rows)
-        
-        # Organize columns: target, split, model, then metrics
-        base_cols = ["target", "split", "model"]
-        metric_cols = sorted([c for c in df_detailed.columns if c not in base_cols])
-        df_detailed = df_detailed[base_cols + metric_cols]
-        
-        # Write to CSV with timestamp
-        suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "") + ("_ab" if args.incl_ab else "")
-        detailed_csv = results_dir / f"{args.dataset_name}_tabular{suffix}.csv"
-        df_detailed.to_csv(detailed_csv, index=False)
-        logger.info(f"Saved split-level results to {detailed_csv}")    
+    # Save combined results using modularized function
+    existing_df = None
+    if detailed_csv.exists() and existing_results:
+        try:
+            existing_df = pd.read_csv(detailed_csv)
+        except Exception as e:
+            logger.warning(f"Could not reload existing results: {e}")
+    
+    save_combined_results(detailed_csv, existing_df, all_rows, logger)    
 
 if __name__ == "__main__":
     main()
