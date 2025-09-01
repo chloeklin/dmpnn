@@ -436,19 +436,15 @@ for target in target_columns:
         )
         preprocessing_path.mkdir(parents=True, exist_ok=True)
         
-        # Save preprocessing metadata and objects to separate directory
-        if combined_descriptor_data is not None:
-            # Save JSON metadata
-            metadata_path = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
-            with open(metadata_path, 'w') as f:
-                json.dump(split_preprocessing_metadata[i], f, indent=2)
-            logger.info(f"Saved preprocessing metadata to {metadata_path}")
+        # Clear any existing checkpoints to prevent Lightning auto-resume with incompatible models
+        import glob
+        existing_ckpts = glob.glob(str(checkpoint_path / "*.ckpt"))
+        if existing_ckpts:
+            for ckpt in existing_ckpts:
+                os.remove(ckpt)
+                logger.info(f"Removed incompatible checkpoint: {ckpt}")
         
-            
-            # Save imputer if it exists
-            if split_imputers[i] is not None:
-                dump(split_imputers[i], preprocessing_path / "descriptor_imputer.pkl")
-                logger.info(f"Saved descriptor imputer to {preprocessing_path / 'descriptor_imputer.pkl'}")
+        # Save preprocessing metadata and objects
             
             # Save descriptor scaler
             dump(descriptor_scaler, preprocessing_path / "descriptor_scaler.pkl")
@@ -507,13 +503,6 @@ for target in target_columns:
                     logger.warning("Starting training from scratch")
 
         # Train - force fresh start if no compatible checkpoint
-        if last_ckpt is None:
-            # Clear any existing checkpoints to prevent Lightning auto-resume
-            import glob
-            existing_ckpts = glob.glob(str(checkpoint_path / "*.ckpt"))
-            for ckpt in existing_ckpts:
-                os.remove(ckpt)
-                logger.info(f"Removed incompatible checkpoint: {ckpt}")
         
         trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
         results = trainer.test(dataloaders=test_loader)
