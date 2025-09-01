@@ -572,9 +572,8 @@ def build_model_and_trainer(
         metrics=metric_list or [],
     )
     
-    # Create checkpoint directory
+    # Convert to Path object but don't create directory yet - let Lightning handle it
     checkpoint_path = Path(checkpoint_path)
-    checkpoint_path.mkdir(parents=True, exist_ok=True)
     
     # Configure model checkpointing
     checkpointing = ModelCheckpoint(
