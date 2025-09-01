@@ -235,10 +235,12 @@ for target in target_columns:
             "correlation_threshold": 0.90,
             "correlation_method": "pearson" if args.task_type == "reg" else "spearman"
         }
-        
-        # Initialize preprocessing metadata and object storage
-        split_preprocessing_metadata = {}
-        split_imputers = {}
+    
+    # Initialize preprocessing metadata and object storage (outside descriptor block)
+    split_preprocessing_metadata = {}
+    split_imputers = {}
+    
+    if combined_descriptor_data is not None:
             
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
             # Initialize default values
