@@ -52,6 +52,12 @@ def load_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
         df = pd.read_csv(csv_file)
         df['dataset'] = dataset
         df['features'] = features
+        df['method'] = 'Tabular'
+        
+        # Convert MSE to RMSE if MSE column exists
+        if 'mse' in df.columns:
+            import numpy as np
+            df['rmse'] = np.sqrt(df['mse'])
         
         if dataset not in results:
             results[dataset] = []
@@ -63,6 +69,106 @@ def load_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
     
     return results
 
+def load_graph_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
+    """Load all graph model results CSV files."""
+    results = {}
+    
+    for csv_file in results_dir.glob("*_DMPNN_results.csv"):
+        # Parse filename: dataset[_descriptors][_rdkit]_DMPNN_results.csv
+        base_name = csv_file.stem.replace('_DMPNN_results', '')
+        
+        # Determine dataset and features
+        if '_descriptors_rdkit' in base_name:
+            dataset = base_name.replace('_descriptors_rdkit', '')
+            features = 'Graph+Desc+RDKit'
+        elif '_descriptors' in base_name:
+            dataset = base_name.replace('_descriptors', '')
+            features = 'Graph+Desc'
+        elif '_rdkit' in base_name:
+            dataset = base_name.replace('_rdkit', '')
+            features = 'Graph+RDKit'
+        else:
+            dataset = base_name
+            features = 'Graph'
+        
+        df = pd.read_csv(csv_file)
+        df['dataset'] = dataset
+        df['features'] = features
+        df['method'] = 'Graph'
+        df['model'] = 'DMPNN'
+        
+        # Convert MSE to RMSE if MSE column exists
+        if 'mse' in df.columns:
+            import numpy as np
+            df['rmse'] = np.sqrt(df['mse'])
+        
+        if dataset not in results:
+            results[dataset] = []
+        results[dataset].append(df)
+    
+    # Also load wDMPNN and PPG results
+    for model_name in ['wDMPNN', 'PPG']:
+        for csv_file in results_dir.glob(f"*_{model_name}_results.csv"):
+            base_name = csv_file.stem.replace(f'_{model_name}_results', '')
+            
+            # Determine dataset and features
+            if '_descriptors_rdkit' in base_name:
+                dataset = base_name.replace('_descriptors_rdkit', '')
+                features = 'Graph+Desc+RDKit'
+            elif '_descriptors' in base_name:
+                dataset = base_name.replace('_descriptors', '')
+                features = 'Graph+Desc'
+            elif '_rdkit' in base_name:
+                dataset = base_name.replace('_rdkit', '')
+                features = 'Graph+RDKit'
+            else:
+                dataset = base_name
+                features = 'Graph'
+            
+            df = pd.read_csv(csv_file)
+            df['dataset'] = dataset
+            df['features'] = features
+            df['method'] = 'Graph'
+            df['model'] = model_name
+            
+            # Convert MSE to RMSE if MSE column exists
+            if 'mse' in df.columns:
+                import numpy as np
+                df['rmse'] = np.sqrt(df['mse'])
+            
+            if dataset not in results:
+                results[dataset] = []
+            results[dataset].append(df)
+    
+    # Concatenate all feature combinations for each dataset
+    for dataset in results:
+        results[dataset] = pd.concat(results[dataset], ignore_index=True)
+    
+    return results
+
+def load_combined_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
+    """Load and combine both tabular and graph results."""
+    tabular_results = load_results(results_dir)
+    graph_results = load_graph_results(results_dir)
+    
+    # Combine results
+    combined_results = {}
+    all_datasets = set(tabular_results.keys()) | set(graph_results.keys())
+    
+    for dataset in all_datasets:
+        dataset_dfs = []
+        
+        if dataset in tabular_results:
+            dataset_dfs.append(tabular_results[dataset])
+        
+        if dataset in graph_results:
+            dataset_dfs.append(graph_results[dataset])
+        
+        if dataset_dfs:
+            combined_results[dataset] = pd.concat(dataset_dfs, ignore_index=True)
+    
+    return combined_results
+
 def detect_task_type(data: pd.DataFrame) -> str:
     """Detect if dataset is regression or classification based on available columns."""
     columns = set(data.columns.str.lower())
@@ -71,7 +177,7 @@ def detect_task_type(data: pd.DataFrame) -> str:
     if any(col in columns for col in ['acc', 'f1_macro', 'logloss', 'roc_auc', 'prec', 'rec']):
         return 'classification'
     # Regression metrics  
-    elif any(col in columns for col in ['mae', 'r2', 'rmse']):
+    elif any(col in columns for col in ['mae', 'r2', 'mse']):
         return 'regression'
     else:
         return 'unknown'
@@ -108,6 +214,23 @@ def create_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, outpu
     feature_order = ['AB', 'AB+RDKit', 'AB+Desc+RDKit']
     available_features = data['features'].unique()
     features = [f for f in feature_order if f in available_features]
+
+def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, output_dir: Path):
+    """Create bar plots comparing both tabular and graph feature combinations for a specific metric."""
+    
+    # Detect task type
+    task_type = detect_task_type(data)
+    
+    # Get unique targets and feature combinations in desired order
+    targets = sorted(data['target'].unique())
+    
+    # Define desired feature order for combined plots
+    feature_order = [
+        'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
+        'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit'  # Graph features
+    ]
+    available_features = data['features'].unique()
+    features = [f for f in feature_order if f in available_features]
     
     # Check if metric exists in data
     if metric not in data.columns:
@@ -122,7 +245,7 @@ def create_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, outpu
     n_cols = min(3, n_targets)  # Max 3 columns
     n_rows = (n_targets + n_cols - 1) // n_cols
     
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, 5*n_rows))
     if n_targets == 1:
         axes = [axes]
     elif n_rows == 1:
@@ -131,18 +254,40 @@ def create_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, outpu
     # Flatten axes for easier indexing
     axes_flat = axes.flatten() if n_targets > 1 else axes
     
+    # Define colors for different methods
+    colors = {'Tabular': ['#1f77b4', '#ff7f0e', '#2ca02c'], 'Graph': ['#d62728', '#9467bd', '#8c564b']}
+    
     for i, target in enumerate(targets):
         ax = axes_flat[i]
         
         # Filter data for this target
         target_data = summary[summary['target'] == target]
         
-        # Create bar plot
+        # Create grouped bar plot
         x_pos = np.arange(len(features))
-        width = 0.25
         
-        for j, model in enumerate(models):
+        # Get unique models and methods
+        unique_models = target_data['model'].unique()
+        unique_methods = target_data['method'].unique() if 'method' in target_data.columns else ['Tabular']
+        
+        # Calculate bar width and positions
+        n_bars = len(unique_models)
+        bar_width = 0.8 / n_bars
+        
+        bar_positions = []
+        for j in range(n_bars):
+            bar_positions.append(x_pos + (j - n_bars/2 + 0.5) * bar_width)
+        
+        for j, model in enumerate(unique_models):
             model_data = target_data[target_data['model'] == model]
+            
+            # Determine method and color
+            if 'method' in model_data.columns and len(model_data) > 0:
+                method = model_data['method'].iloc[0]
+                color_idx = j % len(colors.get(method, ['#1f77b4']))
+                color = colors.get(method, ['#1f77b4'])[color_idx]
+            else:
+                color = colors['Tabular'][j % len(colors['Tabular'])]
             
             means = []
             stds = []
@@ -155,13 +300,13 @@ def create_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, outpu
                     means.append(0)
                     stds.append(0)
             
-            ax.bar(x_pos + j*width, means, width, 
-                  yerr=stds, capsize=3, label=model, alpha=0.8)
+            ax.bar(bar_positions[j], means, bar_width, 
+                  yerr=stds, capsize=3, label=model, alpha=0.8, color=color)
         
         ax.set_xlabel('Feature Combination')
         ax.set_ylabel(metric.upper())
         ax.set_title(f'{target}')
-        ax.set_xticks(x_pos + width)
+        ax.set_xticks(x_pos)
         ax.set_xticklabels(features, rotation=45, ha='right')
         ax.legend()
         ax.grid(True, alpha=0.3)
@@ -170,11 +315,11 @@ def create_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, outpu
     for i in range(n_targets, len(axes_flat)):
         axes_flat[i].set_visible(False)
     
-    plt.suptitle(f'{dataset} - {metric.upper()} Comparison', fontsize=16, y=0.98)
+    plt.suptitle(f'{dataset} - {metric.upper()} Combined Comparison (Tabular vs Graph)', fontsize=16, y=0.98)
     plt.tight_layout()
     
     # Save plot
-    output_file = output_dir / f'{dataset}_{metric}_comparison.png'
+    output_file = output_dir / f'{dataset}_{metric}_combined_comparison.png'
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     

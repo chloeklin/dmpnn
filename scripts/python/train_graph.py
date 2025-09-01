@@ -420,13 +420,13 @@ for target in target_columns:
             df_input=df_input
         )
         batch_norm = False
-        # Create checkpoint directory structure
+        # Create checkpoint directory structure with feature configuration
+        desc_suffix = "__desc" if descriptor_columns else ""
+        rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+        
         checkpoint_path = (
             checkpoint_dir / 
-            f"{args.dataset_name}__{target}"
-            f"{'__desc' if descriptor_columns else ''}"
-            f"{'__rdkit' if args.incl_rdkit else ''}"
-            f"__rep{i}"
+            f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
         )
         checkpoint_path.mkdir(parents=True, exist_ok=True)
         
@@ -475,7 +475,30 @@ for target in target_columns:
         if os.path.exists(checkpoint_path):
             ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
             if ckpt_files:
-                last_ckpt = str(Path(checkpoint_path) / sorted(ckpt_files)[-1])
+                # Check if preprocessing metadata exists and matches current preprocessing
+                metadata_file = checkpoint_path / f"preprocessing_metadata_split_{i}.json"
+                if metadata_file.exists():
+                    try:
+                        with open(metadata_file, 'r') as f:
+                            saved_metadata = json.load(f)
+                        
+                        # Compare key preprocessing parameters
+                        current_n_features = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
+                        saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
+                        
+                        if current_n_features == saved_n_features:
+                            last_ckpt = str(Path(checkpoint_path) / sorted(ckpt_files)[-1])
+                            logger.info(f"Loading checkpoint: {last_ckpt} (features match: {current_n_features})")
+                        else:
+                            logger.warning(f"Skipping checkpoint due to feature mismatch: current={current_n_features}, saved={saved_n_features}")
+                            logger.warning("Starting training from scratch")
+                    except Exception as e:
+                        logger.warning(f"Could not validate checkpoint compatibility: {e}")
+                        logger.warning("Starting training from scratch")
+                else:
+                    # No metadata file, assume incompatible
+                    logger.warning("No preprocessing metadata found for checkpoint validation")
+                    logger.warning("Starting training from scratch")
 
         # Train
         trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)

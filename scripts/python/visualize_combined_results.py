@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+"""
+Combined Results Visualization Script
+Creates comparison plots between tabular and graph model results.
+
+Usage: python3 scripts/python/visualize_combined_results.py
+"""
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+from pathlib import Path
+from typing import Dict, List
+import argparse
+
+def parse_filename(filename: str) -> tuple:
+    """Parse CSV filename to extract dataset and feature information."""
+    # Remove .csv extension
+    base = filename.replace('.csv', '')
+    
+    # Handle tabular files
+    if '_tabular' in base:
+        if '_descriptors_rdkit_ab' in base:
+            dataset = base.replace('_tabular_descriptors_rdkit_ab', '')
+            features = 'AB+Desc+RDKit'
+        elif '_descriptors_rdkit' in base:
+            dataset = base.replace('_tabular_descriptors_rdkit', '')
+            features = 'AB+Desc+RDKit'
+        elif '_descriptors_ab' in base:
+            dataset = base.replace('_tabular_descriptors_ab', '')
+            features = 'AB+Desc'
+        elif '_rdkit_ab' in base:
+            dataset = base.replace('_tabular_rdkit_ab', '')
+            features = 'AB+RDKit'
+        elif '_descriptors' in base:
+            dataset = base.replace('_tabular_descriptors', '')
+            features = 'AB+Desc'
+        elif '_rdkit' in base:
+            dataset = base.replace('_tabular_rdkit', '')
+            features = 'AB+RDKit'
+        elif '_ab' in base:
+            dataset = base.replace('_tabular_ab', '')
+            features = 'AB'
+        else:
+            dataset = base.replace('_tabular', '')
+            features = 'AB'
+    
+    return dataset, features
+
+def load_graph_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
+    """Load all graph model results CSV files."""
+    results = {}
+    
+    for model_name in ['DMPNN', 'wDMPNN', 'PPG']:
+        for csv_file in results_dir.glob(f"*_{model_name}_results.csv"):
+            base_name = csv_file.stem.replace(f'_{model_name}_results', '')
+            
+            # Determine dataset and features
+            if '_descriptors_rdkit' in base_name:
+                dataset = base_name.replace('_descriptors_rdkit', '')
+                features = 'Graph+Desc+RDKit'
+            elif '_descriptors' in base_name:
+                dataset = base_name.replace('_descriptors', '')
+                features = 'Graph+Desc'
+            elif '_rdkit' in base_name:
+                dataset = base_name.replace('_rdkit', '')
+                features = 'Graph+RDKit'
+            else:
+                dataset = base_name
+                features = 'Graph'
+            
+            df = pd.read_csv(csv_file)
+            df['dataset'] = dataset
+            df['features'] = features
+            df['method'] = 'Graph'
+            df['model'] = model_name
+            
+            # Convert MSE to RMSE if MSE column exists
+            if 'mse' in df.columns:
+                df['rmse'] = np.sqrt(df['mse'])
+            
+            if dataset not in results:
+                results[dataset] = []
+            results[dataset].append(df)
+    
+    # Concatenate all feature combinations for each dataset
+    for dataset in results:
+        results[dataset] = pd.concat(results[dataset], ignore_index=True)
+    
+    return results
+
+def load_tabular_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
+    """Load all tabular results CSV files."""
+    results = {}
+    
+    for csv_file in results_dir.glob("*_tabular*.csv"):
+        dataset, features = parse_filename(csv_file.name)
+        
+        df = pd.read_csv(csv_file)
+        df['dataset'] = dataset
+        df['features'] = features
+        df['method'] = 'Tabular'
+        
+        # Convert MSE to RMSE if MSE column exists
+        if 'mse' in df.columns:
+            df['rmse'] = np.sqrt(df['mse'])
+        
+        if dataset not in results:
+            results[dataset] = []
+        results[dataset].append(df)
+    
+    # Concatenate all feature combinations for each dataset
+    for dataset in results:
+        results[dataset] = pd.concat(results[dataset], ignore_index=True)
+    
+    return results
+
+def load_combined_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
+    """Load and combine both tabular and graph results."""
+    tabular_results = load_tabular_results(results_dir)
+    graph_results = load_graph_results(results_dir)
+    
+    # Combine results
+    combined_results = {}
+    all_datasets = set(tabular_results.keys()) | set(graph_results.keys())
+    
+    for dataset in all_datasets:
+        dataset_dfs = []
+        
+        if dataset in tabular_results:
+            dataset_dfs.append(tabular_results[dataset])
+        
+        if dataset in graph_results:
+            dataset_dfs.append(graph_results[dataset])
+        
+        if dataset_dfs:
+            combined_results[dataset] = pd.concat(dataset_dfs, ignore_index=True)
+    
+    return combined_results
+
+def detect_task_type(data: pd.DataFrame) -> str:
+    """Detect if dataset is regression or classification based on available columns."""
+    columns = set(data.columns.str.lower())
+    
+    # Classification metrics
+    if any(col in columns for col in ['acc', 'f1_macro', 'logloss', 'roc_auc', 'prec', 'rec']):
+        return 'classification'
+    # Regression metrics  
+    elif any(col in columns for col in ['mae', 'r2', 'mse', 'rmse']):
+        return 'regression'
+    else:
+        return 'unknown'
+
+def get_metrics_for_task(task_type: str) -> List[str]:
+    """Get appropriate metrics for task type."""
+    if task_type == 'classification':
+        return ['acc', 'f1_macro', 'logloss']
+    elif task_type == 'regression':
+        return ['mae', 'r2', 'rmse']
+    else:
+        return []
+
+def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, output_dir: Path):
+    """Create bar plots comparing both tabular and graph feature combinations for a specific metric."""
+    
+    # Get unique targets and feature combinations in desired order
+    targets = sorted(data['target'].unique())
+    
+    # Define desired feature order for combined plots
+    feature_order = [
+        'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
+        'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit'  # Graph features
+    ]
+    available_features = data['features'].unique()
+    features = [f for f in feature_order if f in available_features]
+    
+    # Check if metric exists in data
+    if metric not in data.columns:
+        print(f"Warning: Metric '{metric}' not found in {dataset} data. Skipping.")
+        return
+    
+    # Calculate means across splits
+    summary = data.groupby(['target', 'features', 'model', 'method'])[metric].agg(['mean', 'std']).reset_index()
+    
+    # Create subplots
+    n_targets = len(targets)
+    n_cols = min(3, n_targets)  # Max 3 columns
+    n_rows = (n_targets + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(8*n_cols, 6*n_rows))
+    if n_targets == 1:
+        axes = [axes]
+    elif n_rows == 1:
+        axes = axes.reshape(1, -1)
+    
+    # Flatten axes for easier indexing
+    axes_flat = axes.flatten() if n_targets > 1 else axes
+    
+    # Define colors for different methods and models
+    colors = {
+        'Tabular': {'Linear': '#1f77b4', 'RF': '#ff7f0e', 'XGB': '#2ca02c', 'LogReg': '#1f77b4'},
+        'Graph': {'DMPNN': '#d62728', 'wDMPNN': '#9467bd', 'PPG': '#8c564b'}
+    }
+    
+    for i, target in enumerate(targets):
+        ax = axes_flat[i]
+        
+        # Filter data for this target
+        target_data = summary[summary['target'] == target]
+        
+        # Create grouped bar plot
+        x_pos = np.arange(len(features))
+        
+        # Get unique models and methods
+        unique_combinations = target_data[['model', 'method']].drop_duplicates()
+        
+        # Calculate bar width and positions
+        n_bars = len(unique_combinations)
+        bar_width = 0.8 / n_bars if n_bars > 0 else 0.8
+        
+        for j, (_, row) in enumerate(unique_combinations.iterrows()):
+            model = row['model']
+            method = row['method']
+            
+            model_data = target_data[(target_data['model'] == model) & (target_data['method'] == method)]
+            
+            # Get color
+            color = colors.get(method, {}).get(model, '#1f77b4')
+            
+            means = []
+            stds = []
+            for feature in features:
+                feature_data = model_data[model_data['features'] == feature]
+                if len(feature_data) > 0:
+                    means.append(feature_data['mean'].iloc[0])
+                    stds.append(feature_data['std'].iloc[0])
+                else:
+                    means.append(0)
+                    stds.append(0)
+            
+            # Calculate bar positions
+            bar_positions = x_pos + (j - n_bars/2 + 0.5) * bar_width
+            
+            ax.bar(bar_positions, means, bar_width, 
+                  yerr=stds, capsize=3, label=f'{method}-{model}', alpha=0.8, color=color)
+        
+        ax.set_xlabel('Feature Combination')
+        ax.set_ylabel(metric.upper())
+        ax.set_title(f'{target}')
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(features, rotation=45, ha='right')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.grid(True, alpha=0.3)
+    
+    # Hide empty subplots
+    for i in range(n_targets, len(axes_flat)):
+        axes_flat[i].set_visible(False)
+    
+    plt.suptitle(f'{dataset} - {metric.upper()} Combined Comparison (Tabular vs Graph)', fontsize=16, y=0.98)
+    plt.tight_layout()
+    
+    # Save plot
+    output_file = output_dir / f'{dataset}_{metric}_combined_comparison.png'
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"Saved: {output_file}")
+
+def main():
+    parser = argparse.ArgumentParser(description='Visualize combined tabular and graph results')
+    parser.add_argument('--results_dir', type=str, default='results', 
+                       help='Directory containing result CSV files')
+    parser.add_argument('--output_dir', type=str, default='plots/combined',
+                       help='Directory to save plots')
+    args = parser.parse_args()
+    
+    # Set up paths
+    results_dir = Path(args.results_dir)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    print("Loading combined results...")
+    results = load_combined_results(results_dir)
+    
+    if not results:
+        print("No results found!")
+        return
+    
+    print(f"Found results for datasets: {list(results.keys())}")
+    
+    # Process each dataset
+    for dataset, data in results.items():
+        print(f"\nProcessing {dataset}...")
+        
+        # Detect task type and get metrics
+        task_type = detect_task_type(data)
+        metrics = get_metrics_for_task(task_type)
+        
+        print(f"Detected task type: {task_type}")
+        print(f"Using metrics: {metrics}")
+        
+        # Create comparison plots for each metric
+        for metric in metrics:
+            if metric in data.columns:
+                create_combined_comparison_plots(data, dataset, metric, output_dir)
+            else:
+                print(f"Warning: Metric '{metric}' not found in {dataset} data. Skipping.")
+    
+    print(f"\nAll plots saved to: {output_dir}")
+
+if __name__ == "__main__":
+    main()
