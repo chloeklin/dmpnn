@@ -17,7 +17,7 @@ get_expected_csv() {
     # Parse script to determine dataset, model, and flags
     local dataset=$(echo "$base_name" | sed 's/train_\([^_]*\)_.*/\1/')
     
-    if [[ "$base_name" == *"DMPNN"* ]]; then
+    if [[ "$base_name" == *"DMPNN"* ]] || [[ "$base_name" == *"wDMPNN"* ]] || [[ "$base_name" == *"PPG"* ]]; then
         # Graph training - aggregate results format (no target in filename)
         local suffix=""
         if [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"rdkit"* ]]; then
@@ -27,29 +27,37 @@ get_expected_csv() {
         elif [[ "$base_name" == *"desc"* ]]; then
             suffix="_descriptors"
         fi
-        echo "${dataset}${suffix}_DMPNN_results.csv"
-    elif [[ "$base_name" == *"wDMPNN"* ]]; then
-        # wDMPNN training - aggregate results format
-        local suffix=""
-        if [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"rdkit"* ]]; then
-            suffix="_descriptors_rdkit"
-        elif [[ "$base_name" == *"rdkit"* ]]; then
-            suffix="_rdkit"
-        elif [[ "$base_name" == *"desc"* ]]; then
-            suffix="_descriptors"
+        
+        # Determine model name for output
+        local model_name=""
+        if [[ "$base_name" == *"DMPNN"* ]]; then
+            model_name="DMPNN"
+        elif [[ "$base_name" == *"wDMPNN"* ]]; then
+            model_name="wDMPNN"
+        elif [[ "$base_name" == *"PPG"* ]]; then
+            model_name="PPG"
         fi
-        echo "${dataset}${suffix}_wDMPNN_results.csv"
+        
+        echo "${dataset}${suffix}_${model_name}_results.csv"
     else
         # Tabular training
         local suffix=""
-        if [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"rdkit"* ]]; then
+        
+        # Build suffix based on flags present in script name
+        if [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"rdkit"* ]] && [[ "$base_name" == *"ab"* ]]; then
+            suffix="_descriptors_rdkit_ab"
+        elif [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"rdkit"* ]]; then
             suffix="_descriptors_rdkit"
-        elif [[ "$base_name" == *"rdkit"* ]]; then
-            suffix="_rdkit"
+        elif [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"ab"* ]]; then
+            suffix="_descriptors_ab"
+        elif [[ "$base_name" == *"rdkit"* ]] && [[ "$base_name" == *"ab"* ]]; then
+            suffix="_rdkit_ab"
         elif [[ "$base_name" == *"desc"* ]]; then
             suffix="_descriptors"
-        elif [[ "$base_name" == *"_ab"* ]]; then
-            suffix="${suffix}_ab"
+        elif [[ "$base_name" == *"rdkit"* ]]; then
+            suffix="_rdkit"
+        elif [[ "$base_name" == *"ab"* ]]; then
+            suffix="_ab"
         fi
         
         echo "${dataset}_tabular${suffix}.csv"
