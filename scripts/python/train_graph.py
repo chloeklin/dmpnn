@@ -406,11 +406,12 @@ for target in target_columns:
             preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, None, logger
         )
         
-        # Safety check: ensure cached correlation_mask matches local computation
-        m_local = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
-        cm = np.array(correlation_mask, dtype=bool)
-        assert m_local.shape == cm.shape and np.all(m_local == cm), \
-            "Local correlation mask != cached correlation mask (split consistency issue)"
+        # Safety check: ensure cached correlation_mask matches local computation (only if descriptors exist)
+        if combined_descriptor_data is not None and i in split_preprocessing_metadata:
+            m_local = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
+            cm = np.array(correlation_mask, dtype=bool)
+            assert m_local.shape == cm.shape and np.all(m_local == cm), \
+                "Local correlation mask != cached correlation mask (split consistency issue)"
 
         # 2) Normalize using the decided scaler
         if combined_descriptor_data is not None:
@@ -451,11 +452,12 @@ for target in target_columns:
             processed_descriptor_data = combined_descriptor_data.copy()
             
             # Remove constant features (same as done in preprocessing)
-            if constant_features:
+            if hasattr(constant_features, '__len__') and len(constant_features) > 0:
                 processed_descriptor_data = np.delete(processed_descriptor_data, constant_features, axis=1)
             
             # Apply correlation mask to get final feature count
-            processed_descriptor_data = processed_descriptor_data[:, correlation_mask]
+            if hasattr(correlation_mask, '__len__') and len(correlation_mask) > 0:
+                processed_descriptor_data = processed_descriptor_data[:, correlation_mask]
             
             logger.info(f"Model input descriptor shape: {processed_descriptor_data.shape} (after constant removal and correlation filtering)")
         else:

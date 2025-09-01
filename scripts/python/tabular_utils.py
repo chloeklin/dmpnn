@@ -93,6 +93,10 @@ def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, 
     """Handle loading/saving of preprocessing cache."""
     from joblib import load, dump
     
+    # If no descriptors, return defaults
+    if combined_descriptor_data is None:
+        return False, None, np.array([]), np.array([])
+    
     # Define file paths
     metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
     scaler_file = preprocessing_path / "descriptor_scaler.pkl"
@@ -101,7 +105,14 @@ def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, 
     
     preprocessing_path.mkdir(parents=True, exist_ok=True)
     
-    # Check if preprocessing can be reused
+    # If descriptor_scaler is provided, this is a save operation
+    if descriptor_scaler is not None:
+        # Save scaler and return (don't re-save metadata)
+        dump(descriptor_scaler, scaler_file)
+        logger.info(f"Saved descriptor scaler to {scaler_file}")
+        return False, descriptor_scaler, np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool), np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed'])
+    
+    # Check if preprocessing can be reused (load operation)
     preprocessing_exists = (
         metadata_file.exists() and 
         correlation_mask_file.exists() and 
@@ -157,20 +168,15 @@ def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, 
     # Add the missing field to metadata
     split_preprocessing_metadata[i]['data_info']['n_features_after_preprocessing'] = int(n_features_final)
     
-    if descriptor_scaler is not None:
-        dump(descriptor_scaler, scaler_file)
-        logger.info(f"Saved descriptor scaler to {scaler_file}")
-    
+    # Save preprocessing files
     np.save(correlation_mask_file, correlation_mask)
-    
-    constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
-    np.save(constant_features_file, np.array(constant_features, dtype=np.int64))
+    np.save(constant_features_file, np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed']))
     
     with open(metadata_file, 'w') as f:
         json.dump(split_preprocessing_metadata[i], f, indent=2)
     
     logger.info(f"Saved preprocessing metadata for split {i} with {n_features_final} final features")
-    return False, descriptor_scaler, correlation_mask, constant_features
+    return False, None, correlation_mask, np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed'])
 try:
     from rdkit import Chem
     from rdkit.Chem import Descriptors, rdchem
