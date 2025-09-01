@@ -192,4 +192,5 @@ config.toml
 
 !tests/data/*
 !results/*
+!results/**/*
 plots/
