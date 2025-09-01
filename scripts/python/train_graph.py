@@ -530,7 +530,9 @@ for target in target_columns:
     # Save progressive aggregate results after each target (same filename, updated each time)
     suffix_desc  = "_descriptors" if args.incl_desc else ""
     suffix_rdkit = "_rdkit"       if args.incl_rdkit else ""
-    aggregate_csv = results_dir / f"{args.dataset_name}{suffix_desc}{suffix_rdkit}_{MODEL_NAME}_results.csv"
+    model_results_dir = results_dir / MODEL_NAME
+    model_results_dir.mkdir(exist_ok=True)
+    aggregate_csv = model_results_dir / f"{args.dataset_name}{suffix_desc}{suffix_rdkit}_results.csv"
     
     # Combine all completed targets so far
     current_aggregate_df = pd.concat(all_results, ignore_index=True)

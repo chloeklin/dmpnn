@@ -62,7 +62,7 @@ get_expected_csv() {
             model_name="PPG"
         fi
         
-        echo "${dataset}${suffix}_${model_name}_results.csv"
+        echo "${model_name}/${dataset}${suffix}_results.csv"
     else
         # Tabular training
         local suffix=""
