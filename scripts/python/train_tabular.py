@@ -294,7 +294,9 @@ def main():
 
     # Check for existing results and determine what needs to be run
     suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "") + ("_ab" if args.incl_ab else "")
-    detailed_csv = results_dir / f"{args.dataset_name}_tabular{suffix}.csv"
+    tabular_results_dir = results_dir / "tabular"
+    tabular_results_dir.mkdir(exist_ok=True)
+    detailed_csv = tabular_results_dir / f"{args.dataset_name}{suffix}.csv"
     
     # Load existing results using modularized function
     existing_results = load_existing_results(detailed_csv, logger)

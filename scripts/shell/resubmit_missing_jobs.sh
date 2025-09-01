@@ -77,7 +77,7 @@ get_expected_csv() {
             suffix="_ab"
         fi
         
-        echo "${dataset}_tabular${suffix}.csv"
+        echo "tabular/${dataset}${suffix}.csv"
     fi
 }
 
