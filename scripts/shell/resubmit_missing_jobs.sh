@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Script to resubmit training jobs that don't have corresponding result CSV files
-# Usage: ./resubmit_missing_jobs.sh
+# Usage: ./resubmit_missing_jobs.sh [filter]
+# Optional filter: only process scripts containing the filter string (e.g., "rdkit")
 
 # Get the directory where this script is located
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,10 +12,17 @@ PROJECT_ROOT="$(cd "$SCRIPT_PATH/../.." && pwd)"
 SCRIPT_DIR="$PROJECT_ROOT/scripts/shell"
 RESULTS_DIR="$PROJECT_ROOT/results"
 
+# Get optional filter argument
+FILTER="$1"
+
 # Change to project root directory for consistent execution
 cd "$PROJECT_ROOT"
 
-echo "Checking for missing result CSV files and resubmitting jobs..."
+if [[ -n "$FILTER" ]]; then
+    echo "Checking for missing result CSV files and resubmitting jobs (filter: '$FILTER')..."
+else
+    echo "Checking for missing result CSV files and resubmitting jobs..."
+fi
 echo "=================================================="
 
 # Function to get expected CSV name from script
@@ -105,6 +113,12 @@ submit_job() {
 for script in ${SCRIPT_DIR}/train*.sh; do
     if [[ -f "$script" ]]; then
         script_name=$(basename "$script")
+        
+        # Apply filter if provided
+        if [[ -n "$FILTER" ]] && [[ "$script_name" != *"$FILTER"* ]]; then
+            continue
+        fi
+        
         expected_csv=$(get_expected_csv "$script_name")
         csv_path="${RESULTS_DIR}/${expected_csv}"
         
