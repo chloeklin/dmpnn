@@ -19,6 +19,7 @@ from utils import (
     filter_insulator_data,
     build_sklearn_models
 )
+from tabular_utils import build_experiment_paths
 
 from chemprop import data, featurizers, models, nn
 
@@ -36,7 +37,7 @@ parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'],
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
 parser.add_argument('--descriptor', action='store_true',
                     help='Use dataset-specific descriptors')
-parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
+parser.add_argument('--model', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
                     help='Name of the model to use')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
@@ -47,7 +48,7 @@ args = parser.parse_args()
 print("\n=== Training Configuration ===")
 print(f"Dataset       : {args.dataset_name}")
 print(f"Task type     : {args.task_type}")
-print(f"Model         : {args.model_name}")
+print(f"Model         : {args.model}")
 print(f"Descriptors   : {'Enabled' if args.descriptor else 'Disabled'}")
 print(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
 print("===============================\n")
@@ -62,8 +63,8 @@ chemprop_dir = Path.cwd()
 # Get paths from config with defaults
 paths = config.get('PATHS', {})
 data_dir = chemprop_dir / paths.get('data_dir', 'data')
-checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model_name
-results_dir = chemprop_dir / paths.get('results_dir', 'results') / args.model_name
+checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model
+results_dir = chemprop_dir / paths.get('results_dir', 'results') / args.model
 
 # Create necessary directories
 checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -73,9 +74,9 @@ results_dir.mkdir(parents=True, exist_ok=True)
 input_path = chemprop_dir / data_dir / f"{args.dataset_name}.csv"
 
 # Get model-specific configuration
-model_config = config['MODELS'].get(args.model_name, {})
+model_config = config['MODELS'].get(args.model, {})
 if not model_config:
-    print(f"Warning: No configuration found for model '{args.model_name}'. Using defaults.")
+    print(f"Warning: No configuration found for model '{args.model}'. Using defaults.")
 
 # Set parameters from config with defaults
 GLOBAL_CONFIG = config.get('GLOBAL', {})
@@ -90,7 +91,7 @@ num_workers = min(
 # Model-specific parameters
 smiles_column = model_config.get('smiles_column', 'smiles')
 ignore_columns = model_config.get('ignore_columns', [])
-MODEL_NAME = args.model_name
+MODEL_NAME = args.model
 
 # Get dataset descriptors from config
 DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
@@ -103,11 +104,11 @@ set_seed(SEED)
 df_input = pd.read_csv(input_path)
 
 # Apply insulator dataset filtering if needed
-if args.dataset_name == "insulator" and args.model_name == "wDMPNN":
+if args.dataset_name == "insulator" and args.model == "wDMPNN":
     df_input = filter_insulator_data(df_input, smiles_column)
 
 # Read the saved exclusions from the wDMPNN preprocessing step
-if args.model_name == "DMPNN":
+if args.model == "DMPNN":
     drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
     if drop_idx:
         print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
@@ -138,7 +139,7 @@ variant_qstattag = "" if variant_label == "original" else "_" + variant_label.re
 
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
 
-featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
+featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
 
  # Prepare wide-format rows: a dict per (replicate, model)
 rep_model_to_row = {}
@@ -150,7 +151,7 @@ model_names_example = list(models_dict.keys())
 # Common metadata for this run
 base_meta = {
     "dataset": args.dataset_name,
-    "encoder": args.model_name,   # "DMPNN" or "wDMPNN"
+    "encoder": args.model,   # "DMPNN" or "wDMPNN"
     "variant": variant_label,     # "original", "desc", "rdkit", or "desc+rdkit"
 }
 
@@ -162,7 +163,7 @@ for target in target_columns:
     if args.task_type != 'reg':
         ys = ys.astype(int)
     ys = ys.reshape(-1, 1) # reshaping target to be 2D
-    all_data = create_all_data(smis, ys, combined_descriptor_data, args.model_name)
+    all_data = create_all_data(smis, ys, combined_descriptor_data, args.model)
 
 
     # Build replicates of splits
@@ -195,14 +196,11 @@ for target in target_columns:
         preprocessing_components = {}
         
         for i in range(REPLICATES):
-            checkpoint_path = (
-                Path("out") / args.model_name / args.dataset_name / 
-                f"{args.dataset_name}__{target}"
-                f"{'__desc' if descriptor_columns else ''}"
-                f"{'__rdkit' if args.incl_rdkit else ''}"
-                f"__rep{i}"
+            # Use same path logic as train_graph.py
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
-            metadata_path = checkpoint_path / f"preprocessing_metadata_split_{i}.json"
+            metadata_path = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
             
             # Load JSON metadata
             if metadata_path.exists():
@@ -219,7 +217,7 @@ for target in target_columns:
             components = {}
             
             # Load imputer if it exists
-            imputer_path = checkpoint_path / "descriptor_imputer.pkl"
+            imputer_path = preprocessing_path / "descriptor_imputer.pkl"
             if imputer_path.exists():
                 components['imputer'] = load(imputer_path)
                 print(f"Loaded descriptor imputer for split {i}")
@@ -227,7 +225,7 @@ for target in target_columns:
                 components['imputer'] = None
             
             # Load descriptor scaler
-            scaler_path = checkpoint_path / "descriptor_scaler.pkl"
+            scaler_path = preprocessing_path / "descriptor_scaler.pkl"
             if scaler_path.exists():
                 components['descriptor_scaler'] = load(scaler_path)
                 print(f"Loaded descriptor scaler for split {i}")
@@ -236,7 +234,7 @@ for target in target_columns:
                 print(f"Warning: No descriptor scaler found for split {i}")
             
             # Load correlation mask
-            mask_path = checkpoint_path / "correlation_mask.npy"
+            mask_path = preprocessing_path / "correlation_mask.npy"
             if mask_path.exists():
                 components['correlation_mask'] = np.load(mask_path)
                 print(f"Loaded correlation mask for split {i}")
@@ -245,7 +243,7 @@ for target in target_columns:
                 print(f"Warning: No correlation mask found for split {i}")
             
             # Load constant features
-            const_path = checkpoint_path / "constant_features_removed.npy"
+            const_path = preprocessing_path / "constant_features_removed.npy"
             if const_path.exists():
                 components['constant_features_removed'] = np.load(const_path)
                 print(f"Loaded constant features for split {i}")
@@ -336,7 +334,7 @@ for target in target_columns:
                     preprocessing_metadata[i] = None
                     continue
 
-    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
+    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
     for i in range(REPLICATES):
         # Ensure pre-create rows for all replicate×model combos
         for mname in model_names_example:
@@ -347,7 +345,7 @@ for target in target_columns:
             }
 
         # Prepare datasets
-        if args.model_name == "DMPNN":
+        if args.model == "DMPNN":
             train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
         else:
             train, val, test = data.PolymerDataset(train_data[i], featurizer), data.PolymerDataset(val_data[i], featurizer), data.PolymerDataset(test_data[i], featurizer)
@@ -367,14 +365,10 @@ for target in target_columns:
         val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
         
-        # Load best ckpt
-        checkpoint_path = (
-            f"checkpoints/{args.model_name}/"
-            f"{args.dataset_name}__{target}"
-            f"{'__desc' if descriptor_columns else ''}"
-            f"{'__rdkit' if args.incl_rdkit else ''}"
-            f"__rep{i}/"
-            )
+        # Load best ckpt - use consistent path logic
+        checkpoint_path, _, _, _ = build_experiment_paths(
+            args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+        )
         last_ckpt = load_best_checkpoint(Path(checkpoint_path))
         if last_ckpt is None:
             # no checkpoint → skip this replicate (leave row without this target's metrics)
@@ -439,7 +433,7 @@ for target in target_columns:
     # write
     results_dir = Path(chemprop_dir / "results")
     results_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = results_dir / f"{args.dataset_name}_{args.model_name}_baseline.csv"
+    out_csv = results_dir / f"{args.dataset_name}_{args.model}_baseline.csv"
     KEY_COLS = ["dataset", "encoder", "variant", "replicate", "model"]
     upsert_csv(out_csv, results_df, KEY_COLS)
     print(f"Wrote/updated: {out_csv}")
