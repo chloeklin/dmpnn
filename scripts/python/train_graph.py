@@ -371,6 +371,28 @@ for target in target_columns:
     results_all = []
     num_splits = len(train_data)  # robust for both CV and holdout
     for i in range(num_splits):
+
+        if combined_descriptor_data is not None:
+            imputer = split_imputers[i]
+            if imputer is not None:
+                all_data_clean_i = imputer.transform(orig_Xd)
+            else:
+                all_data_clean_i = orig_Xd.copy()
+            all_data_clean_i = np.clip(all_data_clean_i, float32_min, float32_max).astype(np.float32)
+
+            mask_i = np.array(
+                split_preprocessing_metadata[i]['split_specific']['correlation_mask'],
+                dtype=bool
+            )
+
+            # overwrite x_d for ONLY this split right before dataset construction
+            for dp, ridx in zip(train_data[i], train_indices[i]):
+                dp.x_d = all_data_clean_i[ridx][mask_i]
+            for dp, ridx in zip(val_data[i],   val_indices[i]):
+                dp.x_d = all_data_clean_i[ridx][mask_i]
+            for dp, ridx in zip(test_data[i],  test_indices[i]):
+                dp.x_d = all_data_clean_i[ridx][mask_i]
+
         # Create datasets after cleaning
         DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
         train = DS(train_data[i], featurizer)
@@ -448,17 +470,9 @@ for target in target_columns:
         
         # Create processed descriptor data for model building (with constant features dropped)
         if combined_descriptor_data is not None:
-            # Apply same preprocessing as applied to datapoints
-            processed_descriptor_data = combined_descriptor_data.copy()
-            
-            # Remove constant features (same as done in preprocessing)
-            if hasattr(constant_features, '__len__') and len(constant_features) > 0:
-                processed_descriptor_data = np.delete(processed_descriptor_data, constant_features, axis=1)
-            
-            # Apply correlation mask to get final feature count
-            if hasattr(correlation_mask, '__len__') and len(correlation_mask) > 0:
-                processed_descriptor_data = processed_descriptor_data[:, correlation_mask]
-            
+            # Use orig_Xd (constants already removed)
+            processed_descriptor_data = orig_Xd.copy()
+            processed_descriptor_data = processed_descriptor_data[:, mask_i]
             logger.info(f"Model input descriptor shape: {processed_descriptor_data.shape} (after constant removal and correlation filtering)")
         else:
             processed_descriptor_data = None

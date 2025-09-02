@@ -35,12 +35,13 @@ parser.add_argument('--dataset_name', type=str, required=True,
                     help='Name of the dataset file (without .csv extension)')
 parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                     help='Type of task: "reg" for regression or "binary" or "multi" for classification')
-parser.add_argument('--descriptor', action='store_true',
+parser.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
+parser.add_argument('--incl_rdkit', action='store_true',
+                    help='Include RDKit 2D descriptors')
 parser.add_argument('--model', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
                     help='Name of the model to use')
-parser.add_argument('--incl_rdkit', action='store_true',
-                    help='Include RDKit descriptors')
+
 
 args = parser.parse_args()
 
@@ -49,7 +50,7 @@ print("\n=== Training Configuration ===")
 print(f"Dataset       : {args.dataset_name}")
 print(f"Task type     : {args.task_type}")
 print(f"Model         : {args.model}")
-print(f"Descriptors   : {'Enabled' if args.descriptor else 'Disabled'}")
+print(f"Descriptors   : {'Enabled' if args.incl_desc else 'Disabled'}")
 print(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
 print("===============================\n")
 
@@ -95,7 +96,7 @@ MODEL_NAME = args.model
 
 # Get dataset descriptors from config
 DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
-descriptor_columns = DATASET_DESCRIPTORS if args.descriptor else []
+descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
 
 # === Set Random Seed ===
 set_seed(SEED)
@@ -355,7 +356,6 @@ for target in target_columns:
             val.normalize_targets(scaler)
             test.normalize_targets(scaler)
         # Normalize input descriptors (to match training’s scaling, if used)
-        X_d_transform = None
         if combined_descriptor_data is not None:
             descriptor_scaler = train.normalize_inputs("X_d")
             val.normalize_inputs("X_d", descriptor_scaler)
@@ -382,38 +382,74 @@ for target in target_columns:
         X_val = get_encodings_from_loader(mpnn, val_loader)
         X_test = get_encodings_from_loader(mpnn, test_loader)
 
-        # Combine train+val to fit baselines
-        X_fit = np.concatenate([X_train, X_val], axis=0)
-        y_fit = np.concatenate([
-            df_input.loc[train_indices[i], target].to_numpy(),
-            df_input.loc[val_indices[i],   target].to_numpy()
-        ], axis=0)
-
+        # Get target data for each split
+        y_train = df_input.loc[train_indices[i], target].to_numpy()
+        y_val = df_input.loc[val_indices[i], target].to_numpy()
         y_test = df_input.loc[test_indices[i], target].to_numpy()
+        
+        # Initialize target scaler for regression tasks (same as train_tabular.py)
+        target_scaler = None
+        if args.task_type == 'reg':
+            from sklearn.preprocessing import StandardScaler
+            target_scaler = StandardScaler()
+            y_train_scaled = target_scaler.fit_transform(y_train.reshape(-1, 1)).flatten()
+            y_val_scaled = target_scaler.transform(y_val.reshape(-1, 1)).flatten()
+            # Keep y_test original for final evaluation
+        else:
+            y_train_scaled = y_train
+            y_val_scaled = y_val
 
-        # Build requested baselines
-        models_dict = build_sklearn_models(args.task_type)
+        # Build requested baselines with scaler info (same as train_tabular.py)
+        num_classes = len(np.unique(y_train_scaled)) if args.task_type != "reg" else None
+        model_specs = build_sklearn_models(args.task_type, num_classes, scaler_flag=True)
 
-        # Fit baselines on train+val, compute metrics on test only
-        for name, model in models_dict.items():
-            model.fit(X_fit, y_fit)
+        # Train baselines following same logic as train_tabular.py
+        for name, (model, needs_scaler) in model_specs.items():
+            # Apply scaling for models that require it (linear/logistic)
+            scaler = None
+            if needs_scaler:
+                from sklearn.preprocessing import StandardScaler
+                scaler = StandardScaler()
+                X_train_scaled = scaler.fit_transform(X_train)
+                X_val_scaled = scaler.transform(X_val)
+                X_test_scaled = scaler.transform(X_test)
+            else:
+                X_train_scaled = X_train
+                X_val_scaled = X_val
+                X_test_scaled = X_test
 
             if args.task_type == "reg":
-                y_pred = model.predict(X_test)
+                if name == "XGB":
+                    model.set_params(early_stopping_rounds=30, eval_metric="rmse")
+                    model.fit(X_train_scaled, y_train_scaled, eval_set=[(X_val_scaled, y_val_scaled)], verbose=False)
+                else:
+                    model.fit(X_train_scaled, y_train_scaled)
+                
+                # Get predictions and inverse transform if this is regression
+                y_pred = model.predict(X_test_scaled)
+                if target_scaler is not None:
+                    y_pred = target_scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+                
                 r2   = r2_score(y_test, y_pred)
                 mae  = mean_absolute_error(y_test, y_pred)
                 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
                 rep_model_to_row[(i, name)][f"{target}_R2"] = r2; rep_model_to_row[(i, name)][f"{target}_MAE"] = mae; rep_model_to_row[(i, name)][f"{target}_RMSE"] = rmse
 
             else:
-                y_pred = model.predict(X_test)
+                if name == "XGB":
+                    model.set_params(early_stopping_rounds=30, eval_metric="logloss")
+                    model.fit(X_train_scaled, y_train_scaled, eval_set=[(X_val_scaled, y_val_scaled)], verbose=False)
+                else:
+                    model.fit(X_train_scaled, y_train_scaled)
+                
+                y_pred = model.predict(X_test_scaled)
                 acc = accuracy_score(y_test, y_pred)
                 avg = "macro" if args.task_type == "multi" else "binary"
                 f1  = f1_score(y_test, y_pred, average=avg)
                 rep_model_to_row[(i, name)][f"{target}_ACC"] = acc; rep_model_to_row[(i, name)][f"{target}_F1"] = f1
 
                 if hasattr(model, "predict_proba"):
-                    proba = model.predict_proba(X_test)
+                    proba = model.predict_proba(X_test_scaled)
                     try:
                         if args.task_type == "binary":
                             auc = roc_auc_score(y_test, proba[:, 1])

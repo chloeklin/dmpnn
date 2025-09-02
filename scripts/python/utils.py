@@ -470,9 +470,9 @@ def build_model_and_trainer(
     checkpoint_path: Union[str, Path],
     batch_norm: bool = True,
     metric_list: Optional[List[Any]] = None,
-    early_stopping_patience: int = 10,
+    early_stopping_patience: int = 30,
     early_stopping_min_delta: float = 0.0,
-    max_epochs: int = 100,
+    max_epochs: int = 300,
     gradient_clip_val: float = 10.0,
     **trainer_kwargs
 ) -> Tuple[Any, Any]:  # Returns (model, trainer)
@@ -812,6 +812,14 @@ def load_best_checkpoint(ckpt_dir: Path):
     ckpts = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
     if not ckpts:
         return None
+    
+    # Prioritize validation-best checkpoints over last.ckpt
+    best_ckpts = [f for f in ckpts if f.startswith("best-")]
+    if best_ckpts:
+        best_ckpts.sort()
+        return ckpt_dir / best_ckpts[-1]
+    
+    # Fallback to lexicographically last checkpoint
     ckpts.sort()
     return ckpt_dir / ckpts[-1]
 
