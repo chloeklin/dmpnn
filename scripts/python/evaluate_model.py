@@ -1,25 +1,22 @@
 import argparse
 import sys
-import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import json
+import logging
 
 from utils import (
-    process_data,
+    set_seed, process_data, determine_split_strategy, generate_data_splits, 
     create_all_data,
-    make_repeated_splits,
-    set_seed,
+    build_sklearn_models,
+    build_experiment_paths,
+    setup_training_environment,
+    load_and_preprocess_data,
     load_best_checkpoint,
     get_encodings_from_loader,
-    upsert_csv,
-    load_drop_indices,
-    load_config,
-    filter_insulator_data,
-    build_sklearn_models
 )
-from tabular_utils import build_experiment_paths
+
 
 from chemprop import data, featurizers, models, nn
 
@@ -28,6 +25,8 @@ from sklearn.metrics import (
     accuracy_score, f1_score, roc_auc_score
 )
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Train a Chemprop model for regression or classification')
@@ -39,93 +38,52 @@ parser.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit 2D descriptors')
-parser.add_argument('--model', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
+parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
                     help='Name of the model to use')
 
 
 args = parser.parse_args()
 
+logger.info("\n=== Evaluation Configuration ===")
+logger.info(f"Dataset       : {args.dataset_name}")
+logger.info(f"Task type     : {args.task_type}")
+logger.info(f"Model         : {args.model_name}")
+logger.info(f"Descriptors   : {'Enabled' if args.incl_desc else 'Disabled'}")
+logger.info(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
+logger.info("===============================\n")
 
-print("\n=== Training Configuration ===")
-print(f"Dataset       : {args.dataset_name}")
-print(f"Task type     : {args.task_type}")
-print(f"Model         : {args.model}")
-print(f"Descriptors   : {'Enabled' if args.incl_desc else 'Disabled'}")
-print(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
-print("===============================\n")
+# Setup evaluation environment with common configuration
+setup_info = setup_training_environment(args, model_type="graph")
 
+# Extract commonly used variables for backward compatibility
+config = setup_info['config']
+chemprop_dir = setup_info['chemprop_dir']
+checkpoint_dir = setup_info['checkpoint_dir']
+results_dir = setup_info['results_dir']
+smiles_column = setup_info['smiles_column']
+ignore_columns = setup_info['ignore_columns']
+descriptor_columns = setup_info['descriptor_columns']
+SEED = setup_info['SEED']
+REPLICATES = setup_info['REPLICATES']
+EPOCHS = setup_info['EPOCHS']
+PATIENCE = setup_info['PATIENCE']
+num_workers = setup_info['num_workers']
+DATASET_DESCRIPTORS = setup_info['DATASET_DESCRIPTORS']
+MODEL_NAME = args.model_name
 
-# Load configuration
-config = load_config()
-
-# Set up paths and parameters
-chemprop_dir = Path.cwd()
-
-# Get paths from config with defaults
-paths = config.get('PATHS', {})
-data_dir = chemprop_dir / paths.get('data_dir', 'data')
-checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model
-results_dir = chemprop_dir / paths.get('results_dir', 'results') / args.model
-
-# Create necessary directories
-checkpoint_dir.mkdir(parents=True, exist_ok=True)
-results_dir.mkdir(parents=True, exist_ok=True)
-
-# Set up file paths
-input_path = chemprop_dir / data_dir / f"{args.dataset_name}.csv"
-
-# Get model-specific configuration
-model_config = config['MODELS'].get(args.model, {})
+# Check model configuration
+model_config = config['MODELS'].get(args.model_name, {})
 if not model_config:
-    print(f"Warning: No configuration found for model '{args.model}'. Using defaults.")
-
-# Set parameters from config with defaults
-GLOBAL_CONFIG = config.get('GLOBAL', {})
-SEED = GLOBAL_CONFIG.get('SEED', 42)
-REPLICATES = GLOBAL_CONFIG.get('REPLICATES', 5)
-EPOCHS = GLOBAL_CONFIG.get('EPOCHS', 300)
-num_workers = min(
-    GLOBAL_CONFIG.get('NUM_WORKERS', 8),
-    os.cpu_count() or 1
-)
-
-# Model-specific parameters
-smiles_column = model_config.get('smiles_column', 'smiles')
-ignore_columns = model_config.get('ignore_columns', [])
-MODEL_NAME = args.model
-
-# Get dataset descriptors from config
-DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
-descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
+    logger.info(f"Warning: No configuration found for model '{args.model_name}'. Using defaults.")
 
 # === Set Random Seed ===
 set_seed(SEED)
 
-# === Load Data ===
-df_input = pd.read_csv(input_path)
-
-# Apply insulator dataset filtering if needed
-if args.dataset_name == "insulator" and args.model == "wDMPNN":
-    df_input = filter_insulator_data(df_input, smiles_column)
-
-# Read the saved exclusions from the wDMPNN preprocessing step
-if args.model == "DMPNN":
-    drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
-    if drop_idx:
-        print(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
-        df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
-
-
-# Automatically detect target columns (all columns except ignored ones)
-target_columns = [c for c in df_input.columns
-                 if c not in ([smiles_column] + 
-                            DATASET_DESCRIPTORS + 
-                            ignore_columns)]
-if not target_columns:
-    raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
+# === Load and Preprocess Data ===
+df_input, target_columns = load_and_preprocess_data(args, setup_info)
 
 # Which variant are we evaluating?
-use_desc = bool(descriptor_columns)
+use_desc = bool(args.incl_desc)
 use_rdkit = bool(args.incl_rdkit)
 
 variant_tokens = []
@@ -137,26 +95,13 @@ if use_rdkit:
 variant_label = "original" if not variant_tokens else "+".join(variant_tokens)
 variant_qstattag = "" if variant_label == "original" else "_" + variant_label.replace("+", "_")
 
-
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
 
-featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
+featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
 
- # Prepare wide-format rows: a dict per (replicate, model)
-rep_model_to_row = {}
-# ensure pre-create rows for all replicate×model combos
-# (we'll fill target-specific metric keys as we compute them)
-models_dict = build_sklearn_models(args.task_type)
-model_names_example = list(models_dict.keys())
+# Prepare results list for tabular format (same as train_tabular.py)
+all_results = []
 
-# Common metadata for this run
-base_meta = {
-    "dataset": args.dataset_name,
-    "encoder": args.model,   # "DMPNN" or "wDMPNN"
-    "variant": variant_label,     # "original", "desc", "rdkit", or "desc+rdkit"
-}
-
-    
 # Iterate per target
 for target in target_columns:
     # Prepare data
@@ -164,26 +109,20 @@ for target in target_columns:
     if args.task_type != 'reg':
         ys = ys.astype(int)
     ys = ys.reshape(-1, 1) # reshaping target to be 2D
-    all_data = create_all_data(smis, ys, combined_descriptor_data, args.model)
+    all_data = create_all_data(smis, ys, combined_descriptor_data, args.model_name)
 
 
-    # Build replicates of splits
-    if args.task_type in ['binary', 'multi']:
-        y_class = df_input[target].to_numpy(dtype=int, copy=False)
-        train_indices, val_indices, test_indices =  make_repeated_splits(
-            task_type=args.task_type,
-            replicates=REPLICATES,
-            seed=SEED,
-            y_class=y_class
-            
-        )
+    # Determine split strategy and generate splits
+    n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
+    
+    if n_splits > 1:
+        logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
     else:
-        train_indices, val_indices, test_indices =  make_repeated_splits(
-            task_type=args.task_type,
-            replicates=REPLICATES,
-            seed=SEED,
-            mols=[d.mol for d in all_data]
-        )
+        logger.info(f"Using holdout validation with {local_reps} replicate(s)")
+
+    # Generate data splits
+    train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+    
     
     # Split to datasets for each replicate
     train_data, val_data, test_data = data.split_data_by_indices(
@@ -192,191 +131,141 @@ for target in target_columns:
 
     # Apply same preprocessing as train_graph.py
     if combined_descriptor_data is not None:
-        # Load preprocessing metadata and objects for each split
-        preprocessing_metadata = {}
-        preprocessing_components = {}
-        
-        for i in range(REPLICATES):
-            # Use same path logic as train_graph.py
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-            )
-            metadata_path = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
-            
-            # Load JSON metadata
-            if metadata_path.exists():
-                with open(metadata_path, 'r') as f:
-                    preprocessing_metadata[i] = json.load(f)
-                print(f"Loaded preprocessing metadata for split {i}")
-            else:
-                print(f"Warning: No preprocessing metadata found for split {i}")
-                preprocessing_metadata[i] = None
-                continue
-            
-            # Load preprocessing components separately
-            from joblib import load
-            components = {}
-            
-            # Load imputer if it exists
-            imputer_path = preprocessing_path / "descriptor_imputer.pkl"
-            if imputer_path.exists():
-                components['imputer'] = load(imputer_path)
-                print(f"Loaded descriptor imputer for split {i}")
-            else:
-                components['imputer'] = None
-            
-            # Load descriptor scaler
-            scaler_path = preprocessing_path / "descriptor_scaler.pkl"
-            if scaler_path.exists():
-                components['descriptor_scaler'] = load(scaler_path)
-                print(f"Loaded descriptor scaler for split {i}")
-            else:
-                components['descriptor_scaler'] = None
-                print(f"Warning: No descriptor scaler found for split {i}")
-            
-            # Load correlation mask
-            mask_path = preprocessing_path / "correlation_mask.npy"
-            if mask_path.exists():
-                components['correlation_mask'] = np.load(mask_path)
-                print(f"Loaded correlation mask for split {i}")
-            else:
-                components['correlation_mask'] = None
-                print(f"Warning: No correlation mask found for split {i}")
-            
-            # Load constant features
-            const_path = preprocessing_path / "constant_features_removed.npy"
-            if const_path.exists():
-                components['constant_features_removed'] = np.load(const_path)
-                print(f"Loaded constant features for split {i}")
-            else:
-                components['constant_features_removed'] = None
-                print(f"Warning: No constant features found for split {i}")
-            
-            preprocessing_components[i] = components
-
         # Initial data preparation (same as train_graph.py)
         orig_Xd = np.asarray(combined_descriptor_data, dtype=np.float64)
         
         # Replace inf with NaN
         inf_mask = np.isinf(orig_Xd)
         if np.any(inf_mask):
-            print(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
+            logger.info(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
             orig_Xd[inf_mask] = np.nan
         
-        # Remove constant features using saved numpy array
-        if preprocessing_components[0] is not None and preprocessing_components[0]['constant_features_removed'] is not None:
-            constant_features = preprocessing_components[0]['constant_features_removed']
-            if len(constant_features) > 0:
-                print(f"Removing {len(constant_features)} constant features")
+        # Load preprocessing metadata directly (same as train_graph.py)
+        split_preprocessing_metadata = {}
+        for i in range(REPLICATES):
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
+            
+            # Load the metadata file directly
+            metadata_path = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+            if metadata_path.exists():
+                with open(metadata_path, 'r') as f:
+                    split_preprocessing_metadata[i] = json.load(f)
+                logger.info(f"Loaded preprocessing metadata for split {i}")
+            else:
+                logger.info(f"Warning: No preprocessing metadata found for split {i}")
+                split_preprocessing_metadata[i] = None
+        
+        # Remove constant features using saved metadata (same as train_graph.py)
+        if split_preprocessing_metadata[0] is not None:
+            constant_features = split_preprocessing_metadata[0]['data_info']['constant_features_removed']
+            if constant_features:
+                logger.info(f"Removing {len(constant_features)} constant features from full dataset")
                 orig_Xd = np.delete(orig_Xd, constant_features, axis=1)
         
-        # Apply per-split preprocessing using saved components
-        for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-            if preprocessing_metadata[i] is None or preprocessing_components[i] is None:
-                print(f"Warning: Skipping split {i} due to missing metadata or components")
+        # Apply per-split preprocessing (same as train_graph.py)
+        preprocessed_data = {}
+        for i in range(REPLICATES):
+            if split_preprocessing_metadata[i] is None:
+                logger.info(f"Warning: Skipping split {i} due to missing metadata")
                 continue
+                
+            # Get preprocessing components for this split
+            cleaning_meta = split_preprocessing_metadata[i]['cleaning']
             
-            # Get saved preprocessing components
-            saved_imputer = preprocessing_components[i]['imputer']
-            correlation_mask = preprocessing_components[i]['correlation_mask']
+            # Apply imputation using saved imputer (same as train_graph.py)
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
             
-            # Apply imputation using saved imputer object
-            if saved_imputer is not None:
-                all_data_clean = saved_imputer.transform(orig_Xd)
+            from joblib import load
+            imputer_path = preprocessing_path / "descriptor_imputer.pkl"
+            if imputer_path.exists():
+                saved_imputer = load(imputer_path)
+                all_data_clean_i = saved_imputer.transform(orig_Xd)
             else:
-                all_data_clean = orig_Xd.copy()
+                all_data_clean_i = orig_Xd.copy()
             
-            # Apply clipping and conversion (get limits from metadata)
-            cleaning_meta = preprocessing_metadata[i]['cleaning']
+            # Apply clipping and conversion
             float32_min = cleaning_meta['float32_min']
             float32_max = cleaning_meta['float32_max']
-            all_data_clean = np.clip(all_data_clean, float32_min, float32_max)
-            all_data_clean = all_data_clean.astype(np.float32)
+            all_data_clean_i = np.clip(all_data_clean_i, float32_min, float32_max)
+            all_data_clean_i = all_data_clean_i.astype(np.float32)
             
-            # Apply preprocessing to datapoints
-            def _apply_saved_preprocessing(datapoints, row_indices):
-                for dp, ridx in zip(datapoints, row_indices):
-                    row_clean = all_data_clean[ridx]
-                    # Apply mask (zero out dropped features)
-                    out = np.zeros_like(row_clean, dtype=np.float32)
-                    out[correlation_mask] = row_clean[correlation_mask]
-                    dp.x_d = out
+            # Apply correlation mask (same as train_graph.py)
+            mask_i = np.array(
+                split_preprocessing_metadata[i]['split_specific']['correlation_mask'],
+                dtype=bool
+            )
             
-            _apply_saved_preprocessing(train_data[i], tr)
-            _apply_saved_preprocessing(val_data[i], va)
-            _apply_saved_preprocessing(test_data[i], te)
+            # Store preprocessed data for this split
+            preprocessed_data[i] = all_data_clean_i[:, mask_i]
             
-            print(f"Applied saved preprocessing for split {i} using joblib/numpy components")
+            # Apply preprocessing to datapoints (same as train_graph.py)
+            for dp, ridx in zip(train_data[i], train_indices[i]):
+                dp.x_d = preprocessed_data[i][ridx]
+            for dp, ridx in zip(val_data[i], val_indices[i]):
+                dp.x_d = preprocessed_data[i][ridx]
+            for dp, ridx in zip(test_data[i], test_indices[i]):
+                dp.x_d = preprocessed_data[i][ridx]
 
-            # Use saved descriptor scaler if available
-            if combined_descriptor_data is not None and preprocessing_components[i] is not None:
-                saved_descriptor_scaler = preprocessing_components[i]['descriptor_scaler']
-                if saved_descriptor_scaler is not None:
-                    # Apply the saved scaler directly
-                    train_data[i].normalize_inputs("X_d", saved_descriptor_scaler)
-                    val_data[i].normalize_inputs("X_d", saved_descriptor_scaler)
-                    test_data[i].normalize_inputs("X_d", saved_descriptor_scaler)
-                    
-                    # Re-apply zero mask after scaling (same as training)
-                    correlation_mask = preprocessing_components[i]['correlation_mask']
-                    
-                    def _reapply_zero_mask(dataset):
-                        for dp in dataset:
-                            if hasattr(dp, 'x_d') and dp.x_d is not None:
-                                dp.x_d[~correlation_mask] = 0.0
-                    
-                    _reapply_zero_mask(train_data[i])
-                    _reapply_zero_mask(val_data[i])
-                    _reapply_zero_mask(test_data[i])
-                    
-                    print(f"Applied saved descriptor scaler and re-applied zero mask for split {i}")
-                else:
-                    print(f"Warning: No saved descriptor scaler found for split {i}")
-                    preprocessing_metadata[i] = None
-                    continue
-
-    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
+    # === Evaluation Loop ===
+    rep_model_to_row = {}
     for i in range(REPLICATES):
-        # Ensure pre-create rows for all replicate×model combos
-        for mname in model_names_example:
-            rep_model_to_row[(i, mname)] = {
-                **base_meta,
-                "replicate": i,
-                "model": mname,
-            }
-
-        # Prepare datasets
-        if args.model == "DMPNN":
-            train, val, test = data.MoleculeDataset(train_data[i], featurizer), data.MoleculeDataset(val_data[i], featurizer), data.MoleculeDataset(test_data[i], featurizer)
-        else:
-            train, val, test = data.PolymerDataset(train_data[i], featurizer), data.PolymerDataset(val_data[i], featurizer), data.PolymerDataset(test_data[i], featurizer)
-        # Normalize targets
+        logger.info(f"\n=== Replicate {i+1}/{REPLICATES} ===")
+        
+        # Create datasets after cleaning (same as train_graph.py)
+        DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
+        train = DS(train_data[i], featurizer)
+        val = DS(val_data[i], featurizer)
+        test = DS(test_data[i], featurizer)
+        
+        # Apply descriptor scaling using saved scaler (same as train_graph.py)
+        if combined_descriptor_data is not None:
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
+            
+            # Load saved descriptor scaler
+            from joblib import load
+            scaler_path = preprocessing_path / "descriptor_scaler.pkl"
+            if scaler_path.exists():
+                saved_descriptor_scaler = load(scaler_path)
+                logger.info(f"Loaded descriptor scaler for split {i}")
+                
+                # Apply saved scaler to datasets (same as train_graph.py)
+                train.normalize_inputs("X_d", saved_descriptor_scaler)
+                val.normalize_inputs("X_d", saved_descriptor_scaler)
+                test.normalize_inputs("X_d", saved_descriptor_scaler)
+            else:
+                logger.info(f"Warning: No descriptor scaler found for split {i}")
+        
+        # Target scaling (same as train_graph.py)
         if args.task_type == 'reg':
             scaler = train.normalize_targets()
             val.normalize_targets(scaler)
-            test.normalize_targets(scaler)
-        # Normalize input descriptors (to match training’s scaling, if used)
-        if combined_descriptor_data is not None:
-            descriptor_scaler = train.normalize_inputs("X_d")
-            val.normalize_inputs("X_d", descriptor_scaler)
-            test.normalize_inputs("X_d", descriptor_scaler)
+            # test targets intentionally left unscaled
 
-        train_loader = data.build_dataloader(train, num_workers=num_workers)
-        val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
-        test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
-        
-        # Load best ckpt - use consistent path logic
+        # Use multiprocessing only if GPU is available to avoid spawn issues on CPU-only systems
+        import torch
+        eval_num_workers = num_workers if torch.cuda.is_available() else 0
+        train_loader = data.build_dataloader(train, num_workers=eval_num_workers)
+        val_loader = data.build_dataloader(val, num_workers=eval_num_workers, shuffle=False)
+        test_loader = data.build_dataloader(test, num_workers=eval_num_workers, shuffle=False)
         checkpoint_path, _, _, _ = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
         last_ckpt = load_best_checkpoint(Path(checkpoint_path))
         if last_ckpt is None:
             # no checkpoint → skip this replicate (leave row without this target's metrics)
-            print(f"WARNING: No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.", file=sys.stderr)
+            logger.info(f"WARNING: No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.", file=sys.stderr)
             continue
 
-        # Load encoder and make fingerprints
-        mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt))
+        # Load encoder and make fingerlogger.infos (map to CPU if CUDA not available)
+        import torch
+        map_location = torch.device('cpu') if not torch.cuda.is_available() else None
+        mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
         mpnn.eval()
         X_train = get_encodings_from_loader(mpnn, train_loader)
         X_val = get_encodings_from_loader(mpnn, val_loader)
@@ -402,6 +291,17 @@ for target in target_columns:
         # Build requested baselines with scaler info (same as train_tabular.py)
         num_classes = len(np.unique(y_train_scaled)) if args.task_type != "reg" else None
         model_specs = build_sklearn_models(args.task_type, num_classes, scaler_flag=True)
+
+        # Initialize result rows for this replicate
+        for name in model_specs.keys():
+            if (i, name) not in rep_model_to_row:
+                rep_model_to_row[(i, name)] = {
+                    "dataset": args.dataset_name,
+                    "encoder": args.model_name,
+                    "variant": variant_label,
+                    "replicate": i,
+                    "model": name
+                }
 
         # Train baselines following same logic as train_tabular.py
         for name, (model, needs_scaler) in model_specs.items():
@@ -462,14 +362,36 @@ for target in target_columns:
                         pass
         
 
-    # finalize wide dataframe
-    wide_rows = list(rep_model_to_row.values())
-    results_df = pd.DataFrame(wide_rows).sort_values(["replicate", "model"]).reset_index(drop=True)
-
-    # write
-    results_dir = Path(chemprop_dir / "results")
-    results_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = results_dir / f"{args.dataset_name}_{args.model}_baseline.csv"
-    KEY_COLS = ["dataset", "encoder", "variant", "replicate", "model"]
-    upsert_csv(out_csv, results_df, KEY_COLS)
-    print(f"Wrote/updated: {out_csv}")
+    # Convert to train_graph.py format: target,split,test/mae,test/r2,test/rmse
+    eval_results = []
+    for (rep_idx, model_name), row_data in rep_model_to_row.items():
+        for target in target_columns:
+            if f"{target}_R2" in row_data:
+                eval_results.append({
+                    'target': target,
+                    'split': rep_idx,
+                    'test/mae': row_data[f"{target}_MAE"],
+                    'test/r2': row_data[f"{target}_R2"],
+                    'test/rmse': row_data[f"{target}_RMSE"],
+                    'model': model_name  # Keep model info for baseline comparison
+                })
+    
+    if eval_results:
+        results_df = pd.DataFrame(eval_results)
+        
+        # Use train_graph.py naming convention and directory structure
+        desc_suffix = "__desc" if descriptor_columns else ""
+        rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+        
+        model_results_dir = results_dir / args.model_name
+        model_results_dir.mkdir(exist_ok=True)
+        out_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}_baseline.csv"
+        
+        # Organize columns to match train_graph.py: target, split, then metrics, then model
+        base_cols = ["target", "split"]
+        metric_cols = ["test/mae", "test/r2", "test/rmse"]
+        extra_cols = [c for c in results_df.columns if c not in base_cols + metric_cols]
+        results_df = results_df[base_cols + metric_cols + extra_cols]
+        
+        results_df.to_csv(out_csv, index=False)
+        logger.info(f"Wrote/updated: {out_csv}")

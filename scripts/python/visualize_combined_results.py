@@ -47,33 +47,96 @@ def parse_filename(filename: str) -> tuple:
     
     return dataset, features
 
-def load_graph_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
-    """Load all graph model results CSV files."""
+def parse_model_filename(filename: str, method: str) -> tuple:
+    """Parse model CSV filename to extract dataset and feature information."""
+    base = filename.replace('.csv', '')
+    
+    if method == 'Graph':
+        base = base.replace('_results', '')
+    elif method == 'Baseline':
+        base = base.replace('_baseline', '')
+    
+    # Determine dataset and features
+    if '__desc__rdkit' in base:
+        dataset = base.replace('__desc__rdkit', '')
+        features = f'{method}+Desc+RDKit'
+    elif '__desc' in base:
+        dataset = base.replace('__desc', '')
+        features = f'{method}+Desc'
+    elif '__rdkit' in base:
+        dataset = base.replace('__rdkit', '')
+        features = f'{method}+RDKit'
+    else:
+        dataset = base
+        features = method
+    
+    return dataset, features
+
+def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataFrame]:
+    """Load results CSV files for a specific method (Graph, Baseline, or Tabular)."""
     results = {}
     
-    for model_name in ['DMPNN', 'wDMPNN', 'PPG']:
-        for csv_file in results_dir.glob(f"*_{model_name}_results.csv"):
-            base_name = csv_file.stem.replace(f'_{model_name}_results', '')
-            
-            # Determine dataset and features
-            if '_descriptors_rdkit' in base_name:
-                dataset = base_name.replace('_descriptors_rdkit', '')
-                features = 'Graph+Desc+RDKit'
-            elif '_descriptors' in base_name:
-                dataset = base_name.replace('_descriptors', '')
-                features = 'Graph+Desc'
-            elif '_rdkit' in base_name:
-                dataset = base_name.replace('_rdkit', '')
-                features = 'Graph+RDKit'
-            else:
-                dataset = base_name
-                features = 'Graph'
+    if method in ['Graph', 'Baseline']:
+        # Load from model subdirectories
+        for model_name in ['DMPNN', 'wDMPNN', 'PPG']:
+            model_dir = results_dir / model_name
+            if not model_dir.exists():
+                continue
+                
+            suffix = '_results.csv' if method == 'Graph' else '_baseline.csv'
+            for csv_file in model_dir.glob(f"*{suffix}"):
+                dataset, features = parse_model_filename(csv_file.name, method)
+                
+                df = pd.read_csv(csv_file)
+                
+                # Rename columns to match expected format
+                if 'test/mae' in df.columns:
+                    df = df.rename(columns={'test/mae': 'mae', 'test/r2': 'r2', 'test/rmse': 'rmse'})
+                
+                df['dataset'] = dataset
+                df['features'] = features
+                df['method'] = method
+                
+                if method == 'Graph':
+                    df['model'] = model_name
+                # For Baseline, keep the original model column (Linear, RF, XGB)
+                
+                # Convert MSE to RMSE if MSE column exists
+                if 'mse' in df.columns:
+                    df['rmse'] = np.sqrt(df['mse'])
+                
+                if dataset not in results:
+                    results[dataset] = []
+                results[dataset].append(df)
+    
+    elif method == 'Tabular':
+        # Load from tabular directory
+        tabular_dir = results_dir / 'tabular'
+        if tabular_dir.exists():
+            for csv_file in tabular_dir.glob("*.csv"):
+                dataset, features = parse_filename(csv_file.name)
+                
+                df = pd.read_csv(csv_file)
+                df['dataset'] = dataset
+                df['features'] = features
+                df['method'] = method
+                
+                # Convert MSE to RMSE if MSE column exists
+                if 'mse' in df.columns:
+                    df['rmse'] = np.sqrt(df['mse'])
+                
+                if dataset not in results:
+                    results[dataset] = []
+                results[dataset].append(df)
+        
+        # Also check root directory for backward compatibility
+        for csv_file in results_dir.glob("*_tabular*.csv"):
+            dataset, features = parse_filename(csv_file.name)
             
             df = pd.read_csv(csv_file)
             df['dataset'] = dataset
             df['features'] = features
-            df['method'] = 'Graph'
-            df['model'] = model_name
+            df['method'] = method
             
             # Convert MSE to RMSE if MSE column exists
             if 'mse' in df.columns:
@@ -89,40 +152,15 @@ def load_graph_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
     
     return results
 
-def load_tabular_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
-    """Load all tabular results CSV files."""
-    results = {}
-    
-    for csv_file in results_dir.glob("*_tabular*.csv"):
-        dataset, features = parse_filename(csv_file.name)
-        
-        df = pd.read_csv(csv_file)
-        df['dataset'] = dataset
-        df['features'] = features
-        df['method'] = 'Tabular'
-        
-        # Convert MSE to RMSE if MSE column exists
-        if 'mse' in df.columns:
-            df['rmse'] = np.sqrt(df['mse'])
-        
-        if dataset not in results:
-            results[dataset] = []
-        results[dataset].append(df)
-    
-    # Concatenate all feature combinations for each dataset
-    for dataset in results:
-        results[dataset] = pd.concat(results[dataset], ignore_index=True)
-    
-    return results
-
 def load_combined_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
-    """Load and combine both tabular and graph results."""
-    tabular_results = load_tabular_results(results_dir)
-    graph_results = load_graph_results(results_dir)
+    """Load and combine tabular, graph, and baseline results."""
+    tabular_results = load_results_by_method(results_dir, 'Tabular')
+    graph_results = load_results_by_method(results_dir, 'Graph')
+    baseline_results = load_results_by_method(results_dir, 'Baseline')
     
     # Combine results
     combined_results = {}
-    all_datasets = set(tabular_results.keys()) | set(graph_results.keys())
+    all_datasets = set(tabular_results.keys()) | set(graph_results.keys()) | set(baseline_results.keys())
     
     for dataset in all_datasets:
         dataset_dfs = []
@@ -132,6 +170,9 @@ def load_combined_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
         
         if dataset in graph_results:
             dataset_dfs.append(graph_results[dataset])
+            
+        if dataset in baseline_results:
+            dataset_dfs.append(baseline_results[dataset])
         
         if dataset_dfs:
             combined_results[dataset] = pd.concat(dataset_dfs, ignore_index=True)
@@ -169,7 +210,8 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     # Define desired feature order for combined plots
     feature_order = [
         'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
-        'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit'  # Graph features
+        'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit',  # Graph features
+        'Baseline', 'Baseline+RDKit', 'Baseline+Desc+RDKit'  # Baseline features
     ]
     available_features = data['features'].unique()
     features = [f for f in feature_order if f in available_features]
@@ -199,7 +241,8 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     # Define colors for different methods and models
     colors = {
         'Tabular': {'Linear': '#1f77b4', 'RF': '#ff7f0e', 'XGB': '#2ca02c', 'LogReg': '#1f77b4'},
-        'Graph': {'DMPNN': '#d62728', 'wDMPNN': '#9467bd', 'PPG': '#8c564b'}
+        'Graph': {'DMPNN': '#d62728', 'wDMPNN': '#9467bd', 'PPG': '#8c564b'},
+        'Baseline': {'Linear': '#17becf', 'RF': '#bcbd22', 'XGB': '#e377c2'}
     }
     
     for i, target in enumerate(targets):
