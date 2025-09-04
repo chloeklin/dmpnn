@@ -14,6 +14,20 @@ dataset_descriptors:
     - DoP
     - Density
 
+dataset_ignore:
+  htpmd:
+    ["Monomer_length_x","MW_ratio_x","MW",
+    "Mass_max_x","Mass_ave_x","Mass_min",
+    "Charge_max","Charge_min","Charge_ave",
+    "Epsilon_max","Epsilon_min","Epsilon_ave",
+    "Sigma_max","Sigma_min","Sigma_ave",
+    "K_bond_min_x","K_bond_ave_x","K_bond_max",
+    "R0_max","R0_min","R0_ave",
+    "K_ang_ave_x","K_ang_max","K_ang_min",
+    "Theta0_min_x","Theta0_max","Theta0_ave",
+    "K_dih_max","K_dih_min","K_dih_ave",
+    "ABC"]
+
 # Model-specific settings
 models:
   DMPNN:

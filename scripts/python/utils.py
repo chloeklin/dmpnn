@@ -11,7 +11,6 @@ This module provides various utility functions for:
 # Standard library imports
 import logging
 import os
-import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
@@ -546,16 +545,18 @@ def build_model_and_trainer(
     # Create Feed-Forward Network based on task type
     if args.task_type == 'reg':
         ffn = nn.RegressionFFN(
+            n_layers=2,
             output_transform=output_transform, 
             n_tasks=1, 
             input_dim=input_dim
         )
     elif args.task_type == 'binary':
-        ffn = nn.BinaryClassificationFFN(input_dim=input_dim)
+        ffn = nn.BinaryClassificationFFN(n_layers=2,input_dim=input_dim)
     elif args.task_type == 'multi':
         if n_classes is None:
             raise ValueError("n_classes must be provided for multi-class tasks")
         ffn = nn.MulticlassClassificationFFN(
+            n_layers=2,
             n_classes=n_classes, 
             input_dim=input_dim
         )
@@ -806,6 +807,556 @@ def build_sklearn_models(task_type, n_classes=None, scaler_flag=False):
     return models_dict
 
 
+def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i):
+    """Build all paths needed for experiment tracking."""
+    desc_suffix = "__desc" if descriptor_columns else ""
+    rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+    
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
+    
+    checkpoint_path = checkpoint_dir / base_name
+    model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
+    preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
+    
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix
+
+
+def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
+    """Check if existing checkpoints are compatible with current preprocessing.
+    
+    Args:
+        checkpoint_path: Path to checkpoint directory
+        preprocessing_path: Path to preprocessing metadata
+        i: Split index
+        descriptor_dim: Number of descriptor features after all preprocessing (int)
+        logger: Logger instance
+    """
+    import os
+    import json
+    
+    if not checkpoint_path.exists():
+        return None
+        
+    ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
+    if not ckpt_files:
+        return None
+        
+    metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+    if not metadata_file.exists():
+        logger.warning("No preprocessing metadata found for checkpoint validation")
+        return None
+        
+    try:
+        with open(metadata_file, 'r') as f:
+            saved_metadata = json.load(f)
+        
+        # Use the processed descriptor dimension directly
+        current_n_features = descriptor_dim
+        saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
+        
+        if current_n_features == saved_n_features:
+            last_ckpt = str(checkpoint_path / sorted(ckpt_files)[-1])
+            logger.info(f"Loading checkpoint: {last_ckpt} (features match: {current_n_features})")
+            return last_ckpt
+        else:
+            logger.warning(f"Checkpoint feature mismatch: current={current_n_features}, saved={saved_n_features}")
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Could not validate checkpoint compatibility: {e}")
+        return None
+
+
+def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, 
+                             descriptor_scaler, logger):
+    """Handle loading/saving of preprocessing cache."""
+    import json
+    from joblib import load, dump
+    
+    # If no descriptors, return defaults
+    if combined_descriptor_data is None:
+        return False, None, np.array([]), np.array([])
+    
+    # Define file paths
+    metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+    scaler_file = preprocessing_path / "descriptor_scaler.pkl"
+    correlation_mask_file = preprocessing_path / "correlation_mask.npy"
+    constant_features_file = preprocessing_path / "constant_features_removed.npy"
+    
+    preprocessing_path.mkdir(parents=True, exist_ok=True)
+    
+    # If descriptor_scaler is provided, this is a save operation
+    if descriptor_scaler is not None:
+        # Save scaler and return (don't re-save metadata)
+        dump(descriptor_scaler, scaler_file)
+        logger.info(f"Saved descriptor scaler to {scaler_file}")
+        return False, descriptor_scaler, np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool), np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed'])
+    
+    # Check if preprocessing can be reused (load operation)
+    preprocessing_exists = (
+        metadata_file.exists() and 
+        correlation_mask_file.exists() and 
+        constant_features_file.exists()
+    )
+    
+    if preprocessing_exists:
+        try:
+            with open(metadata_file, 'r') as f:
+                existing_metadata = json.load(f)
+            
+            # Get current preprocessing parameters for comparison
+            current_constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
+            current_correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
+            current_n_features_final = np.sum(current_correlation_mask)
+            
+            # Get saved preprocessing parameters
+            saved_constant_features = existing_metadata.get('data_info', {}).get('constant_features_removed', [])
+            saved_n_features_final = existing_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
+            
+            # Load saved masks for detailed comparison
+            saved_correlation_mask = np.load(correlation_mask_file).astype(bool)
+            saved_constant_features_array = np.load(constant_features_file)
+            
+            # Deterministic reuse: require exact match of preprocessing parameters
+            masks_match = np.array_equal(current_correlation_mask, saved_correlation_mask)
+            constants_match = (current_constant_features == saved_constant_features or 
+                             np.array_equal(np.array(current_constant_features), saved_constant_features_array))
+            counts_match = (current_n_features_final == saved_n_features_final)
+            
+            if masks_match and constants_match and counts_match:
+                # Load existing preprocessing objects with type safety
+                correlation_mask = saved_correlation_mask
+                constant_features = saved_constant_features
+                
+                # Only load scaler if we don't already have one
+                if descriptor_scaler is None and scaler_file.exists():
+                    descriptor_scaler = load(scaler_file)
+                    logger.info(f"Loaded existing descriptor scaler from {scaler_file}")
+                
+                logger.info(f"Reusing existing preprocessing for split {i} with {current_n_features_final} final features")
+                return True, descriptor_scaler, correlation_mask, constant_features
+            else:
+                logger.info(f"Preprocessing parameters changed (masks_match={masks_match}, constants_match={constants_match}, counts_match={counts_match}), recomputing...")
+                
+        except Exception as e:
+            logger.warning(f"Could not load existing preprocessing: {e}, recomputing...")
+    
+    # Save new preprocessing - add n_features_after_preprocessing to metadata
+    correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
+    n_features_final = np.sum(correlation_mask)
+    
+    # Add the missing field to metadata
+    split_preprocessing_metadata[i]['data_info']['n_features_after_preprocessing'] = int(n_features_final)
+    
+    # Save preprocessing files
+    np.save(correlation_mask_file, correlation_mask)
+    np.save(constant_features_file, np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed']))
+    
+    with open(metadata_file, 'w') as f:
+        json.dump(split_preprocessing_metadata[i], f, indent=2)
+    
+    logger.info(f"Saved preprocessing metadata for split {i} with {n_features_final} final features")
+    return False, None, correlation_mask, np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed'])
+
+
+def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i):
+    """Build all paths needed for experiment tracking."""
+    desc_suffix = "__desc" if descriptor_columns else ""
+    rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+    
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
+    
+    checkpoint_path = checkpoint_dir / base_name
+    model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
+    preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
+    
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix
+
+
+def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
+    """Check if existing checkpoints are compatible with current preprocessing.
+    
+    Args:
+        checkpoint_path: Path to checkpoint directory
+        preprocessing_path: Path to preprocessing metadata
+        i: Split index
+        descriptor_dim: Number of descriptor features after all preprocessing (int)
+        logger: Logger instance
+    """
+    import os
+    
+    if not checkpoint_path.exists():
+        return None
+        
+    ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
+    if not ckpt_files:
+        return None
+        
+    metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+    if not metadata_file.exists():
+        logger.warning("No preprocessing metadata found for checkpoint validation")
+        return None
+        
+    try:
+        with open(metadata_file, 'r') as f:
+            saved_metadata = json.load(f)
+        
+        # Use the processed descriptor dimension directly
+        current_n_features = descriptor_dim
+        saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
+        
+        if current_n_features == saved_n_features:
+            last_ckpt = str(checkpoint_path / sorted(ckpt_files)[-1])
+            logger.info(f"Loading checkpoint: {last_ckpt} (features match: {current_n_features})")
+            return last_ckpt
+        else:
+            logger.warning(f"Checkpoint feature mismatch: current={current_n_features}, saved={saved_n_features}")
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Could not validate checkpoint compatibility: {e}")
+        return None
+
+
+def load_existing_results(detailed_csv: Path, logger: logging.Logger) -> Dict[str, Dict[int, set]]:
+    """Load existing results from CSV file and return structured data.
+    
+    Args:
+        detailed_csv: Path to detailed results CSV file
+        logger: Logger instance
+        
+    Returns:
+        Dictionary mapping target -> split -> set of completed models
+    """
+    existing_results = {}
+    if detailed_csv.exists():
+        try:
+            existing_df = pd.read_csv(detailed_csv)
+            logger.info(f"Found existing results file: {detailed_csv}")
+            
+            # Group by target and split to track completed experiments
+            for _, row in existing_df.iterrows():
+                target = row['target']
+                split = row['split']
+                model = row['model']
+                
+                if target not in existing_results:
+                    existing_results[target] = {}
+                if split not in existing_results[target]:
+                    existing_results[target][split] = set()
+                existing_results[target][split].add(model)
+            
+            logger.info(f"Loaded existing results for {len(existing_results)} targets")
+        except Exception as e:
+            logger.warning(f"Could not load existing results: {e}")
+            existing_results = {}
+    
+    return existing_results
+
+
+def save_combined_results(detailed_csv: Path, existing_results_df: Optional[pd.DataFrame], 
+                         new_results: List[Dict[str, Any]], logger: logging.Logger) -> None:
+    """Save combined existing and new results to CSV file.
+    
+    Args:
+        detailed_csv: Path to output CSV file
+        existing_results_df: DataFrame of existing results (can be None)
+        new_results: List of new result dictionaries
+        logger: Logger instance
+    """
+    final_rows = []
+    
+    # Add existing results that weren't recomputed
+    if existing_results_df is not None:
+        final_rows.extend(existing_results_df.to_dict('records'))
+        logger.info(f"Loaded {len(existing_results_df)} existing result rows")
+    
+    # Add new results
+    final_rows.extend(new_results)
+    
+    # Save combined results to CSV if we have any data
+    if final_rows:
+        # Convert results to DataFrame and remove duplicates
+        df_detailed = pd.DataFrame(final_rows)
+        
+        # Remove duplicates based on target, split, model (keep last occurrence)
+        df_detailed = df_detailed.drop_duplicates(subset=['target', 'split', 'model'], keep='last')
+        
+        # Organize columns: target, split, model, then metrics
+        base_cols = ["target", "split", "model"]
+        metric_cols = sorted([c for c in df_detailed.columns if c not in base_cols])
+        df_detailed = df_detailed[base_cols + metric_cols]
+        
+        # Write to CSV
+        df_detailed.to_csv(detailed_csv, index=False)
+        logger.info(f"Saved {len(df_detailed)} total results to {detailed_csv}")
+        
+        # Log summary of what was done
+        new_results_count = len(new_results)
+        existing_count = len(final_rows) - new_results_count
+        logger.info(f"Results summary: {existing_count} existing + {new_results_count} new = {len(df_detailed)} total")
+    else:
+        logger.info("No results to save")
+
+
+def prepare_target_data(y_raw: np.ndarray, task_type: str, target_name: str, logger: logging.Logger) -> np.ndarray:
+    """Prepare target data based on task type.
+    
+    Args:
+        y_raw: Raw target values
+        task_type: Task type ('reg', 'binary', 'multi')
+        target_name: Name of target variable
+        logger: Logger instance
+        
+    Returns:
+        Processed target values
+        
+    Raises:
+        ValueError: If binary target is not actually binary or multi-class has < 3 classes
+    """
+    from sklearn.preprocessing import LabelEncoder
+    
+    if task_type == "reg":
+        # For regression, ensure numeric type
+        y_vec = y_raw.astype(float)
+        
+    elif task_type == "binary":
+        # For binary classification, handle both string and numeric labels
+        if y_raw.dtype.kind in "OUS":  # If string type
+            y_vec = LabelEncoder().fit_transform(y_raw)
+        else:
+            uniq = np.unique(y_raw)
+            # Convert to 0/1 if already binary, otherwise encode
+            y_vec = y_raw.astype(int) if set(uniq) <= {0,1} else LabelEncoder().fit_transform(y_raw)
+        # Verify binary encoding
+        if not set(np.unique(y_vec)) <= {0,1}:
+            raise ValueError(f"{target_name} is not binary.")
+        
+    else:  # multi-class classification
+        # Encode string labels to integers
+        y_vec = LabelEncoder().fit_transform(y_raw)
+        # Skip if not enough classes for multi-class
+        if len(np.unique(y_vec)) < 3:
+            raise ValueError(f"{target_name}: only {len(np.unique(y_vec))} classes; insufficient for multi-class.")
+    
+    return y_vec
+
+
+def setup_training_environment(args, model_type="graph"):
+    """Common setup for both graph and tabular training scripts.
+    
+    Args:
+        args: Parsed command line arguments
+        model_type: Either "graph" or "tabular" for model-specific setup
+        
+    Returns:
+        Dictionary containing all setup information
+    """
+    import logging
+    
+    # Load configuration
+    config = load_config()
+    
+    # Set up paths and parameters
+    chemprop_dir = Path.cwd()
+    
+    # Get paths from config with defaults
+    paths = config.get('PATHS', {})
+    data_dir = chemprop_dir / paths.get('data_dir', 'data')
+    results_dir = chemprop_dir / paths.get('results_dir', 'results')
+    
+    if model_type == "graph":
+        checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model_name
+        feat_select_dir = None  # Not used for graph models
+    else:  # tabular
+        checkpoint_dir = None
+        feat_select_dir = chemprop_dir / paths.get('feat_select_dir', 'out') / "tabular" / args.dataset_name
+    
+    # Create necessary directories
+    if checkpoint_dir:
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    if feat_select_dir:  # Only create for tabular models
+        feat_select_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Set up file paths
+    input_path = chemprop_dir / data_dir / f"{args.dataset_name}.csv"
+    
+    # Get model-specific configuration
+    if model_type == "graph":
+        model_config = config['MODELS'].get(args.model_name, {})
+        smiles_column = model_config.get('smiles_column', 'smiles')
+        ignore_columns = model_config.get('ignore_columns', [])
+    else:  # tabular
+        smiles_column = 'smiles'
+        ignore_columns = ['WDMPNN_Input']
+    
+    # Set parameters from config with defaults
+    GLOBAL_CONFIG = config.get('GLOBAL', {})
+    SEED = GLOBAL_CONFIG.get('SEED', 42)
+    REPLICATES = GLOBAL_CONFIG.get('REPLICATES', 5)
+    
+    if model_type == "graph":
+        EPOCHS = GLOBAL_CONFIG.get('EPOCHS', 300)
+        PATIENCE = GLOBAL_CONFIG.get('PATIENCE', 30)
+        num_workers = min(GLOBAL_CONFIG.get('NUM_WORKERS', 8), os.cpu_count() or 1)
+    else:
+        EPOCHS = None
+        PATIENCE = None
+        num_workers = None
+    
+    # Get dataset descriptors from config
+    DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
+    descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
+    
+    return {
+        'config': config,
+        'chemprop_dir': chemprop_dir,
+        'data_dir': data_dir,
+        'results_dir': results_dir,
+        'checkpoint_dir': checkpoint_dir,
+        'feat_select_dir': feat_select_dir,
+        'input_path': input_path,
+        'smiles_column': smiles_column,
+        'ignore_columns': ignore_columns,
+        'descriptor_columns': descriptor_columns,
+        'SEED': SEED,
+        'REPLICATES': REPLICATES,
+        'EPOCHS': EPOCHS,
+        'PATIENCE': PATIENCE,
+        'num_workers': num_workers,
+        'DATASET_DESCRIPTORS': DATASET_DESCRIPTORS
+    }
+
+
+def load_and_preprocess_data(args, setup_info):
+    """Load and preprocess data with common filtering logic.
+    
+    Args:
+        args: Command line arguments
+        setup_info: Dictionary from setup_training_environment
+        
+    Returns:
+        Tuple of (df_input, target_columns)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Load data
+    df_input = pd.read_csv(setup_info['input_path'])
+    
+    # Apply insulator dataset filtering if needed (for wDMPNN)
+    if args.dataset_name == "insulator" and hasattr(args, 'model_name') and args.model_name == "wDMPNN":
+        df_input = filter_insulator_data(args, df_input, setup_info['smiles_column'])
+    
+    # Read the saved exclusions from the wDMPNN preprocessing step
+    if not (hasattr(args, 'model_name') and args.model_name == "wDMPNN"):
+        drop_idx, excluded_smis = load_drop_indices(setup_info['chemprop_dir'], args.dataset_name)
+        if drop_idx:
+            logger.info(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
+            df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
+    
+    # Automatically detect target columns
+    target_columns = [c for c in df_input.columns
+                     if c not in ([setup_info['smiles_column']] + 
+                                setup_info['DATASET_DESCRIPTORS'] + 
+                                setup_info['ignore_columns'])]
+    
+    if not target_columns:
+        raise ValueError(f"No target columns found. Expected at least one column other than '{setup_info['smiles_column']}'")
+    
+    return df_input, target_columns
+
+
+def determine_split_strategy(dataset_size, replicates):
+    """Determine whether to use CV or holdout based on dataset size.
+    
+    Args:
+        dataset_size: Number of samples in dataset
+        replicates: Number of replicates from config
+        
+    Returns:
+        Tuple of (n_splits, local_reps)
+    """
+    # For small datasets (<2000 samples), use 5-fold CV with 1 replicate
+    # For larger datasets, use a single train/val/test split with multiple replicates
+    n_splits = 5 if dataset_size < 2000 else 1
+    local_reps = 1 if n_splits > 1 else replicates
+    return n_splits, local_reps
+
+
+def generate_data_splits(args, ys, n_splits, local_reps, seed):
+    """Generate train/val/test splits with common logic.
+    
+    Args:
+        args: Command line arguments
+        ys: Target values
+        n_splits: Number of splits (1 for holdout, >1 for CV)
+        local_reps: Number of replicates
+        seed: Random seed
+        
+    Returns:
+        Tuple of (train_indices, val_indices, test_indices)
+    """
+    if args.task_type in ['binary', 'multi']:
+        train_indices, val_indices, test_indices = make_repeated_splits(
+            task_type=args.task_type,
+            replicates=local_reps,
+            seed=seed,
+            y_class=ys,
+            n_splits=n_splits
+        )
+    else:
+        train_indices, val_indices, test_indices = make_repeated_splits(
+            task_type=args.task_type,
+            replicates=local_reps,
+            seed=seed,
+            y_reg=ys,
+            n_splits=n_splits
+        )
+    
+    return train_indices, val_indices, test_indices
+
+
+def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, logger):
+    """Save aggregate results with common column organization.
+    
+    Args:
+        results_list: List of result DataFrames
+        results_dir: Results directory path
+        model_name: Model name for directory structure
+        dataset_name: Dataset name for filename
+        desc_suffix: Descriptor suffix for filename
+        rdkit_suffix: RDKit suffix for filename
+        logger: Logger instance
+    """
+    if model_name.lower() == "tabular":
+        model_results_dir = results_dir / "tabular"
+        filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}.csv"
+    else:
+        model_results_dir = results_dir / model_name
+        filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}_results.csv"
+    
+    model_results_dir.mkdir(exist_ok=True)
+    aggregate_csv = model_results_dir / filename
+    
+    # Combine all results
+    if results_list:
+        current_aggregate_df = pd.concat(results_list, ignore_index=True)
+        
+        # Organize columns: target, split, then metrics
+        base_cols = ["target", "split"]
+        if "model" in current_aggregate_df.columns:
+            base_cols.append("model")
+        
+        metric_cols = sorted([c for c in current_aggregate_df.columns if c not in base_cols])
+        current_aggregate_df = current_aggregate_df[base_cols + metric_cols]
+        
+        # Save results
+        current_aggregate_df.to_csv(aggregate_csv, index=False)
+        logger.info(f"Saved aggregate results -> {aggregate_csv}")
+
+
 def load_best_checkpoint(ckpt_dir: Path):
     if not ckpt_dir.exists():
         return None
@@ -902,7 +1453,7 @@ def get_encodings_from_loader(model, loader):
                 X_d = None
 
             # 4) Encode
-            enc = model.fingerprint(bmg, V_d, X_d)
+            enc = model.encoding(bmg, V_d, X_d, i=-1)
             encs.append(enc)
 
     return torch.cat(encs, dim=0).cpu().numpy()

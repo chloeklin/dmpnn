@@ -106,6 +106,30 @@ experiments:
     incl_rdkit: true
     task_type: reg
 
+  - dataset: htpmd
+    model: DMPNN
+    walltime: "4:00:00"
+    incl_desc: true
+    task_type: reg
+  
+  - dataset: htpmd
+    model: DMPNN
+    walltime: "4:00:00"
+    incl_rdkit: true
+    task_type: reg
+  
+  - dataset: htpmd
+    model: DMPNN
+    walltime: "4:00:00"
+    incl_desc: true
+    incl_rdkit: true
+    task_type: reg
+  
+  - dataset: htpmd
+    model: DMPNN
+    walltime: "4:00:00"
+    task_type: reg
+
   # OPV B3LYP experiments
   # - dataset: opv_b3lyp
   #   model: tabular

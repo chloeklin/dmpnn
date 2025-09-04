@@ -1,18 +1,15 @@
 import argparse
 import logging
-import os
 import numpy as np
 import pandas as pd
-from pathlib import Path
-import json
 from sklearn.impute import SimpleImputer
-from joblib import dump
 
 from chemprop import data, featurizers
-from utils import (set_seed, process_data, make_repeated_splits, 
-                  load_drop_indices, 
-                  create_all_data, build_model_and_trainer, get_metric_list, load_config, filter_insulator_data)
-from tabular_utils import (build_experiment_paths, validate_checkpoint_compatibility, manage_preprocessing_cache)
+from utils import (set_seed, process_data, 
+                  create_all_data, build_model_and_trainer, get_metric_list,
+                  build_experiment_paths, validate_checkpoint_compatibility, manage_preprocessing_cache,
+                  setup_training_environment, load_and_preprocess_data, determine_split_strategy, 
+                  generate_data_splits, save_aggregate_results)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -33,77 +30,35 @@ parser.add_argument('--model_name', type=str, default="DMPNN", choices=["DMPNN",
 args = parser.parse_args()
 
 
-# Load configuration
-config = load_config()
+# Setup training environment with common configuration
+setup_info = setup_training_environment(args, model_type="graph")
 
-# Set up paths and parameters
-chemprop_dir = Path.cwd()
+# Extract commonly used variables for backward compatibility
+config = setup_info['config']
+chemprop_dir = setup_info['chemprop_dir']
+checkpoint_dir = setup_info['checkpoint_dir']
+results_dir = setup_info['results_dir']
+smiles_column = setup_info['smiles_column']
+ignore_columns = setup_info['ignore_columns']
+descriptor_columns = setup_info['descriptor_columns']
+SEED = setup_info['SEED']
+REPLICATES = setup_info['REPLICATES']
+EPOCHS = setup_info['EPOCHS']
+PATIENCE = setup_info['PATIENCE']
+num_workers = setup_info['num_workers']
+DATASET_DESCRIPTORS = setup_info['DATASET_DESCRIPTORS']
+MODEL_NAME = args.model_name
 
-# Get paths from config with defaults
-paths = config.get('PATHS', {})
-data_dir = chemprop_dir / paths.get('data_dir', 'data')
-checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model_name
-results_dir = chemprop_dir / paths.get('results_dir', 'results')
-feat_select_dir = chemprop_dir / paths.get('feat_select_dir', 'out') / args.model_name / args.dataset_name
-
-# Create necessary directories
-checkpoint_dir.mkdir(parents=True, exist_ok=True)
-results_dir.mkdir(parents=True, exist_ok=True)
-feat_select_dir.mkdir(parents=True, exist_ok=True)
-
-# Set up file paths
-input_path = chemprop_dir / data_dir / f"{args.dataset_name}.csv"
-
-# Get model-specific configuration
+# Check model configuration
 model_config = config['MODELS'].get(args.model_name, {})
 if not model_config:
     logger.warning(f"No configuration found for model '{args.model_name}'. Using defaults.")
 
-# Set parameters from config with defaults
-GLOBAL_CONFIG = config.get('GLOBAL', {})
-SEED = GLOBAL_CONFIG.get('SEED', 42)
-
-EPOCHS = GLOBAL_CONFIG.get('EPOCHS', 300)
-PATIENCE = GLOBAL_CONFIG.get('PATIENCE', 30)
-num_workers = min(
-    GLOBAL_CONFIG.get('NUM_WORKERS', 8),
-    os.cpu_count() or 1
-)
-
-# Model-specific parameters
-smiles_column = model_config.get('smiles_column', 'smiles')
-ignore_columns = model_config.get('ignore_columns', [])
-MODEL_NAME = args.model_name
-REPLICATES = GLOBAL_CONFIG.get('REPLICATES', 5)
-# Get dataset descriptors from config
-DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
-descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
-
 # === Set Random Seed ===
 set_seed(SEED)
 
-# === Load Data ===
-df_input = pd.read_csv(input_path)
-
-# Apply insulator dataset filtering if needed
-if args.dataset_name == "insulator" and args.model_name == "wDMPNN":
-    df_input = filter_insulator_data(args, df_input, smiles_column)
-
-# Read the saved exclusions from the wDMPNN preprocessing step
-if args.model_name != "wDMPNN":
-    drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
-    if drop_idx:
-        logger.info(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
-        df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
-
-
-# Automatically detect target columns (all columns except ignored ones)
-target_columns = [c for c in df_input.columns
-                 if c not in ([smiles_column] + 
-                            DATASET_DESCRIPTORS + 
-                            ignore_columns)]
-if not target_columns:
-    raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
+# === Load and Preprocess Data ===
+df_input, target_columns = load_and_preprocess_data(args, setup_info)
 
 
 
@@ -139,35 +94,16 @@ for target in target_columns:
     ys = ys.reshape(-1, 1) # reshaping target to be 2D
     all_data = create_all_data(smis, ys, combined_descriptor_data, MODEL_NAME)
 
-    # Decide CV vs holdout
-    # For small datasets (<2000 samples), use 5-fold CV with 1 replicate
-    # For larger datasets, use a single train/val/test split with multiple replicates
-    n_splits = 5 if len(ys) < 2000 else 1
-    local_reps = 1 if n_splits > 1 else REPLICATES
+    # Determine split strategy and generate splits
+    n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
     
     if n_splits > 1:
         logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
     else:
         logger.info(f"Using holdout validation with {local_reps} replicate(s)")
 
-    # === Split via Random/Stratified Split with 5 Repetitions ===
-    if args.task_type in ['binary', 'multi']:
-        train_indices, val_indices, test_indices =  make_repeated_splits(
-            task_type=args.task_type,
-            replicates=local_reps,
-            seed=SEED,
-            y_class=ys,
-            n_splits=n_splits
-            
-        )
-    else:
-        train_indices, val_indices, test_indices =  make_repeated_splits(
-            task_type=args.task_type,
-            replicates=local_reps,
-            seed=SEED,
-            y_reg=ys,
-            n_splits=n_splits
-        )
+    # Generate data splits
+    train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
     
 
 
@@ -528,19 +464,5 @@ for target in target_columns:
     results_df['target'] = target
     all_results.append(results_df)
     
-    # Save progressive aggregate results after each target (same filename, updated each time)
-    model_results_dir = results_dir / MODEL_NAME
-    model_results_dir.mkdir(exist_ok=True)
-    aggregate_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}_results.csv"
-    
-    # Combine all completed targets so far
-    current_aggregate_df = pd.concat(all_results, ignore_index=True)
-    
-    # Organize columns: target, split, then metrics
-    base_cols = ["target", "split"]
-    metric_cols = sorted([c for c in current_aggregate_df.columns if c not in base_cols])
-    current_aggregate_df = current_aggregate_df[base_cols + metric_cols]
-    
-    # Overwrite the same file with updated results
-    current_aggregate_df.to_csv(aggregate_csv, index=False)
-    logger.info(f"Updated aggregate results with {target} -> {aggregate_csv}")
+    # Save progressive aggregate results after each target
+    save_aggregate_results(all_results, results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, logger)

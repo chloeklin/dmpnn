@@ -1,13 +1,10 @@
 import argparse
-import json
 import logging
 import numpy as np
 import pandas as pd
-# from rdkit import Chem
-from pathlib import Path
 
 import joblib
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler
 
 # Local imports
 from tabular_utils import (
@@ -16,17 +13,18 @@ from tabular_utils import (
     eval_binary,
     eval_multi,
     preprocess_descriptor_data,
-    save_preprocessing_objects,
-    load_existing_results,
-    save_combined_results,
-    prepare_target_data
+    save_preprocessing_objects
 )
 from utils import (
     set_seed,
-    load_drop_indices,
-    load_config,
+    load_existing_results,
+    save_combined_results,
+    prepare_target_data,
     build_sklearn_models,
-    make_repeated_splits,
+    setup_training_environment,
+    load_and_preprocess_data,
+    determine_split_strategy,
+    generate_data_splits,
 )
 
 
@@ -51,27 +49,9 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     """
     logger = logging.getLogger(__name__)
 
-    # Choose CV for small datasets; holdout for large (as per your plan)
-    n_splits = 5 if len(y) < 2000 else 1
-    local_reps = 1 if n_splits > 1 else replicates
-
-    if args.task_type in ['binary', 'multi']:
-        train_indices, val_indices, test_indices =  make_repeated_splits(
-            task_type=args.task_type,
-            replicates=local_reps,
-            seed=seed,
-            y_class=y,
-            n_splits=n_splits
-            
-        )
-    else:
-        train_indices, val_indices, test_indices =  make_repeated_splits(
-            task_type=args.task_type,
-            replicates=local_reps,
-            seed=seed,
-            y_reg=y,
-            n_splits=n_splits
-        )
+    # Determine split strategy and generate splits
+    n_splits, local_reps = determine_split_strategy(len(y), replicates)
+    train_indices, val_indices, test_indices = generate_data_splits(args, y, n_splits, local_reps, seed)
     
 
     detailed_rows = []
@@ -215,8 +195,6 @@ def main():
                         help='Name of the dataset file (without .csv extension), expected at data/{name}.csv')
     parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
                         help='Task type: "reg" (regression), "binary", or "multi" (multi-class)')
-    parser.add_argument('--use_dataset_descriptors', dest='incl_desc', action='store_true',
-                        help='Include dataset-specific descriptors from config (in addition to pooled atom/bond features)')
     parser.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
     parser.add_argument('--incl_rdkit', action='store_true',
@@ -234,62 +212,25 @@ def main():
     logger = logging.getLogger(__name__)
 
     # ----------------------------- Setup -----------------------------
-
-    # Load configuration
-    config = load_config()
-
-    # Configure paths and parameters
-    chemprop_dir = Path.cwd()
-
-    # Get paths from config with defaults
-    paths = config.get('PATHS', {})
-    data_dir = chemprop_dir / paths.get('data_dir', 'data')
-    results_dir = chemprop_dir / paths.get('results_dir', 'results') 
-    feat_select_dir = chemprop_dir / paths.get('feat_select_dir', 'out') / "tabular" / args.dataset_name
-    # Create necessary directories
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    # Set up file paths
-    input_path = chemprop_dir / data_dir / f"{args.dataset_name}.csv"
-
-
-    # Set parameters from config with defaults
-    GLOBAL_CONFIG = config.get('GLOBAL', {})
-    SEED = GLOBAL_CONFIG.get('SEED', 42)
-    REPLICATES = GLOBAL_CONFIG.get('REPLICATES', 5)
-
-    # Model-specific parameters
-    smiles_column = 'smiles'
-    ignore_columns = ['WDMPNN_Input']
-
-    # Load dataset-specific descriptors from config
-    DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
-    descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
-
+    
+    # Setup training environment with common configuration
+    setup_info = setup_training_environment(args, model_type="tabular")
+    
+    # Extract commonly used variables
+    chemprop_dir = setup_info['chemprop_dir']
+    results_dir = setup_info['results_dir']
+    feat_select_dir = setup_info['feat_select_dir']
+    descriptor_columns = setup_info['descriptor_columns']
+    SEED = setup_info['SEED']
+    REPLICATES = setup_info['REPLICATES']
+    smiles_column = setup_info['smiles_column']
+    DATASET_DESCRIPTORS = setup_info['DATASET_DESCRIPTORS']
+    
     # === Set Random Seed ===
     set_seed(SEED)
-
-    # Load input data from CSV
-    df_input = pd.read_csv(input_path)
     
-    # Load and apply any precomputed data exclusions
-    drop_idx, excluded_smis = load_drop_indices(chemprop_dir, args.dataset_name)
-    if drop_idx:
-        logger.info(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
-        df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
-
-    # Convert SMILES strings to RDKit molecule objects
-    # smis = df_input[smiles_column].values
-    # mols = [Chem.MolFromSmiles(smi) for smi in smis]
-
-    # Identify target columns by excluding SMILES, descriptors, and ignored columns
-    target_columns = [c for c in df_input.columns
-                    if c not in ([smiles_column] + 
-                                DATASET_DESCRIPTORS + 
-                                ignore_columns)]
-    # Validate that we have at least one target column
-    if not target_columns:
-        raise ValueError(f"No target columns found. Expected at least one column other than '{smiles_column}'")
+    # === Load and Preprocess Data ===
+    df_input, target_columns = load_and_preprocess_data(args, setup_info)
 
 
     # Check for existing results and determine what needs to be run
@@ -298,7 +239,7 @@ def main():
     tabular_results_dir.mkdir(exist_ok=True)
     detailed_csv = tabular_results_dir / f"{args.dataset_name}{suffix}.csv"
     
-    # Load existing results using modularized function
+    # Load existing results
     existing_results = load_existing_results(detailed_csv, logger)
 
     # Process each target variable independently
@@ -323,7 +264,7 @@ def main():
         # Aggregate results across all targets
         all_rows.extend(rows)
 
-    # Save combined results using modularized function
+    # Save combined results
     existing_df = None
     if detailed_csv.exists() and existing_results:
         try:
