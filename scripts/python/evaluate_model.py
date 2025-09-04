@@ -128,6 +128,7 @@ for target in target_columns:
     train_data, val_data, test_data = data.split_data_by_indices(
         all_data, train_indices, val_indices, test_indices
     )
+    num_splits = len(train_data)  # robust for both CV and holdout
 
     # Apply same preprocessing as train_graph.py
     if combined_descriptor_data is not None:
@@ -166,7 +167,8 @@ for target in target_columns:
         
         # Apply per-split preprocessing (same as train_graph.py)
         preprocessed_data = {}
-        for i in range(REPLICATES):
+        
+        for i in range(num_splits):
             if split_preprocessing_metadata[i] is None:
                 logger.info(f"Warning: Skipping split {i} due to missing metadata")
                 continue
@@ -212,8 +214,8 @@ for target in target_columns:
 
     # === Evaluation Loop ===
     rep_model_to_row = {}
-    for i in range(REPLICATES):
-        logger.info(f"\n=== Replicate {i+1}/{REPLICATES} ===")
+    for i in range(num_splits):
+        logger.info(f"\n=== Replicate {i+1}/{num_splits} ===")
         
         # Create datasets after cleaning (same as train_graph.py)
         DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
@@ -250,7 +252,7 @@ for target in target_columns:
         # Use multiprocessing only if GPU is available to avoid spawn issues on CPU-only systems
         import torch
         eval_num_workers = num_workers if torch.cuda.is_available() else 0
-        train_loader = data.build_dataloader(train, num_workers=eval_num_workers)
+        train_loader = data.build_dataloader(train, num_workers=eval_num_workers, shuffle=False)
         val_loader = data.build_dataloader(val, num_workers=eval_num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=eval_num_workers, shuffle=False)
         checkpoint_path, _, _, _ = build_experiment_paths(
@@ -259,7 +261,7 @@ for target in target_columns:
         last_ckpt = load_best_checkpoint(Path(checkpoint_path))
         if last_ckpt is None:
             # no checkpoint → skip this replicate (leave row without this target's metrics)
-            logger.info(f"WARNING: No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.", file=sys.stderr)
+            logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
             continue
 
         # Load encoder and make fingerlogger.infos (map to CPU if CUDA not available)
@@ -271,10 +273,32 @@ for target in target_columns:
         X_val = get_encodings_from_loader(mpnn, val_loader)
         X_test = get_encodings_from_loader(mpnn, test_loader)
 
+        eps = 1e-8  # or 1e-6 if you want to be stricter
+        std_train = X_train.std(axis=0)
+        keep = std_train > eps
+
+        X_train = X_train[:, keep]
+        X_val   = X_val[:, keep]
+        X_test  = X_test[:, keep]
+
+        logger.info(f"kept dims: {int(keep.sum())} / 300")
+
         # Get target data for each split
         y_train = df_input.loc[train_indices[i], target].to_numpy()
         y_val = df_input.loc[val_indices[i], target].to_numpy()
         y_test = df_input.loc[test_indices[i], target].to_numpy()
+        
+        # Ensure all target arrays match the number of samples actually processed by the model
+        # (DataLoader may drop incomplete batches)
+        if len(y_train) != len(X_train):
+            logger.warning(f"Truncating y_train from {len(y_train)} to {len(X_train)} samples to match processed data")
+            y_train = y_train[:len(X_train)]
+        if len(y_val) != len(X_val):
+            logger.warning(f"Truncating y_val from {len(y_val)} to {len(X_val)} samples to match processed data")
+            y_val = y_val[:len(X_val)]
+        if len(y_test) != len(X_test):
+            logger.warning(f"Truncating y_test from {len(y_test)} to {len(X_test)} samples to match processed data")
+            y_test = y_test[:len(X_test)]
         
         # Initialize target scaler for regression tasks (same as train_tabular.py)
         target_scaler = None

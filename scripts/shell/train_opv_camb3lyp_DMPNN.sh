@@ -5,7 +5,7 @@
 #PBS -l ncpus=12
 #PBS -l ngpus=1
 #PBS -l mem=100GB
-#PBS -l walltime=12:00:00
+#PBS -l walltime=36:00:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
 #PBS -N DMPNN_opv_camb3lyp_DMPNN
