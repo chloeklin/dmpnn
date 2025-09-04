@@ -545,18 +545,16 @@ def build_model_and_trainer(
     # Create Feed-Forward Network based on task type
     if args.task_type == 'reg':
         ffn = nn.RegressionFFN(
-            n_layers=2,
             output_transform=output_transform, 
             n_tasks=1, 
             input_dim=input_dim
         )
     elif args.task_type == 'binary':
-        ffn = nn.BinaryClassificationFFN(n_layers=2,input_dim=input_dim)
+        ffn = nn.BinaryClassificationFFN(input_dim=input_dim)
     elif args.task_type == 'multi':
         if n_classes is None:
             raise ValueError("n_classes must be provided for multi-class tasks")
         ffn = nn.MulticlassClassificationFFN(
-            n_layers=2,
             n_classes=n_classes, 
             input_dim=input_dim
         )
@@ -1453,7 +1451,7 @@ def get_encodings_from_loader(model, loader):
                 X_d = None
 
             # 4) Encode
-            enc = model.encoding(bmg, V_d, X_d, i=-1)
+            enc = model.fingerprint(bmg, V_d, X_d)
             encs.append(enc)
 
     return torch.cat(encs, dim=0).cpu().numpy()

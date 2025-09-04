@@ -18,32 +18,35 @@ def parse_filename(filename: str) -> tuple:
     # Remove .csv extension
     base = filename.replace('.csv', '')
     
-    # Handle tabular files
-    if '_tabular' in base:
-        if '_descriptors_rdkit_ab' in base:
-            dataset = base.replace('_tabular_descriptors_rdkit_ab', '')
-            features = 'AB+Desc+RDKit'
-        elif '_descriptors_rdkit' in base:
-            dataset = base.replace('_tabular_descriptors_rdkit', '')
-            features = 'AB+Desc+RDKit'
-        elif '_descriptors_ab' in base:
-            dataset = base.replace('_tabular_descriptors_ab', '')
-            features = 'AB+Desc'
-        elif '_rdkit_ab' in base:
-            dataset = base.replace('_tabular_rdkit_ab', '')
-            features = 'AB+RDKit'
-        elif '_descriptors' in base:
-            dataset = base.replace('_tabular_descriptors', '')
-            features = 'AB+Desc'
-        elif '_rdkit' in base:
-            dataset = base.replace('_tabular_rdkit', '')
-            features = 'AB+RDKit'
-        elif '_ab' in base:
-            dataset = base.replace('_tabular_ab', '')
-            features = 'AB'
-        else:
-            dataset = base.replace('_tabular', '')
-            features = 'AB'
+    # Handle tabular files (both with and without _tabular prefix)
+    if '_descriptors_rdkit_ab' in base:
+        dataset = base.replace('_descriptors_rdkit_ab', '')
+        features = 'AB+Desc+RDKit'
+    elif '_descriptors_rdkit' in base:
+        dataset = base.replace('_descriptors_rdkit', '')
+        features = 'AB+Desc+RDKit'
+    elif '_descriptors_ab' in base:
+        dataset = base.replace('_descriptors_ab', '')
+        features = 'AB+Desc'
+    elif '_rdkit_ab' in base:
+        dataset = base.replace('_rdkit_ab', '')
+        features = 'AB+RDKit'
+    elif '_descriptors' in base:
+        dataset = base.replace('_descriptors', '')
+        features = 'AB+Desc'
+    elif '_rdkit' in base:
+        dataset = base.replace('_rdkit', '')
+        features = 'AB+RDKit'
+    elif '_ab' in base:
+        dataset = base.replace('_ab', '')
+        features = 'AB'
+    elif '_tabular' in base:
+        dataset = base.replace('_tabular', '')
+        features = 'AB'
+    else:
+        # Handle basic dataset files
+        dataset = base
+        features = 'AB'
     
     return dataset, features
 
