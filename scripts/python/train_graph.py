@@ -398,7 +398,8 @@ for target in target_columns:
         test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
         
         # Clean up incompatible checkpoints if preprocessing changed
-        if not preprocessing_reused and checkpoint_path.exists():
+        # Only delete checkpoints if descriptors are used and preprocessing actually changed
+        if not preprocessing_reused and checkpoint_path.exists() and combined_descriptor_data is not None:
             import shutil
             shutil.rmtree(checkpoint_path)
             logger.info(f"Removed incompatible checkpoint directory: {checkpoint_path}")

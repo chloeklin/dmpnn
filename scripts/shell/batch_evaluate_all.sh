@@ -155,6 +155,32 @@ check_existing_results() {
     fi
 }
 
+# Function to get walltime for a dataset from evaluation_config.yaml
+get_walltime() {
+    local dataset="$1"
+    local config_file="$SCRIPT_DIR/scripts/shell/evaluation_config.yaml"
+    
+    if [[ -f "$config_file" ]]; then
+        # Try to extract walltime for the specific dataset
+        local walltime=$(python3 -c "
+import yaml
+try:
+    with open('$config_file', 'r') as f:
+        config = yaml.safe_load(f)
+    walltime = config.get('walltime', {}).get('$dataset')
+    if walltime:
+        print(walltime)
+    else:
+        print(config.get('default_walltime', '2:00:00'))
+except:
+    print('2:00:00')
+")
+        echo "$walltime"
+    else
+        echo "2:00:00"  # Default fallback
+    fi
+}
+
 # Function to submit evaluation job
 submit_job() {
     local dataset="$1"
@@ -162,41 +188,68 @@ submit_job() {
     local variant_name="$3"
     local variant_args="$4"
     
-    local cmd="source .venv/bin/activate && python3 $SCRIPT_DIR/scripts/python/evaluate_model.py --dataset_name $dataset --task_type reg --model_name $model"
+    local cmd="python3 scripts/python/evaluate_model.py --dataset_name $dataset --task_type reg --model_name $model"
     
     if [[ -n "$variant_args" ]]; then
         cmd="$cmd $variant_args"
     fi
     
-    echo "🔄 Submitting job: $dataset ($model) - $variant_name"
+    # Get walltime for this dataset
+    local walltime=$(get_walltime "$dataset")
+    
+    echo "🔄 Generating PBS job script: $dataset ($model) - $variant_name (walltime: $walltime)"
     
     if [[ "$DRY_RUN" == "true" ]]; then
-        echo "   [DRY RUN] Would run: $cmd"
+        echo "   [DRY RUN] Would generate PBS script for: $cmd"
         return 0
     fi
     
-    # Create a unique job script
-    local job_script="/tmp/eval_${dataset}_${model}_${variant_name}_$$.sh"
+    # Create PBS job script filename
+    local job_script="eval_${dataset}_${model}_${variant_name}.sh"
+    
+    # Generate the PBS script
     cat > "$job_script" << EOF
 #!/bin/bash
-set -e
-cd "$PWD"
-echo "Starting evaluation: $dataset ($model) - $variant_name"
+
+#PBS -q gpuvolta
+#PBS -P um09
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=$walltime
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N eval_${model}_${dataset}_${variant_name}
+
+module use /g/data/dk92/apps/Modules/modulefiles
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn/
+
+
+# Evaluation
 $cmd
-echo "Completed evaluation: $dataset ($model) - $variant_name"
+
+
+##TODO
+
+# Add additional experiments here as needed
+
 EOF
     
     chmod +x "$job_script"
     
-    # Submit job in background
-    nohup bash "$job_script" > "/tmp/eval_${dataset}_${model}_${variant_name}_$$.log" 2>&1 &
-    local job_pid=$!
+    echo "   📄 Generated PBS script: $job_script"
     
-    echo "   ✅ Job submitted with PID: $job_pid"
-    echo "   📝 Log file: /tmp/eval_${dataset}_${model}_${variant_name}_$$.log"
-    
-    # Clean up job script after a delay
-    (sleep 5 && rm -f "$job_script") &
+    # Submit job to PBS queue
+    JOB_ID=$(qsub "$job_script")
+    if [ $? -eq 0 ]; then
+        echo "   ✅ Job submitted successfully: $JOB_ID"
+        echo "   📊 Monitor with: qstat -u $USER"
+    else
+        echo "   ❌ Error: Failed to submit job"
+        return 1
+    fi
     
     return 0
 }

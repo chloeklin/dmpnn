@@ -183,6 +183,7 @@ cython_debug/
 *.yaml
 !train_config.yaml
 !scripts/shell/experiments.yaml
+!scripts/shell/evaluation_config.yaml
 *.tfevents.*
 *.ckpt
 chemprop/_version.py
