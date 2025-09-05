@@ -8,9 +8,9 @@ set -e  # Exit on error
 # Default values
 DRY_RUN=false
 FORCE=false
-DATA_DIR="../../data"
-RESULTS_DIR="../../results"
-CHECKPOINT_DIR="../../checkpoints"
+DATA_DIR="data"
+RESULTS_DIR="results"
+CHECKPOINT_DIR="checkpoints"
 SCRIPT_DIR="."
 
 # Parse command line arguments
