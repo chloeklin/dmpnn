@@ -286,7 +286,7 @@ for dataset in "${DATASETS[@]}"; do
             continue
         fi
         
-        local checkpoint_count=$(find "$CHECKPOINT_DIR/$model" -maxdepth 1 -name "${dataset}__*" -type d | wc -l)
+        checkpoint_count=$(find "$CHECKPOINT_DIR/$model" -maxdepth 1 -name "${dataset}__*" -type d | wc -l)
         echo "   ✅ Found $checkpoint_count checkpoint directories"
         
         # Show which checkpoint directories were found for debugging
