@@ -107,7 +107,9 @@ SUBMITTED_JOBS=0
 check_checkpoints() {
     local dataset="$1"
     local model="$2"
-    local checkpoint_path="$CHECKPOINT_DIR/$model"
+    # Convert model name to lowercase to match actual checkpoint directory structure
+    local model_lower=$(echo "$model" | tr '[:upper:]' '[:lower:]')
+    local checkpoint_path="$CHECKPOINT_DIR/$model_lower"
     
     if [[ ! -d "$checkpoint_path" ]]; then
         return 1
