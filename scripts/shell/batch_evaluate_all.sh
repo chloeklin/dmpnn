@@ -267,6 +267,15 @@ for dataset in "${DATASETS[@]}"; do
         # Check if checkpoints exist
         if ! check_checkpoints "$dataset" "$model"; then
             echo "   ⚠️  Skipping $dataset ($model) - no trained checkpoints found"
+            echo "   🔍 Debug: Looking in $CHECKPOINT_DIR/$model"
+            if [[ -d "$CHECKPOINT_DIR/$model" ]]; then
+                echo "   📁 Available directories:"
+                ls -la "$CHECKPOINT_DIR/$model" 2>/dev/null | head -10
+            else
+                echo "   ❌ Checkpoint directory does not exist: $CHECKPOINT_DIR/$model"
+                echo "   📁 Available model directories in $CHECKPOINT_DIR:"
+                ls -la "$CHECKPOINT_DIR" 2>/dev/null | head -10
+            fi
             SKIPPED_JOBS=$((SKIPPED_JOBS + 2))  # 2 variants per model
             continue
         fi
