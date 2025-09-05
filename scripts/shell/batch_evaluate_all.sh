@@ -107,7 +107,6 @@ SUBMITTED_JOBS=0
 check_checkpoints() {
     local dataset="$1"
     local model="$2"
-    # Use uppercase model name to match actual checkpoint directory structure (DMPNN, wDMPNN)
     local checkpoint_path="$CHECKPOINT_DIR/$model"
     
     if [[ ! -d "$checkpoint_path" ]]; then
@@ -115,13 +114,20 @@ check_checkpoints() {
     fi
     
     # Look for checkpoint directories matching the dataset pattern
-    local count=$(find "$checkpoint_path" -name "${dataset}__*" -type d | wc -l)
+    # Pattern: dataset__target__[desc|rdkit]__rep0 or dataset__target__rep0
+    local count=$(find "$checkpoint_path" -maxdepth 1 -name "${dataset}__*" -type d | wc -l)
     if [[ $count -eq 0 ]]; then
         return 1
     fi
     
-    # Check if any contain .ckpt files
-    local ckpt_count=$(find "$checkpoint_path" -name "${dataset}__*" -name "*.ckpt" | wc -l)
+    # Check if any checkpoint directories contain .ckpt files
+    local ckpt_count=0
+    while IFS= read -r -d '' dir; do
+        if [[ -n $(find "$dir" -name "*.ckpt" -type f 2>/dev/null) ]]; then
+            ckpt_count=$((ckpt_count + 1))
+        fi
+    done < <(find "$checkpoint_path" -maxdepth 1 -name "${dataset}__*" -type d -print0)
+    
     if [[ $ckpt_count -eq 0 ]]; then
         return 1
     fi
@@ -280,8 +286,14 @@ for dataset in "${DATASETS[@]}"; do
             continue
         fi
         
-        local checkpoint_count=$(find "$CHECKPOINT_DIR/$model" -name "${dataset}__*" -type d | wc -l)
+        local checkpoint_count=$(find "$CHECKPOINT_DIR/$model" -maxdepth 1 -name "${dataset}__*" -type d | wc -l)
         echo "   ✅ Found $checkpoint_count checkpoint directories"
+        
+        # Show which checkpoint directories were found for debugging
+        echo "   📁 Checkpoint directories found:"
+        find "$CHECKPOINT_DIR/$model" -maxdepth 1 -name "${dataset}__*" -type d | while read dir; do
+            echo "      $(basename "$dir")"
+        done
         
         # Process each variant
         for variant_spec in "${VARIANTS[@]}"; do
