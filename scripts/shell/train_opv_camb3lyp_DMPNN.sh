@@ -2,8 +2,8 @@
 
 #PBS -q gpuvolta
 #PBS -P um09
-#PBS -l ncpus=12
-#PBS -l ngpus=1
+#PBS -l ncpus=24
+#PBS -l ngpus=2
 #PBS -l mem=100GB
 #PBS -l walltime=36:00:00
 #PBS -l storage=scratch/um09+gdata/dk92
