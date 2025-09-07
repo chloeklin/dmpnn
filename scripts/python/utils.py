@@ -1355,24 +1355,34 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
     
     model_results_dir.mkdir(exist_ok=True)
     
-    # Save each target to separate file to prevent overwriting
+    # Save results to file(s)
     if results_list:
         current_aggregate_df = pd.concat(results_list, ignore_index=True)
         
-        # Organize columns: target, split, then metrics
-        base_cols = ["target", "split"]
+        # Organize columns: target (if exists), split, then metrics
+        base_cols = []
+        if 'target' in current_aggregate_df.columns:
+            base_cols.append("target")
+        base_cols.append("split")
+        
         if "model" in current_aggregate_df.columns:
             base_cols.append("model")
         
         metric_cols = sorted([c for c in current_aggregate_df.columns if c not in base_cols])
         current_aggregate_df = current_aggregate_df[base_cols + metric_cols]
         
-        # Save each target separately
-        for target in current_aggregate_df['target'].unique():
-            target_df = current_aggregate_df[current_aggregate_df['target'] == target]
-            target_csv = model_results_dir / f"{base_filename}_{target}.csv"
-            target_df.to_csv(target_csv, index=False)
-            logger.info(f"Saved target results -> {target_csv}")
+        if 'target' in current_aggregate_df.columns:
+            # Save each target to a separate file
+            for target in current_aggregate_df['target'].unique():
+                target_df = current_aggregate_df[current_aggregate_df['target'] == target]
+                target_csv = model_results_dir / f"{base_filename}_{target}.csv"
+                target_df.to_csv(target_csv, index=False)
+                logger.info(f"Saved target results -> {target_csv}")
+        else:
+            # Save all results to a single file when no target is specified
+            output_csv = model_results_dir / f"{base_filename}.csv"
+            current_aggregate_df.to_csv(output_csv, index=False)
+            logger.info(f"Saved results -> {output_csv}")
         
         # Skip combined file since targets run in parallel
 

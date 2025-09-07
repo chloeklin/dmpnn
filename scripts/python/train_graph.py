@@ -475,8 +475,9 @@ for target in target_columns:
     logger.info(f"\n[{target}] Std across {n_evals} splits:\n{std_metrics}")
 
 
-    # Add target column to results and store for aggregation
-    results_df['target'] = target
+    # Only add target column if a specific target was specified
+    if args.target is not None:
+        results_df['target'] = target
     all_results.append(results_df)
     
     # Save progressive aggregate results after each target
