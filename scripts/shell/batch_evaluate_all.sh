@@ -15,7 +15,12 @@ CHECKPOINT_DIR="checkpoints"
 SCRIPT_DIR="."
 
 # OPV specific targets (comma-separated)
-OPV_TARGETS="homo,cv,opt,osc,ct1,ct2,veff,ehomo,elumo,egap,ip,ea,reorg_e,reorg_h"
+OPV_TARGETS=(
+    "optical_lumo" "gap" "homo" "lumo" "spectral_overlap"
+    "delta_homo" "delta_lumo" "delta_optical_lumo"
+    "homo_extrapolated" "lumo_extrapolated" "gap_extrapolated"
+    "optical_lumo_extrapolated"
+)
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
