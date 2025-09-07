@@ -264,7 +264,13 @@ submit_job() {
     local variant_name="$3"
     local variant_args="$4"
     
-    local cmd="python3 scripts/python/evaluate_model.py --dataset_name $dataset --task_type reg --model_name $model"
+    # Set task type based on dataset
+    local task_type="reg"
+    if [[ "$dataset" == "polyinfo" ]]; then
+        task_type="multi"
+    fi
+    
+    local cmd="python3 scripts/python/evaluate_model.py --dataset_name $dataset --task_type $task_type --model_name $model"
     
     if [[ -n "$variant_args" ]]; then
         cmd="$cmd $variant_args"
