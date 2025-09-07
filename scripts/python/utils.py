@@ -983,6 +983,7 @@ def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, de
         logger: Logger instance
     """
     import os
+    import json
     
     if not checkpoint_path.exists():
         return None
@@ -990,7 +991,19 @@ def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, de
     ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
     if not ckpt_files:
         return None
-        
+    
+    # Sort by modification time (newest first), not lexicographically
+    ckpt_files_with_time = [(f, os.path.getmtime(checkpoint_path / f)) for f in ckpt_files]
+    ckpt_files_with_time.sort(key=lambda x: x[1], reverse=True)
+    latest_ckpt = ckpt_files_with_time[0][0]
+    
+    # If no descriptors, skip metadata validation and allow resume
+    if descriptor_dim == 0:
+        last_ckpt = str(checkpoint_path / latest_ckpt)
+        logger.info(f"Loading checkpoint: {last_ckpt} (no descriptors, skipping metadata check)")
+        return last_ckpt
+    
+    # For descriptor-based models, validate preprocessing compatibility
     metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
     logger.info(f"Looking for preprocessing metadata at: {metadata_file}")
     if not metadata_file.exists():
@@ -1006,7 +1019,7 @@ def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, de
         saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
         
         if current_n_features == saved_n_features:
-            last_ckpt = str(checkpoint_path / sorted(ckpt_files)[-1])
+            last_ckpt = str(checkpoint_path / latest_ckpt)
             logger.info(f"Loading checkpoint: {last_ckpt} (features match: {current_n_features})")
             return last_ckpt
         else:
