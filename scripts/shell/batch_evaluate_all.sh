@@ -14,13 +14,16 @@ RESULTS_DIR="results"
 CHECKPOINT_DIR="checkpoints"
 SCRIPT_DIR="."
 
-# OPV specific targets (comma-separated)
-OPV_TARGETS=(
+# OPV specific targets (space-separated for array)
+DEFAULT_OPV_TARGETS=(
     "optical_lumo" "gap" "homo" "lumo" "spectral_overlap"
     "delta_homo" "delta_lumo" "delta_optical_lumo"
     "homo_extrapolated" "lumo_extrapolated" "gap_extrapolated"
     "optical_lumo_extrapolated"
 )
+
+# Initialize OPV_TARGETS array
+OPV_TARGETS=("${DEFAULT_OPV_TARGETS[@]}")
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -54,7 +57,8 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --opv-targets)
-            OPV_TARGETS="$2"
+            # Split comma-separated input into array
+            IFS=',' read -r -a OPV_TARGETS <<< "$2"
             shift 2
             ;;
         -h|--help)
@@ -495,9 +499,8 @@ for dataset in "${DATASETS[@]}"; do
             
             # Special handling for OPV dataset
             if [[ "$dataset" == "opv_camb3lyp" ]]; then
-                IFS=',' read -ra targets <<< "$OPV_TARGETS"
-                echo "   🎯 Processing OPV targets: ${targets[*]}"
-                for target in "${targets[@]}"; do
+                echo "   🎯 Processing OPV targets: ${OPV_TARGETS[*]}"
+                for target in "${OPV_TARGETS[@]}"; do
                     target_cmd="$cmd --target $target"
                     if submit_single_job "$dataset" "$model" "${variant_name}_${target}" "$target_cmd"; then
                         SUBMITTED_JOBS=$((SUBMITTED_JOBS + 1))
