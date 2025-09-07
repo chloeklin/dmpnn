@@ -351,7 +351,13 @@ submit_job() {
         task_type="multi"
     fi
     
+    # Build the base command
     local cmd="python3 scripts/python/evaluate_model.py --dataset_name $dataset --task_type $task_type --model_name $model"
+    
+    # Add variant args if any
+    if [[ -n "$variant_args" ]]; then
+        cmd="$cmd $variant_args"
+    fi
     
     # Add batch norm if enabled
     if [[ "$BATCH_NORM" == "true" ]]; then
@@ -360,57 +366,27 @@ submit_job() {
     
     # Special handling for OPV dataset
     if [[ "$dataset" == "opv_camb3lyp" ]]; then
-        IFS=',' read -ra targets <<< "$OPV_TARGETS"
-        for target in "${targets[@]}"; do
+        echo "   🎯 Processing OPV targets: ${OPV_TARGETS[*]}"
+        local all_success=true
+        for target in "${OPV_TARGETS[@]}"; do
             target_cmd="$cmd --target $target"
-            if [[ -n "$variant_args" ]]; then
-                target_cmd="$target_cmd $variant_args"
+            if ! submit_single_job "$dataset" "$model" "${variant_name}_${target}" "$target_cmd"; then
+                all_success=false
             fi
-            submit_single_job "$dataset" "$model" "${variant_name}_${target}" "$target_cmd"
         done
-        return 0
+        if $all_success; then
+            return 0
+        else
+            return 1
+        fi
+    else
+        # For non-OPV datasets, submit a single job
+        if submit_single_job "$dataset" "$model" "$variant_name" "$cmd"; then
+            return 0
+        else
+            return 1
+        fi
     fi
-    
-    if [[ -n "$variant_args" ]]; then
-        cmd="$cmd $variant_args"
-    fi
-    
-    # Get walltime for this dataset
-    local walltime=$(get_walltime "$dataset")
-    
-    echo "🔄 Generating PBS job script: $dataset ($model) - $variant_name (walltime: $walltime)"
-    
-    if [[ "$DRY_RUN" == "true" ]]; then
-        echo "   [DRY RUN] Would generate PBS script for: $cmd"
-        return 0
-    fi
-    
-    # Create PBS job script filename
-    local job_script="eval_${dataset}_${model}_${variant_name}.sh"
-    
-    # Generate the PBS script
-    cat > "$job_script" << EOF
-#!/bin/bash
-
-#PBS -q gpuvolta
-#PBS -P um09
-#PBS -l ncpus=12
-#PBS -l ngpus=1
-#PBS -l mem=100GB
-#PBS -l walltime=$walltime
-#PBS -l storage=scratch/um09+gdata/dk92
-#PBS -l jobfs=100GB
-#PBS -N eval_${model}_${dataset}_${variant_name}
-
-module use /g/data/dk92/apps/Modules/modulefiles
-module load python3/3.12.1 cuda/12.0.0
-source /home/659/hl4138/dmpnn-venv/bin/activate
-cd /scratch/um09/hl4138/dmpnn/
-
-
-# Evaluation
-$cmd
-
 
 ##TODO
 
@@ -484,35 +460,10 @@ for dataset in "${DATASETS[@]}"; do
                 fi
             fi
             
-            # Build the base command
-            local cmd="python3 scripts/python/evaluate_model.py --dataset_name $dataset --task_type $task_type --model_name $model"
-            
-            # Add variant args if any
-            if [[ -n "$variant_args" ]]; then
-                cmd="$cmd $variant_args"
-            fi
-            
-            # Add batch norm if enabled
-            if [[ "$BATCH_NORM" == "true" ]]; then
-                cmd="$cmd --batch_norm"
-            fi
-            
-            # Special handling for OPV dataset
-            if [[ "$dataset" == "opv_camb3lyp" ]]; then
-                echo "   🎯 Processing OPV targets: ${OPV_TARGETS[*]}"
-                for target in "${OPV_TARGETS[@]}"; do
-                    target_cmd="$cmd --target $target"
-                    if submit_single_job "$dataset" "$model" "${variant_name}_${target}" "$target_cmd"; then
-                        SUBMITTED_JOBS=$((SUBMITTED_JOBS + 1))
-                        sleep 1
-                    fi
-                done
-            else
-                # For non-OPV datasets, submit a single job
-                if submit_single_job "$dataset" "$model" "$variant_name" "$cmd"; then
-                    SUBMITTED_JOBS=$((SUBMITTED_JOBS + 1))
-                    sleep 1
-                fi
+            # Submit the job with the variant args
+            if submit_job "$dataset" "$model" "$variant_name" "$variant_args"; then
+                SUBMITTED_JOBS=$((SUBMITTED_JOBS + 1))
+                sleep 1
             fi
         done
     done
