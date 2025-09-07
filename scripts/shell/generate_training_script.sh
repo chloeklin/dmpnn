@@ -21,7 +21,7 @@ if [ $# -lt 3 ]; then
     echo ""
     echo "Available models: tabular, DMPNN, wDMPNN"
     echo "Walltime format: HH:MM:SS (e.g., 2:00:00 for 2 hours)"
-    echo "Optional flags: incl_rdkit, incl_desc, incl_ab, binary, multi"
+    echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi"
     echo ""
     echo "Examples:"
     echo "  $0 insulator DMPNN 2:00:00"
@@ -36,6 +36,7 @@ WALLTIME="$3"
 INCL_RDKIT=""
 INCL_DESC=""
 INCL_AB=""
+BATCH_NORM=""
 TASK_TYPE="reg"
 
 # Validate model type
@@ -62,6 +63,9 @@ for arg in "${@:4}"; do
         incl_ab)
             INCL_AB="--incl_ab"
             ;;
+        batch_norm)
+            BATCH_NORM="--batch_norm"
+            ;;
         binary|multi)
             TASK_TYPE=$arg
             ;;
@@ -84,6 +88,9 @@ if [ -n "$INCL_RDKIT" ]; then
 fi
 if [ -n "$INCL_AB" ]; then
     SUFFIX="${SUFFIX}_ab"
+fi
+if [ -n "$BATCH_NORM" ]; then
+    SUFFIX="${SUFFIX}_batch_norm"
 fi
 if [ "$TASK_TYPE" != "reg" ]; then
     SUFFIX="${SUFFIX}_${TASK_TYPE}"
@@ -112,6 +119,9 @@ if [ -n "$INCL_RDKIT" ]; then
 fi
 if [ -n "$INCL_AB" ]; then
     ARGS="$ARGS $INCL_AB"
+fi
+if [ -n "$BATCH_NORM" ]; then
+    ARGS="$ARGS $BATCH_NORM"
 fi
 
 # Output script filename
