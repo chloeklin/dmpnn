@@ -10,6 +10,17 @@ experiments:
     model: DMPNN
     walltime: "0:30:00"
     task_type: multi
+
+  - dataset: polyinfo
+    model: wDMPNN
+    walltime: "1:30:00"
+    incl_rdkit: true
+    task_type: multi
+  
+  - dataset: polyinfo
+    model: wDMPNN
+    walltime: "1:30:00"
+    task_type: multi
     
   - dataset: polyinfo
     model: tabular

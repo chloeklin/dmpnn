@@ -15,7 +15,7 @@ TARGETS=(
 
 # Default settings
 WALLTIME="04:00:00"
-OUTPUT_DIR="scripts/shell"
+OUTPUT_DIR="./"
 DRY_RUN=false
 RDKIT_ONLY=false
 NO_RDKIT_ONLY=false
