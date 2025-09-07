@@ -44,6 +44,11 @@ parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], defau
 
 args = parser.parse_args()
 
+# Auto-detect task type for specific datasets
+if args.dataset_name == 'polyinfo' and args.task_type == 'reg':
+    args.task_type = 'multi'
+    logger.info(f"Auto-detected task type for {args.dataset_name}: {args.task_type}")
+
 logger.info("\n=== Evaluation Configuration ===")
 logger.info(f"Dataset       : {args.dataset_name}")
 logger.info(f"Task type     : {args.task_type}")
