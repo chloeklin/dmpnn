@@ -1319,7 +1319,7 @@ def generate_data_splits(args, ys, n_splits, local_reps, seed):
 
 
 def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, logger):
-    """Save aggregate results with common column organization.
+    """Save results using target-specific filenames to prevent overwriting.
     
     Args:
         results_list: List of result DataFrames
@@ -1332,15 +1332,14 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
     """
     if model_name.lower() == "tabular":
         model_results_dir = results_dir / "tabular"
-        filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}.csv"
+        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}"
     else:
         model_results_dir = results_dir / model_name
-        filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}_results.csv"
+        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}_results"
     
     model_results_dir.mkdir(exist_ok=True)
-    aggregate_csv = model_results_dir / filename
     
-    # Combine all results
+    # Save each target to separate file to prevent overwriting
     if results_list:
         current_aggregate_df = pd.concat(results_list, ignore_index=True)
         
@@ -1352,9 +1351,14 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
         metric_cols = sorted([c for c in current_aggregate_df.columns if c not in base_cols])
         current_aggregate_df = current_aggregate_df[base_cols + metric_cols]
         
-        # Save results
-        current_aggregate_df.to_csv(aggregate_csv, index=False)
-        logger.info(f"Saved aggregate results -> {aggregate_csv}")
+        # Save each target separately
+        for target in current_aggregate_df['target'].unique():
+            target_df = current_aggregate_df[current_aggregate_df['target'] == target]
+            target_csv = model_results_dir / f"{base_filename}_{target}.csv"
+            target_df.to_csv(target_csv, index=False)
+            logger.info(f"Saved target results -> {target_csv}")
+        
+        # Skip combined file since targets run in parallel
 
 
 def load_best_checkpoint(ckpt_dir: Path):
