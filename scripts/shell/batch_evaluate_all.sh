@@ -135,7 +135,60 @@ check_checkpoints() {
     return 0
 }
 
-# Function to check if results already exist
+# Function to get expected number of targets for a dataset
+get_expected_target_count() {
+    local dataset="$1"
+    local dataset_file="$DATA_DIR/${dataset}.csv"
+    
+    if [[ ! -f "$dataset_file" ]]; then
+        echo "0"
+        return
+    fi
+    
+    # Use Python to count target columns (excluding SMILES and other non-target columns)
+    local target_count=$(python3 -c "
+import pandas as pd
+import sys
+try:
+    df = pd.read_csv('$dataset_file')
+    # Common non-target columns to exclude
+    exclude_cols = {'smiles', 'SMILES', 'Smiles', 'polymer', 'Polymer', 'BigSMILES', 'bigsmiles'}
+    target_cols = [col for col in df.columns if col not in exclude_cols and not col.startswith('Unnamed')]
+    print(len(target_cols))
+except Exception as e:
+    print('0')
+" 2>/dev/null)
+    
+    echo "${target_count:-0}"
+}
+
+# Function to get actual number of targets in results CSV
+get_actual_target_count() {
+    local csv_file="$1"
+    
+    if [[ ! -f "$csv_file" ]]; then
+        echo "0"
+        return
+    fi
+    
+    # Count unique targets in the CSV file
+    local target_count=$(python3 -c "
+import pandas as pd
+import sys
+try:
+    df = pd.read_csv('$csv_file')
+    if 'target' in df.columns:
+        print(len(df['target'].unique()))
+    else:
+        print('0')
+except Exception as e:
+    print('0')
+" 2>/dev/null)
+    
+    echo "${target_count:-0}"
+}
+
+# Function to check if results already exist and are complete
 check_existing_results() {
     local dataset="$1"
     local model="$2"
@@ -155,11 +208,27 @@ check_existing_results() {
     
     local baseline_file="$results_path/${dataset}${desc_suffix}${rdkit_suffix}_baseline.csv"
     
-    if [[ -f "$baseline_file" ]]; then
-        return 0  # File exists
-    else
+    # Check if file exists
+    if [[ ! -f "$baseline_file" ]]; then
         return 1  # File doesn't exist
     fi
+    
+    # Check if the number of targets matches
+    local expected_targets=$(get_expected_target_count "$dataset")
+    local actual_targets=$(get_actual_target_count "$baseline_file")
+    
+    if [[ "$expected_targets" -eq 0 ]]; then
+        echo "   ⚠️  Warning: Could not determine expected target count for $dataset"
+        return 0  # Assume complete if we can't determine expected count
+    fi
+    
+    if [[ "$actual_targets" -ne "$expected_targets" ]]; then
+        echo "   🔄 Results exist but incomplete: $actual_targets/$expected_targets targets in $baseline_file"
+        return 1  # File exists but incomplete
+    fi
+    
+    echo "   ✅ Complete results exist: $actual_targets/$expected_targets targets in $baseline_file"
+    return 0  # File exists and is complete
 }
 
 # Function to get walltime for a dataset from evaluation_config.yaml

@@ -165,10 +165,13 @@ for target in target_columns:
                 logger.info(f"Removing {len(constant_features)} constant features from full dataset")
                 orig_Xd = np.delete(orig_Xd, constant_features, axis=1)
         
-        # Apply per-split preprocessing (same as train_graph.py)
-        preprocessed_data = {}
+    # === Evaluation Loop ===
+    rep_model_to_row = {}
+    for i in range(num_splits):
+        logger.info(f"\n=== Replicate {i+1}/{num_splits} ===")
         
-        for i in range(num_splits):
+        # Apply per-split preprocessing (same as train_graph.py)
+        if combined_descriptor_data is not None:
             if split_preprocessing_metadata[i] is None:
                 logger.info(f"Warning: Skipping split {i} due to missing metadata")
                 continue
@@ -201,21 +204,13 @@ for target in target_columns:
                 dtype=bool
             )
             
-            # Store preprocessed data for this split
-            preprocessed_data[i] = all_data_clean_i[:, mask_i]
-            
             # Apply preprocessing to datapoints (same as train_graph.py)
             for dp, ridx in zip(train_data[i], train_indices[i]):
-                dp.x_d = preprocessed_data[i][ridx]
+                dp.x_d = all_data_clean_i[ridx][mask_i]
             for dp, ridx in zip(val_data[i], val_indices[i]):
-                dp.x_d = preprocessed_data[i][ridx]
+                dp.x_d = all_data_clean_i[ridx][mask_i]
             for dp, ridx in zip(test_data[i], test_indices[i]):
-                dp.x_d = preprocessed_data[i][ridx]
-
-    # === Evaluation Loop ===
-    rep_model_to_row = {}
-    for i in range(num_splits):
-        logger.info(f"\n=== Replicate {i+1}/{num_splits} ===")
+                dp.x_d = all_data_clean_i[ridx][mask_i]
         
         # Create datasets after cleaning (same as train_graph.py)
         DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset

@@ -1365,8 +1365,30 @@ def load_best_checkpoint(ckpt_dir: Path):
     # Prioritize validation-best checkpoints over last.ckpt
     best_ckpts = [f for f in ckpts if f.startswith("best-")]
     if best_ckpts:
-        best_ckpts.sort()
-        return ckpt_dir / best_ckpts[-1]
+        # Parse validation loss from checkpoint names and select the one with lowest loss
+        import re
+        best_checkpoint = None
+        lowest_val_loss = float('inf')
+        
+        for ckpt_name in best_ckpts:
+            # Extract validation loss from filename: best-[epoch]-[val_loss].ckpt
+            # Handle various possible formats like best-epoch=10-val_loss=0.123.ckpt or best-10-0.123.ckpt
+            val_loss_match = re.search(r'(?:val_loss=|-)([0-9]+\.?[0-9]*)(?:\.ckpt|$)', ckpt_name)
+            if val_loss_match:
+                try:
+                    val_loss = float(val_loss_match.group(1))
+                    if val_loss < lowest_val_loss:
+                        lowest_val_loss = val_loss
+                        best_checkpoint = ckpt_name
+                except ValueError:
+                    continue
+        
+        if best_checkpoint:
+            return ckpt_dir / best_checkpoint
+        else:
+            # Fallback to alphabetical sorting if parsing fails
+            best_ckpts.sort()
+            return ckpt_dir / best_ckpts[-1]
     
     # Fallback to lexicographically last checkpoint
     ckpts.sort()
