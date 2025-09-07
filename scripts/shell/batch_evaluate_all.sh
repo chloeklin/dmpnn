@@ -8,10 +8,14 @@ set -e  # Exit on error
 # Default values
 DRY_RUN=false
 FORCE=false
+BATCH_NORM=false
 DATA_DIR="data"
 RESULTS_DIR="results"
 CHECKPOINT_DIR="checkpoints"
 SCRIPT_DIR="."
+
+# OPV specific targets (comma-separated)
+OPV_TARGETS="homo,cv,opt,osc,ct1,ct2,veff,ehomo,elumo,egap,ip,ea,reorg_e,reorg_h"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -38,6 +42,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --script-dir)
             SCRIPT_DIR="$2"
+            shift 2
+            ;;
+        --batch-norm)
+            BATCH_NORM=true
+            shift
+            ;;
+        --opv-targets)
+            OPV_TARGETS="$2"
             shift 2
             ;;
         -h|--help)
@@ -257,6 +269,66 @@ except:
     fi
 }
 
+# Function to submit a single job with a given command
+submit_single_job() {
+    local dataset="$1"
+    local model="$2"
+    local job_name="$3"
+    local cmd="$4"
+    
+    # Get walltime for this dataset
+    local walltime=$(get_walltime "$dataset")
+    
+    echo "🔄 Generating PBS job script: $dataset ($model) - $job_name (walltime: $walltime)"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "   [DRY RUN] Would generate PBS script for: $cmd"
+        return 0
+    fi
+    
+    # Create PBS job script filename
+    local job_script="eval_${dataset}_${model}_${job_name//[^a-zA-Z0-9_-]/_}.sh"
+    
+    # Generate the PBS script
+    cat > "$job_script" << EOF
+#!/bin/bash
+
+#PBS -q gpuvolta
+#PBS -P um09
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=$walltime
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N eval_${model}_${dataset}_${job_name//[^a-zA-Z0-9_-]/_}
+
+module use /g/data/dk92/apps/Modules/modulefiles
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn/
+
+# Evaluation
+$cmd
+
+EOF
+    
+    chmod +x "$job_script"
+    
+    echo "   📄 Generated PBS script: $job_script"
+    
+    # Submit job to PBS queue
+    JOB_ID=$(qsub "$job_script")
+    if [ $? -eq 0 ]; then
+        echo "   ✅ Job submitted successfully: $JOB_ID"
+        echo "   📊 Monitor with: qstat -u $USER"
+        return 0
+    else
+        echo "   ❌ Error: Failed to submit job"
+        return 1
+    fi
+}
+
 # Function to submit evaluation job
 submit_job() {
     local dataset="$1"
@@ -271,6 +343,24 @@ submit_job() {
     fi
     
     local cmd="python3 scripts/python/evaluate_model.py --dataset_name $dataset --task_type $task_type --model_name $model"
+    
+    # Add batch norm if enabled
+    if [[ "$BATCH_NORM" == "true" ]]; then
+        cmd="$cmd --batch_norm"
+    fi
+    
+    # Special handling for OPV dataset
+    if [[ "$dataset" == "opv_camb3lyp" ]]; then
+        IFS=',' read -ra targets <<< "$OPV_TARGETS"
+        for target in "${targets[@]}"; do
+            target_cmd="$cmd --target $target"
+            if [[ -n "$variant_args" ]]; then
+                target_cmd="$target_cmd $variant_args"
+            fi
+            submit_single_job "$dataset" "$model" "${variant_name}_${target}" "$target_cmd"
+        done
+        return 0
+    fi
     
     if [[ -n "$variant_args" ]]; then
         cmd="$cmd $variant_args"
@@ -385,11 +475,36 @@ for dataset in "${DATASETS[@]}"; do
                 fi
             fi
             
-            # Submit the job
-            if submit_job "$dataset" "$model" "$variant_name" "$variant_args"; then
-                SUBMITTED_JOBS=$((SUBMITTED_JOBS + 1))
-                # Add small delay between job submissions
-                sleep 1
+            # Build the base command
+            local cmd="python3 scripts/python/evaluate_model.py --dataset_name $dataset --task_type $task_type --model_name $model"
+            
+            # Add variant args if any
+            if [[ -n "$variant_args" ]]; then
+                cmd="$cmd $variant_args"
+            fi
+            
+            # Add batch norm if enabled
+            if [[ "$BATCH_NORM" == "true" ]]; then
+                cmd="$cmd --batch_norm"
+            fi
+            
+            # Special handling for OPV dataset
+            if [[ "$dataset" == "opv_camb3lyp" ]]; then
+                IFS=',' read -ra targets <<< "$OPV_TARGETS"
+                echo "   🎯 Processing OPV targets: ${targets[*]}"
+                for target in "${targets[@]}"; do
+                    target_cmd="$cmd --target $target"
+                    if submit_single_job "$dataset" "$model" "${variant_name}_${target}" "$target_cmd"; then
+                        SUBMITTED_JOBS=$((SUBMITTED_JOBS + 1))
+                        sleep 1
+                    fi
+                done
+            else
+                # For non-OPV datasets, submit a single job
+                if submit_single_job "$dataset" "$model" "$variant_name" "$cmd"; then
+                    SUBMITTED_JOBS=$((SUBMITTED_JOBS + 1))
+                    sleep 1
+                fi
             fi
         done
     done

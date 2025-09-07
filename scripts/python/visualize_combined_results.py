@@ -52,6 +52,7 @@ def parse_filename(filename: str) -> tuple:
 
 def parse_model_filename(filename: str, method: str) -> tuple:
     """Parse model CSV filename to extract dataset and feature information."""
+    # Remove .csv extension and method suffix first
     base = filename.replace('.csv', '')
     
     if method == 'Graph':
@@ -59,13 +60,13 @@ def parse_model_filename(filename: str, method: str) -> tuple:
     elif method == 'Baseline':
         base = base.replace('_baseline', '')
     
-    # Handle batch normalization suffix first
+    # Handle batch normalization
     batch_norm = False
     if '_batch_norm' in base:
         base = base.replace('_batch_norm', '')
         batch_norm = True
     
-    # Determine dataset and features
+    # Handle different feature combinations
     if '__desc__rdkit' in base:
         dataset = base.replace('__desc__rdkit', '')
         features = f'{method}+Desc+RDKit'
@@ -79,9 +80,12 @@ def parse_model_filename(filename: str, method: str) -> tuple:
         dataset = base
         features = method
     
+    # Clean up any trailing underscores in dataset name
+    dataset = dataset.rstrip('_')
+    
     # Add batch norm to features if present
-    if batch_norm:
-        features += ' (BN)'
+    if batch_norm and method in ['Graph', 'Baseline']:  # Only add (BN) for Graph and Baseline methods
+        features = f"{features} (BN)"
     
     return dataset, features
 
@@ -90,21 +94,38 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
     results = {}
     
     if method in ['Graph', 'Baseline']:
-        # Load from model subdirectories
+        # First pass: collect all CSV files
+        csv_files = []
         for model_name in ['DMPNN', 'wDMPNN', 'PPG']:
             model_dir = results_dir / model_name
             if not model_dir.exists():
                 continue
                 
             suffix = '_results.csv' if method == 'Graph' else '_baseline.csv'
-            for csv_file in model_dir.glob(f"*{suffix}"):
+            csv_files.extend(list(model_dir.glob(f"*{suffix}")))
+        
+        # Process each CSV file
+        for csv_file in csv_files:
+            try:
                 dataset, features = parse_model_filename(csv_file.name, method)
+                
+                # Extract model name from path
+                model_name = csv_file.parent.name
                 
                 df = pd.read_csv(csv_file)
                 
+                # Skip empty DataFrames
+                if df.empty:
+                    print(f"Warning: Empty CSV file: {csv_file}")
+                    continue
+                
                 # Rename columns to match expected format
                 if 'test/mae' in df.columns:
-                    df = df.rename(columns={'test/mae': 'mae', 'test/r2': 'r2', 'test/rmse': 'rmse'})
+                    df = df.rename(columns={
+                        'test/mae': 'mae', 
+                        'test/r2': 'r2', 
+                        'test/rmse': 'rmse'
+                    })
                 elif 'test/multiclass-accuracy' in df.columns:
                     df = df.rename(columns={
                         'test/multiclass-accuracy': 'acc', 
@@ -118,6 +139,7 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                         'test/roc_auc': 'logloss'
                     })
                 
+                # Add metadata
                 df['dataset'] = dataset
                 df['features'] = features
                 df['method'] = method
@@ -133,6 +155,10 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 if dataset not in results:
                     results[dataset] = []
                 results[dataset].append(df)
+                
+            except Exception as e:
+                print(f"Error processing {csv_file}: {str(e)}")
+                continue
     
     elif method == 'Tabular':
         # Load from tabular directory
@@ -232,14 +258,18 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     # Get unique targets and feature combinations in desired order
     targets = sorted(data['target'].unique())
     
-    # Define desired feature order for combined plots
-    feature_order = [
+    # Define desired feature order for combined plots, including batch norm variants
+    base_features = [
         'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
         'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit',  # Graph features
-        'Baseline', 'Baseline+RDKit', 'Baseline+Desc+RDKit'  # Baseline features
+        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)',  # Graph with batch norm
+        'Baseline', 'Baseline+RDKit', 'Baseline+Desc+RDKit',  # Baseline features
+        'Baseline (BN)', 'Baseline+RDKit (BN)', 'Baseline+Desc+RDKit (BN)'  # Baseline with batch norm
     ]
+    
+    # Get available features and sort them according to our desired order
     available_features = data['features'].unique()
-    features = [f for f in feature_order if f in available_features]
+    features = [f for f in base_features if f in available_features]
     
     # Check if metric exists in data
     if metric not in data.columns:
@@ -254,7 +284,7 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     n_cols = min(3, n_targets)  # Max 3 columns
     n_rows = (n_targets + n_cols - 1) // n_cols
     
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(8*n_cols, 6*n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10*n_cols, 8*n_rows))
     if n_targets == 1:
         axes = [axes]
     elif n_rows == 1:
@@ -263,11 +293,13 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     # Flatten axes for easier indexing
     axes_flat = axes.flatten() if n_targets > 1 else axes
     
-    # Define colors for different methods and models
+    # Define colors for different methods and models with distinct colors for batch norm variants
     colors = {
         'Tabular': {'Linear': '#1f77b4', 'RF': '#ff7f0e', 'XGB': '#2ca02c', 'LogReg': '#1f77b4'},
         'Graph': {'DMPNN': '#d62728', 'wDMPNN': '#9467bd', 'PPG': '#8c564b'},
-        'Baseline': {'Linear': '#17becf', 'RF': '#bcbd22', 'XGB': '#e377c2'}
+        'Graph (BN)': {'DMPNN': '#ff7f7f', 'wDMPNN': '#c5b0d5', 'PPG': '#c49c94'},  # Lighter shades for BN variants
+        'Baseline': {'Linear': '#17becf', 'RF': '#bcbd22', 'XGB': '#e377c2'},
+        'Baseline (BN)': {'Linear': '#7fdfe0', 'RF': '#ddee66', 'XGB': '#f1bbd9'}  # Lighter shades for BN variants
     }
     
     for i, target in enumerate(targets):
