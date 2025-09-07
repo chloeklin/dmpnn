@@ -20,6 +20,7 @@ DRY_RUN=false
 RDKIT_ONLY=false
 NO_RDKIT_ONLY=false
 SUBMIT_JOBS=false
+BATCH_NORM=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -48,6 +49,10 @@ while [[ $# -gt 0 ]]; do
             SUBMIT_JOBS=true
             shift
             ;;
+        --batch-norm)
+            BATCH_NORM=true
+            shift
+            ;;
         --targets)
             shift
             TARGETS=()
@@ -66,6 +71,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-rdkit-only     Only generate non-RDKit variants"
             echo "  --targets TARGET... Specific targets to generate"
             echo "  --submit            Automatically submit generated jobs to PBS queue"
+            echo "  --batch-norm        Enable batch normalization in the model"
             echo "  -h, --help          Show this help"
             exit 0
             ;;
@@ -95,7 +101,15 @@ generate_script() {
         rdkit_flag=" --incl_rdkit"
     fi
     
-    local filename="train_opv_camb3lyp_DMPNN_${target}${rdkit_suffix}.sh"
+    local batch_norm_suffix=""
+    local batch_norm_flag=""
+    
+    if [[ "$BATCH_NORM" == "true" ]]; then
+        batch_norm_suffix="_batch_norm"
+        batch_norm_flag=" --batch_norm"
+    fi
+    
+    local filename="train_opv_camb3lyp_DMPNN_${target}${rdkit_suffix}${batch_norm_suffix}.sh"
     local filepath="${OUTPUT_DIR}/${filename}"
     
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -122,7 +136,7 @@ generate_script() {
 #PBS -l walltime=${WALLTIME}
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N DMPNN_opv_camb3lyp_${target}${rdkit_suffix}
+#PBS -N DMPNN_opv_camb3lyp_${target}${rdkit_suffix}${batch_norm_suffix}
 
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.0.0
@@ -131,7 +145,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # DMPNN training for target: ${target}
-python3 scripts/python/train_graph.py --dataset_name opv_camb3lyp --model_name DMPNN --target ${target}${rdkit_flag}
+python3 scripts/python/train_graph.py --dataset_name opv_camb3lyp --model_name DMPNN --target ${target}${rdkit_flag}${batch_norm_flag}
 
 
 ##TODO
@@ -155,6 +169,7 @@ echo "🚀 Generating DMPNN training scripts for opv_camb3lyp"
 echo "📁 Output directory: $OUTPUT_DIR"
 echo "⏰ Walltime: $WALLTIME"
 echo "🎯 Targets: ${#TARGETS[@]} targets"
+echo "🧠 Batch Norm: $BATCH_NORM"
 echo "============================================================"
 
 generated_count=0
