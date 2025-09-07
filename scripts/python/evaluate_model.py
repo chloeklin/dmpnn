@@ -388,19 +388,33 @@ for target in target_columns:
                         pass
         
 
-    # Convert to train_graph.py format: target,split,test/mae,test/r2,test/rmse
+    # Convert to train_graph.py format with appropriate metrics for task type
     eval_results = []
     for (rep_idx, model_name), row_data in rep_model_to_row.items():
         for target in target_columns:
-            if f"{target}_R2" in row_data:
+            if args.task_type == "reg" and f"{target}_R2" in row_data:
+                # Regression metrics
                 eval_results.append({
                     'target': target,
                     'split': rep_idx,
                     'test/mae': row_data[f"{target}_MAE"],
                     'test/r2': row_data[f"{target}_R2"],
                     'test/rmse': row_data[f"{target}_RMSE"],
-                    'model': model_name  # Keep model info for baseline comparison
+                    'model': model_name
                 })
+            elif args.task_type in ["binary", "multi"] and f"{target}_ACC" in row_data:
+                # Classification metrics
+                result_row = {
+                    'target': target,
+                    'split': rep_idx,
+                    'test/accuracy': row_data[f"{target}_ACC"],
+                    'test/f1': row_data[f"{target}_F1"],
+                    'model': model_name
+                }
+                # Add ROC-AUC if available
+                if f"{target}_ROC_AUC" in row_data:
+                    result_row['test/roc_auc'] = row_data[f"{target}_ROC_AUC"]
+                eval_results.append(result_row)
     
     if eval_results:
         results_df = pd.DataFrame(eval_results)
@@ -415,7 +429,12 @@ for target in target_columns:
         
         # Organize columns to match train_graph.py: target, split, then metrics, then model
         base_cols = ["target", "split"]
-        metric_cols = ["test/mae", "test/r2", "test/rmse"]
+        if args.task_type == "reg":
+            metric_cols = ["test/mae", "test/r2", "test/rmse"]
+        else:
+            metric_cols = ["test/accuracy", "test/f1"]
+            if "test/roc_auc" in results_df.columns:
+                metric_cols.append("test/roc_auc")
         extra_cols = [c for c in results_df.columns if c not in base_cols + metric_cols]
         results_df = results_df[base_cols + metric_cols + extra_cols]
         
