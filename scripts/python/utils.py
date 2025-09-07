@@ -840,8 +840,9 @@ def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, de
         return None
         
     metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+    logger.info(f"Looking for preprocessing metadata at: {metadata_file}")
     if not metadata_file.exists():
-        logger.warning("No preprocessing metadata found for checkpoint validation")
+        logger.warning(f"No preprocessing metadata found for checkpoint validation at: {metadata_file}")
         return None
         
     try:
@@ -991,8 +992,9 @@ def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, de
         return None
         
     metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+    logger.info(f"Looking for preprocessing metadata at: {metadata_file}")
     if not metadata_file.exists():
-        logger.warning("No preprocessing metadata found for checkpoint validation")
+        logger.warning(f"No preprocessing metadata found for checkpoint validation at: {metadata_file}")
         return None
         
     try:

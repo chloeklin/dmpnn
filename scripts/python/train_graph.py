@@ -27,6 +27,8 @@ parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
 parser.add_argument('--model_name', type=str, default="DMPNN", choices=["DMPNN", "wDMPNN", "PPG"],
                     help='Name of the model to use')
+parser.add_argument('--target', type=str, default=None,
+                    help='Specific target column to train on (if not specified, trains on all targets)')
 args = parser.parse_args()
 
 
@@ -60,6 +62,14 @@ set_seed(SEED)
 # === Load and Preprocess Data ===
 df_input, target_columns = load_and_preprocess_data(args, setup_info)
 
+# Filter to specific target if specified
+if args.target:
+    if args.target not in target_columns:
+        logger.error(f"Specified target '{args.target}' not found in dataset. Available targets: {target_columns}")
+        exit(1)
+    target_columns = [args.target]
+    logger.info(f"Training on single target: {args.target}")
+
 
 
 logger.info("\n=== Training Configuration ===")
@@ -68,13 +78,15 @@ logger.info(f"Task type        : {args.task_type}")
 logger.info(f"Model            : {args.model_name}")
 logger.info(f"SMILES column    : {smiles_column}")
 logger.info(f"Descriptor cols  : {descriptor_columns}")
-logger.info(f"Ignore columns   : {ignore_columns}")
+logger.info(f"Target columns   : {target_columns}")
 logger.info(f"Descriptors      : {'Enabled' if args.incl_desc else 'Disabled'}")
 logger.info(f"RDKit desc.      : {'Enabled' if args.incl_rdkit else 'Disabled'}")
 logger.info(f"Epochs           : {EPOCHS}")
 logger.info(f"Replicates       : {REPLICATES}")
 logger.info(f"Workers          : {num_workers}")
 logger.info(f"Random seed      : {SEED}")
+if args.target:
+    logger.info(f"Single target    : {args.target}")
 logger.info("================================\n")
 
 

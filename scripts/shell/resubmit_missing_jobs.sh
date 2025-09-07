@@ -45,19 +45,19 @@ get_expected_csv() {
         # Graph training - aggregate results format (no target in filename)
         local suffix=""
         if [[ "$base_name" == *"desc"* ]] && [[ "$base_name" == *"rdkit"* ]]; then
-            suffix="_descriptors_rdkit"
+            suffix="__descriptors__rdkit"
         elif [[ "$base_name" == *"rdkit"* ]]; then
-            suffix="_rdkit"
+            suffix="__rdkit"
         elif [[ "$base_name" == *"desc"* ]]; then
-            suffix="_descriptors"
+            suffix="__descriptors"
         fi
         
-        # Determine model name for output
+        # Determine model name for output - check wDMPNN first to avoid matching DMPNN
         local model_name=""
-        if [[ "$base_name" == *"DMPNN"* ]]; then
-            model_name="DMPNN"
-        elif [[ "$base_name" == *"wDMPNN"* ]]; then
+        if [[ "$base_name" == *"wDMPNN"* ]]; then
             model_name="wDMPNN"
+        elif [[ "$base_name" == *"DMPNN"* ]]; then
+            model_name="DMPNN"
         elif [[ "$base_name" == *"PPG"* ]]; then
             model_name="PPG"
         fi
