@@ -361,7 +361,9 @@ for target in target_columns:
 
             else:
                 if name == "XGB":
-                    model.set_params(early_stopping_rounds=30, eval_metric="logloss")
+                    # Use appropriate eval_metric for classification task
+                    eval_metric = "mlogloss" if args.task_type == "multi" else "logloss"
+                    model.set_params(early_stopping_rounds=30, eval_metric=eval_metric)
                     model.fit(X_train_scaled, y_train_scaled, eval_set=[(X_val_scaled, y_val_scaled)], verbose=False)
                 else:
                     model.fit(X_train_scaled, y_train_scaled)
