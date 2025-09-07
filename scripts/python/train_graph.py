@@ -29,6 +29,8 @@ parser.add_argument('--model_name', type=str, default="DMPNN", choices=["DMPNN",
                     help='Name of the model to use')
 parser.add_argument('--target', type=str, default=None,
                     help='Specific target column to train on (if not specified, trains on all targets)')
+parser.add_argument('--batch_norm', action='store_true',
+                    help='Enable batch normalization in the model')
 args = parser.parse_args()
 
 
@@ -364,10 +366,10 @@ for target in target_columns:
             n_classes=n_classes_arg,
             df_input=df_input
         )
-        batch_norm = False
+        batch_norm = args.batch_norm
         
         # Build experiment paths
-        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
         
@@ -478,4 +480,4 @@ for target in target_columns:
     all_results.append(results_df)
     
     # Save progressive aggregate results after each target
-    save_aggregate_results(all_results, results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, logger)
+    save_aggregate_results(all_results, results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, logger)

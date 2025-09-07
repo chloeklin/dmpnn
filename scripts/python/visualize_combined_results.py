@@ -95,6 +95,18 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 # Rename columns to match expected format
                 if 'test/mae' in df.columns:
                     df = df.rename(columns={'test/mae': 'mae', 'test/r2': 'r2', 'test/rmse': 'rmse'})
+                elif 'test/multiclass-accuracy' in df.columns:
+                    df = df.rename(columns={
+                        'test/multiclass-accuracy': 'acc', 
+                        'test/multiclass-f1': 'f1_macro', 
+                        'test/multiclass-roc': 'logloss'
+                    })
+                elif 'test/accuracy' in df.columns:
+                    df = df.rename(columns={
+                        'test/accuracy': 'acc', 
+                        'test/f1': 'f1_macro', 
+                        'test/roc_auc': 'logloss'
+                    })
                 
                 df['dataset'] = dataset
                 df['features'] = features

@@ -809,14 +809,15 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     """Build all paths needed for experiment tracking."""
     desc_suffix = "__desc" if descriptor_columns else ""
     rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+    batch_norm_suffix = "__batch_norm" if getattr(args, 'batch_norm', False) else ""
     
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}__rep{i}"
     
     checkpoint_path = checkpoint_dir / base_name
     model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
     preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
     
-    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix
 
 
 def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
@@ -962,14 +963,15 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     """Build all paths needed for experiment tracking."""
     desc_suffix = "__desc" if descriptor_columns else ""
     rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+    batch_norm_suffix = "__batch_norm" if getattr(args, 'batch_norm', False) else ""
     
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}__rep{i}"
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}__rep{i}"
     
     checkpoint_path = checkpoint_dir / base_name
     model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
     preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
     
-    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix
 
 
 def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
@@ -1331,7 +1333,7 @@ def generate_data_splits(args, ys, n_splits, local_reps, seed):
     return train_indices, val_indices, test_indices
 
 
-def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, logger):
+def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, logger):
     """Save results using target-specific filenames to prevent overwriting.
     
     Args:
@@ -1341,14 +1343,15 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
         dataset_name: Dataset name for filename
         desc_suffix: Descriptor suffix for filename
         rdkit_suffix: RDKit suffix for filename
+        batch_norm_suffix: Batch normalization suffix for filename
         logger: Logger instance
     """
     if model_name.lower() == "tabular":
         model_results_dir = results_dir / "tabular"
-        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}"
+        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}"
     else:
         model_results_dir = results_dir / model_name
-        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}_results"
+        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}_results"
     
     model_results_dir.mkdir(exist_ok=True)
     

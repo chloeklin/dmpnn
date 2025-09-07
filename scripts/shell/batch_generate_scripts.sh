@@ -43,8 +43,13 @@ if [ $# -lt 1 ]; then
     echo "    incl_desc: true"
     echo "    incl_ab: true"
     echo "    task_type: binary"
+    echo "  - dataset: polyinfo"
+    echo "    model: DMPNN"
+    echo "    walltime: \"3:00:00\""
+    echo "    batch_norm: true"
+    echo "    task_type: reg"
     echo ""
-    echo "Optional flags: incl_rdkit, incl_desc, incl_ab (true/false)"
+    echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm (true/false)"
     echo "task_type defaults to 'reg' if not specified"
     exit 1
 fi
@@ -102,6 +107,9 @@ try:
         
         if exp.get('incl_ab', False):
             args.append('incl_ab')
+        
+        if exp.get('batch_norm', False):
+            args.append('batch_norm')
         
         # Add task type if not default
         task_type = exp.get('task_type', 'reg')

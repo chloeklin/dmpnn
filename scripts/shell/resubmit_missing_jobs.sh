@@ -52,6 +52,11 @@ get_expected_csv() {
             suffix="__descriptors"
         fi
         
+        # Add batch_norm suffix if present
+        if [[ "$base_name" == *"batch_norm"* ]]; then
+            suffix="${suffix}__batch_norm"
+        fi
+        
         # Determine model name for output - check wDMPNN first to avoid matching DMPNN
         local model_name=""
         if [[ "$base_name" == *"wDMPNN"* ]]; then
