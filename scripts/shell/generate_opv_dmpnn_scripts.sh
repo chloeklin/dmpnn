@@ -19,6 +19,7 @@ OUTPUT_DIR="scripts/shell"
 DRY_RUN=false
 RDKIT_ONLY=false
 NO_RDKIT_ONLY=false
+SUBMIT_JOBS=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -43,6 +44,10 @@ while [[ $# -gt 0 ]]; do
             NO_RDKIT_ONLY=true
             shift
             ;;
+        --submit)
+            SUBMIT_JOBS=true
+            shift
+            ;;
         --targets)
             shift
             TARGETS=()
@@ -60,6 +65,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --rdkit-only        Only generate RDKit variants"
             echo "  --no-rdkit-only     Only generate non-RDKit variants"
             echo "  --targets TARGET... Specific targets to generate"
+            echo "  --submit            Automatically submit generated jobs to PBS queue"
             echo "  -h, --help          Show this help"
             exit 0
             ;;
@@ -167,7 +173,7 @@ for target in "${TARGETS[@]}"; do
     
     for use_rdkit in "${variants[@]}"; do
         generate_script "$target" "$use_rdkit"
-        ((generated_count++))
+        ((++generated_count))
     done
 done
 
@@ -179,16 +185,43 @@ else
     echo "📂 Scripts saved to: $OUTPUT_DIR"
     
     if [[ $generated_count -gt 0 ]]; then
-        echo ""
-        echo "🚀 To submit all jobs, run:"
-        echo "cd $OUTPUT_DIR"
-        for target in "${TARGETS[@]}"; do
-            if [[ "$RDKIT_ONLY" != "true" ]]; then
-                echo "qsub train_opv_camb3lyp_DMPNN_${target}.sh"
-            fi
-            if [[ "$NO_RDKIT_ONLY" != "true" ]]; then
-                echo "qsub train_opv_camb3lyp_DMPNN_${target}_rdkit.sh"
-            fi
-        done
+        if [[ "$SUBMIT_JOBS" == "true" ]]; then
+            echo ""
+            echo "🚀 Submitting jobs to PBS queue..."
+            cd "$OUTPUT_DIR"
+            submitted_count=0
+            for target in "${TARGETS[@]}"; do
+                if [[ "$RDKIT_ONLY" != "true" ]]; then
+                    script_name="train_opv_camb3lyp_DMPNN_${target}.sh"
+                    if [[ -f "$script_name" ]]; then
+                        job_id=$(qsub "$script_name")
+                        echo "✅ Submitted: $script_name -> $job_id"
+                        ((++submitted_count))
+                    fi
+                fi
+                if [[ "$NO_RDKIT_ONLY" != "true" ]]; then
+                    script_name="train_opv_camb3lyp_DMPNN_${target}_rdkit.sh"
+                    if [[ -f "$script_name" ]]; then
+                        job_id=$(qsub "$script_name")
+                        echo "✅ Submitted: $script_name -> $job_id"
+                        ((++submitted_count))
+                    fi
+                fi
+            done
+            echo "📊 Total jobs submitted: $submitted_count"
+            echo "📈 Monitor with: qstat -u $USER"
+        else
+            echo ""
+            echo "🚀 To submit all jobs, run:"
+            echo "cd $OUTPUT_DIR"
+            for target in "${TARGETS[@]}"; do
+                if [[ "$RDKIT_ONLY" != "true" ]]; then
+                    echo "qsub train_opv_camb3lyp_DMPNN_${target}.sh"
+                fi
+                if [[ "$NO_RDKIT_ONLY" != "true" ]]; then
+                    echo "qsub train_opv_camb3lyp_DMPNN_${target}_rdkit.sh"
+                fi
+            done
+        fi
     fi
 fi
