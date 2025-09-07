@@ -8,7 +8,7 @@
 #PBS -l walltime=10:30:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N wDMPNN_polyinfo_wDMPNN_multi
+#PBS -N wDMPNN_polyinfo_wDMPNN_batch_norm_multi
 
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.0.0
@@ -17,7 +17,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # wDMPNN training
-python3 scripts/python/train_graph.py --dataset_name polyinfo --model_name wDMPNN --task_type multi 
+python3 scripts/python/train_graph.py --dataset_name polyinfo --model_name wDMPNN --task_type multi --batch_norm 
 
 
 ##TODO
