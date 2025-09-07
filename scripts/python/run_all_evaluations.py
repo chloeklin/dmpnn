@@ -133,7 +133,7 @@ def run_evaluation(dataset: str, model: str, has_desc: bool, has_rdkit: bool,
         'python3', 'scripts/python/evaluate_model.py',
         '--dataset_name', dataset,
         '--model_name', model,
-        '--task_type', 'reg'
+        '--task_type', 'multi' if dataset == 'polyinfo' else 'reg'
     ]
     
     if has_desc:
