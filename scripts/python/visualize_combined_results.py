@@ -59,6 +59,12 @@ def parse_model_filename(filename: str, method: str) -> tuple:
     elif method == 'Baseline':
         base = base.replace('_baseline', '')
     
+    # Handle batch normalization suffix first
+    batch_norm = False
+    if '_batch_norm' in base:
+        base = base.replace('_batch_norm', '')
+        batch_norm = True
+    
     # Determine dataset and features
     if '__desc__rdkit' in base:
         dataset = base.replace('__desc__rdkit', '')
@@ -72,6 +78,10 @@ def parse_model_filename(filename: str, method: str) -> tuple:
     else:
         dataset = base
         features = method
+    
+    # Add batch norm to features if present
+    if batch_norm:
+        features += ' (BN)'
     
     return dataset, features
 

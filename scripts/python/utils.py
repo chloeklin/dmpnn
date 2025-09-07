@@ -606,12 +606,17 @@ def build_model_and_trainer(
     # Configure callbacks
     callbacks = [checkpointing, early_stop, lr_monitor]
     
-    # Configure logging
+    # Configure logging with explicit flush_logs_every_n_steps
     logger = pl.loggers.CSVLogger(
         save_dir=str(checkpoint_path),
         name="logs",
-        version=""  # Use empty string to avoid creating versioned subdirectories
+        version="",  # Use empty string to avoid creating versioned subdirectories
+        flush_logs_every_n_steps=50  # Flush logs less frequently to avoid file access issues
     )
+    
+    # Ensure logs directory exists
+    log_dir = checkpoint_path / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
     
     # Configure trainer
     trainer = pl.Trainer(
@@ -626,6 +631,8 @@ def build_model_and_trainer(
         check_val_every_n_epoch=1,
         num_sanity_val_steps=0,  # Disable validation sanity check for faster startup
         deterministic=True,  # For reproducibility
+        enable_checkpointing=True,  # Explicitly enable checkpointing
+        default_root_dir=str(checkpoint_path),  # Set default root dir for checkpoints
         **trainer_kwargs  # Allow overriding any trainer parameter
     )
     
