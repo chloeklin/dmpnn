@@ -214,11 +214,13 @@ check_existing_results() {
     local dataset="$1"
     local model="$2"
     local variant_args="$3"
+    local target="$4"  # Optional target parameter for single-target evaluation
     local results_path="$RESULTS_DIR/$model"
     
     # Build expected filename based on variant
     local desc_suffix=""
     local rdkit_suffix=""
+    local target_suffix=""
     
     if [[ "$variant_args" == *"--incl_desc"* ]]; then
         desc_suffix="__desc"
@@ -226,15 +228,30 @@ check_existing_results() {
     if [[ "$variant_args" == *"--incl_rdkit"* ]]; then
         rdkit_suffix="__rdkit"
     fi
+    if [[ -n "$target" ]]; then
+        target_suffix="__${target}"
+    fi
     
-    local baseline_file="$results_path/${dataset}${desc_suffix}${rdkit_suffix}_baseline.csv"
+    local baseline_file="$results_path/${dataset}${desc_suffix}${rdkit_suffix}${target_suffix}_baseline.csv"
     
     # Check if file exists
     if [[ ! -f "$baseline_file" ]]; then
         return 1  # File doesn't exist
     fi
     
-    # Check if the number of targets matches
+    # For single-target evaluation, just check if file exists and has content
+    if [[ -n "$target" ]]; then
+        local line_count=$(wc -l < "$baseline_file" 2>/dev/null || echo "0")
+        if [[ "$line_count" -gt 1 ]]; then  # More than just header
+            echo "   ✅ Complete results exist for target $target: $baseline_file"
+            return 0
+        else
+            echo "   🔄 Results file exists but appears empty for target $target: $baseline_file"
+            return 1
+        fi
+    fi
+    
+    # For multi-target evaluation, check if the number of targets matches
     local expected_targets=$(get_expected_target_count "$dataset")
     local actual_targets=$(get_actual_target_count "$baseline_file")
     
@@ -369,6 +386,14 @@ submit_job() {
         echo "   🎯 Processing OPV targets: ${OPV_TARGETS[*]}"
         local all_success=true
         for target in "${OPV_TARGETS[@]}"; do
+            # Check if results already exist for this specific target
+            if check_existing_results "$dataset" "$model" "$variant_args" "$target"; then
+                if [[ "$FORCE" != "true" ]]; then
+                    echo "   ⏭️  Skipping $dataset ($model) - $variant_name - $target: results already exist"
+                    continue
+                fi
+            fi
+            
             target_cmd="$cmd --target $target"
             if ! submit_single_job "$dataset" "$model" "${variant_name}_${target}" "$target_cmd"; then
                 all_success=false
@@ -451,8 +476,8 @@ for dataset in "${DATASETS[@]}"; do
             
             TOTAL_JOBS=$((TOTAL_JOBS + 1))
             
-            # Check if results already exist
-            if check_existing_results "$dataset" "$model" "$variant_args"; then
+            # Check if results already exist (no target specified for non-OPV datasets)
+            if check_existing_results "$dataset" "$model" "$variant_args" ""; then
                 if [[ "$FORCE" != "true" ]]; then
                     echo "   ⏭️  Skipping $dataset ($model) - $variant_name: results already exist"
                     SKIPPED_JOBS=$((SKIPPED_JOBS + 1))

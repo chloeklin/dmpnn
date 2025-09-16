@@ -40,6 +40,8 @@ parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit 2D descriptors')
 parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
                     help='Name of the model to use')
+parser.add_argument('--target', type=str, default=None,
+                    help='Specific target to evaluate (if not provided, evaluates all targets)')
 
 
 args = parser.parse_args()
@@ -53,6 +55,7 @@ logger.info("\n=== Evaluation Configuration ===")
 logger.info(f"Dataset       : {args.dataset_name}")
 logger.info(f"Task type     : {args.task_type}")
 logger.info(f"Model         : {args.model_name}")
+logger.info(f"Target        : {args.target if args.target else 'All targets'}")
 logger.info(f"Descriptors   : {'Enabled' if args.incl_desc else 'Disabled'}")
 logger.info(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
 logger.info("===============================\n")
@@ -86,6 +89,14 @@ set_seed(SEED)
 
 # === Load and Preprocess Data ===
 df_input, target_columns = load_and_preprocess_data(args, setup_info)
+
+# Filter target columns if specific target is provided
+if args.target:
+    if args.target not in target_columns:
+        logger.error(f"Target '{args.target}' not found in dataset. Available targets: {target_columns}")
+        sys.exit(1)
+    target_columns = [args.target]
+    logger.info(f"Evaluating single target: {args.target}")
 
 # Which variant are we evaluating?
 use_desc = bool(args.incl_desc)
@@ -149,7 +160,7 @@ for target in target_columns:
         # Load preprocessing metadata directly (same as train_graph.py)
         split_preprocessing_metadata = {}
         for i in range(REPLICATES):
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
@@ -185,7 +196,7 @@ for target in target_columns:
             cleaning_meta = split_preprocessing_metadata[i]['cleaning']
             
             # Apply imputation using saved imputer (same as train_graph.py)
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
@@ -225,7 +236,7 @@ for target in target_columns:
         
         # Apply descriptor scaling using saved scaler (same as train_graph.py)
         if combined_descriptor_data is not None:
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
@@ -255,7 +266,7 @@ for target in target_columns:
         train_loader = data.build_dataloader(train, num_workers=eval_num_workers, shuffle=False)
         val_loader = data.build_dataloader(val, num_workers=eval_num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=eval_num_workers, shuffle=False)
-        checkpoint_path, _, _, _ = build_experiment_paths(
+        checkpoint_path, _, _, _,_ = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
         last_ckpt = load_best_checkpoint(Path(checkpoint_path))
@@ -422,10 +433,11 @@ for target in target_columns:
         # Use train_graph.py naming convention and directory structure
         desc_suffix = "__desc" if descriptor_columns else ""
         rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+        target_suffix = f"__{args.target}" if args.target else ""
         
         model_results_dir = results_dir / args.model_name
         model_results_dir.mkdir(exist_ok=True)
-        out_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}_baseline.csv"
+        out_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}{target_suffix}_baseline.csv"
         
         # Organize columns to match train_graph.py: target, split, then metrics, then model
         base_cols = ["target", "split"]
