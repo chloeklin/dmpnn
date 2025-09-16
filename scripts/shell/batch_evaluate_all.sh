@@ -220,6 +220,7 @@ check_existing_results() {
     # Build expected filename based on variant
     local desc_suffix=""
     local rdkit_suffix=""
+    local batch_norm_suffix=""
     local target_suffix=""
     
     if [[ "$variant_args" == *"--incl_desc"* ]]; then
@@ -228,11 +229,14 @@ check_existing_results() {
     if [[ "$variant_args" == *"--incl_rdkit"* ]]; then
         rdkit_suffix="__rdkit"
     fi
+    if [[ "$BATCH_NORM" == "true" ]]; then
+        batch_norm_suffix="__batch_norm"
+    fi
     if [[ -n "$target" ]]; then
         target_suffix="__${target}"
     fi
     
-    local baseline_file="$results_path/${dataset}${desc_suffix}${rdkit_suffix}${target_suffix}_baseline.csv"
+    local baseline_file="$results_path/${dataset}${desc_suffix}${rdkit_suffix}${batch_norm_suffix}${target_suffix}_baseline.csv"
     
     # Check if file exists
     if [[ ! -f "$baseline_file" ]]; then
