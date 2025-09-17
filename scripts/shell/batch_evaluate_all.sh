@@ -317,7 +317,11 @@ submit_single_job() {
     fi
     
     # Create PBS job script filename
-    local job_script="eval_${dataset}_${model}_${job_name//[^a-zA-Z0-9_-]/_}.sh"
+    local batch_norm_suffix=""
+    if [[ "$BATCH_NORM" == "true" ]]; then
+        batch_norm_suffix="_batch_norm"
+    fi
+    local job_script="eval_${dataset}_${model}_${job_name//[^a-zA-Z0-9_-]/_}${batch_norm_suffix}.sh"
     
     # Generate the PBS script
     cat > "$job_script" << EOF

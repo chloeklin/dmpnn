@@ -42,6 +42,8 @@ parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], defau
                     help='Name of the model to use')
 parser.add_argument('--target', type=str, default=None,
                     help='Specific target to evaluate (if not provided, evaluates all targets)')
+parser.add_argument('--batch_norm', action='store_true',
+                    help='Use batch normalization models for evaluation')
 
 
 args = parser.parse_args()
@@ -58,6 +60,7 @@ logger.info(f"Model         : {args.model_name}")
 logger.info(f"Target        : {args.target if args.target else 'All targets'}")
 logger.info(f"Descriptors   : {'Enabled' if args.incl_desc else 'Disabled'}")
 logger.info(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
+logger.info(f"Batch norm    : {'Enabled' if args.batch_norm else 'Disabled'}")
 logger.info("===============================\n")
 
 # Setup evaluation environment with common configuration
@@ -275,24 +278,46 @@ for target in target_columns:
             logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
             continue
 
-        # Load encoder and make fingerlogger.infos (map to CPU if CUDA not available)
-        import torch
-        map_location = torch.device('cpu') if not torch.cuda.is_available() else None
-        mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
-        mpnn.eval()
-        X_train = get_encodings_from_loader(mpnn, train_loader)
-        X_val = get_encodings_from_loader(mpnn, val_loader)
-        X_test = get_encodings_from_loader(mpnn, test_loader)
+        # Check if embeddings already exist from train_graph.py --export_embeddings
+        embeddings_dir = Path(checkpoint_path) / "embeddings"
+        embedding_files_exist = (
+            (embeddings_dir / f"X_train_split_{i}.npy").exists() and
+            (embeddings_dir / f"X_val_split_{i}.npy").exists() and
+            (embeddings_dir / f"X_test_split_{i}.npy").exists() and
+            (embeddings_dir / f"feature_mask_split_{i}.npy").exists()
+        )
+        
+        if embedding_files_exist:
+            logger.info(f"Loading existing embeddings from {embeddings_dir}")
+            X_train = np.load(embeddings_dir / f"X_train_split_{i}.npy")
+            X_val = np.load(embeddings_dir / f"X_val_split_{i}.npy")
+            X_test = np.load(embeddings_dir / f"X_test_split_{i}.npy")
+            keep = np.load(embeddings_dir / f"feature_mask_split_{i}.npy")
+            
+            logger.info(f"Loaded embeddings - kept dims: {int(keep.sum())} / {len(keep)}")
+            logger.info(f"  - X_train: {X_train.shape}")
+            logger.info(f"  - X_val: {X_val.shape}")
+            logger.info(f"  - X_test: {X_test.shape}")
+        else:
+            logger.info("No existing embeddings found, extracting from model...")
+            # Load encoder and make fingerprints (map to CPU if CUDA not available)
+            import torch
+            map_location = torch.device('cpu') if not torch.cuda.is_available() else None
+            mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
+            mpnn.eval()
+            X_train = get_encodings_from_loader(mpnn, train_loader)
+            X_val = get_encodings_from_loader(mpnn, val_loader)
+            X_test = get_encodings_from_loader(mpnn, test_loader)
 
-        eps = 1e-8  # or 1e-6 if you want to be stricter
-        std_train = X_train.std(axis=0)
-        keep = std_train > eps
+            eps = 1e-8  # or 1e-6 if you want to be stricter
+            std_train = X_train.std(axis=0)
+            keep = std_train > eps
 
-        X_train = X_train[:, keep]
-        X_val   = X_val[:, keep]
-        X_test  = X_test[:, keep]
+            X_train = X_train[:, keep]
+            X_val   = X_val[:, keep]
+            X_test  = X_test[:, keep]
 
-        logger.info(f"kept dims: {int(keep.sum())} / 300")
+            logger.info(f"Extracted embeddings - kept dims: {int(keep.sum())} / {len(keep)}")
 
         # Get target data for each split
         y_train = df_input.loc[train_indices[i], target].to_numpy()
@@ -433,11 +458,12 @@ for target in target_columns:
         # Use train_graph.py naming convention and directory structure
         desc_suffix = "__desc" if descriptor_columns else ""
         rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+        batch_norm_suffix = "__batch_norm" if args.batch_norm else ""
         target_suffix = f"__{args.target}" if args.target else ""
         
         model_results_dir = results_dir / args.model_name
         model_results_dir.mkdir(exist_ok=True)
-        out_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}{target_suffix}_baseline.csv"
+        out_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{target_suffix}_baseline.csv"
         
         # Organize columns to match train_graph.py: target, split, then metrics, then model
         base_cols = ["target", "split"]
