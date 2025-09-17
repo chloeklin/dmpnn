@@ -14,7 +14,7 @@ TARGETS=(
 )
 
 # Train sizes for learning curve analysis
-TRAIN_SIZES=("250" "500" "1000" "2000" "3500" "5000" "8000" "12000" "full")
+TRAIN_SIZES=("250" "500" "1000" "2000" "3500" "5000" "8000" "12000")
 
 # Default settings
 WALLTIME="04:00:00"
@@ -243,7 +243,7 @@ else
             submitted_count=0
             for target in "${TARGETS[@]}"; do
                 for train_size in "${TRAIN_SIZES[@]}"; do
-                    local size_suffix=""
+                    size_suffix=""
                     if [[ "$train_size" != "full" ]]; then
                         size_suffix="_size${train_size}"
                     fi
@@ -275,7 +275,7 @@ else
             echo "# Example commands:"
             for target in "${TARGETS[@]:0:2}"; do  # Show first 2 targets as examples
                 for train_size in "${TRAIN_SIZES[@]:0:3}"; do  # Show first 3 sizes as examples
-                    local size_suffix=""
+                    size_suffix=""
                     if [[ "$train_size" != "full" ]]; then
                         size_suffix="_size${train_size}"
                     fi
