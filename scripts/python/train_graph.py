@@ -456,6 +456,27 @@ for target in target_columns:
     num_splits = len(train_data)  # robust for both CV and holdout
     for i in range(num_splits):
 
+        if combined_descriptor_data is not None:
+            imputer = split_imputers[i]
+            if imputer is not None:
+                all_data_clean_i = imputer.transform(orig_Xd)
+            else:
+                all_data_clean_i = orig_Xd.copy()
+            all_data_clean_i = np.clip(all_data_clean_i, float32_min, float32_max).astype(np.float32)
+
+            mask_i = np.array(
+                split_preprocessing_metadata[i]['split_specific']['correlation_mask'],
+                dtype=bool
+            )
+
+            # overwrite x_d for ONLY this split right before dataset construction
+            for dp, ridx in zip(train_data[i], train_indices[i]):
+                dp.x_d = all_data_clean_i[ridx][mask_i]
+            for dp, ridx in zip(val_data[i],   val_indices[i]):
+                dp.x_d = all_data_clean_i[ridx][mask_i]
+            for dp, ridx in zip(test_data[i],  test_indices[i]):
+                dp.x_d = all_data_clean_i[ridx][mask_i]
+
         # Create datasets after cleaning
         DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
         train = DS(train_data[i], featurizer)
@@ -491,6 +512,12 @@ for target in target_columns:
             preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, None, logger
         )
         
+        # Safety check: ensure cached correlation_mask matches local computation (only if descriptors exist)
+        if combined_descriptor_data is not None and i in split_preprocessing_metadata:
+            m_local = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
+            cm = np.array(correlation_mask, dtype=bool)
+            assert m_local.shape == cm.shape and np.all(m_local == cm), \
+                "Local correlation mask != cached correlation mask (split consistency issue)"
 
         # 2) Normalize using the decided scaler
         if combined_descriptor_data is not None:
@@ -526,13 +553,25 @@ for target in target_columns:
             logger.info(f"Removed incompatible checkpoint directory: {checkpoint_path}")
             checkpoint_path.mkdir(parents=True, exist_ok=True)
         
-        # Get descriptor dimension from datapoints for model building
-        desc_len_seen = len(train[0].x_d) if getattr(train[0], "x_d", None) is not None else 0
+        # Create processed descriptor data for model building (with constant features dropped)
         if combined_descriptor_data is not None:
-            logger.info(f"[split {i}] Model input descriptor dimension: {desc_len_seen} (after constant removal and correlation filtering)")
-            processed_descriptor_data = np.zeros((len(all_data), desc_len_seen), dtype=np.float32)  # Dummy array for dimension info
+            # Use orig_Xd (constants already removed)
+            processed_descriptor_data = orig_Xd.copy()
+            mask_i = np.array(
+                split_preprocessing_metadata[i]['split_specific']['correlation_mask'],
+                dtype=bool
+            )
+            processed_descriptor_data = processed_descriptor_data[:, mask_i]
+            logger.info(f"Model input descriptor shape: {processed_descriptor_data.shape} (after constant removal and correlation filtering)")
         else:
             processed_descriptor_data = None
+        
+        # Assertion to prevent descriptor dimension regression
+        desc_len_seen = len(train[0].x_d) if getattr(train[0], "x_d", None) is not None else 0
+        if processed_descriptor_data is not None:
+            logger.info(f"[split {i}] datapoint descriptor dim: {desc_len_seen}, processed dim: {processed_descriptor_data.shape[1]}")
+            assert processed_descriptor_data.shape[1] == desc_len_seen, \
+                "Descriptor dim mismatch: datapoints vs processed_descriptor_data."
         
         scaler_arg = scaler if args.task_type == 'reg' else None
         mpnn, trainer = build_model_and_trainer(
@@ -559,6 +598,7 @@ for target in target_columns:
         trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
         results = trainer.test(dataloaders=test_loader)
         test_metrics = results[0]
+        test_metrics['split'] = i  # Add split index to metrics
         results_all.append(test_metrics)
         
         # Save predictions if requested
@@ -581,11 +621,13 @@ for target in target_columns:
                 else:
                     test_ids.append(f"idx_{len(test_ids)}")  # Fallback to index
             
-            # Convert predictions to numpy if needed
-            if hasattr(y_pred, 'cpu'):
+            # Convert predictions to numpy - handle list of tensors properly
+            if isinstance(y_pred, list):
+                # Concatenate tensors from different batches
+                import torch
+                y_pred = torch.cat(y_pred, dim=0).cpu().numpy()
+            elif hasattr(y_pred, 'cpu'):
                 y_pred = y_pred.cpu().numpy()
-            elif isinstance(y_pred, list):
-                y_pred = np.array(y_pred)
             
             # Save predictions with IDs
             save_predictions(
