@@ -44,7 +44,14 @@ parser.add_argument('--target', type=str, default=None,
                     help='Specific target to evaluate (if not provided, evaluates all targets)')
 parser.add_argument('--batch_norm', action='store_true',
                     help='Use batch normalization models for evaluation')
-
+parser.add_argument('--train_size', type=str, default=None,
+                    help='Training size used during model training (for path matching)')
+parser.add_argument('--export_embeddings', action='store_true',
+                    help='Load pre-exported embeddings if available (speeds up evaluation)')
+parser.add_argument('--save_predictions', action='store_true',
+                    help='Save predictions during evaluation')
+parser.add_argument('--pretrain_monomer', action='store_true',
+                    help='Evaluate pretrained monomer multitask model')
 
 args = parser.parse_args()
 
@@ -61,6 +68,14 @@ logger.info(f"Target        : {args.target if args.target else 'All targets'}")
 logger.info(f"Descriptors   : {'Enabled' if args.incl_desc else 'Disabled'}")
 logger.info(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
 logger.info(f"Batch norm    : {'Enabled' if args.batch_norm else 'Disabled'}")
+if args.train_size is not None:
+    logger.info(f"Train size    : {args.train_size}")
+if args.export_embeddings:
+    logger.info(f"Load embeddings: Enabled")
+if args.save_predictions:
+    logger.info(f"Save predictions: Enabled")
+if args.pretrain_monomer:
+    logger.info(f"Pretrain monomer: Enabled")
 logger.info("===============================\n")
 
 # Setup evaluation environment with common configuration
@@ -163,7 +178,7 @@ for target in target_columns:
         # Load preprocessing metadata directly (same as train_graph.py)
         split_preprocessing_metadata = {}
         for i in range(REPLICATES):
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
@@ -199,7 +214,7 @@ for target in target_columns:
             cleaning_meta = split_preprocessing_metadata[i]['cleaning']
             
             # Apply imputation using saved imputer (same as train_graph.py)
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
@@ -239,7 +254,7 @@ for target in target_columns:
         
         # Apply descriptor scaling using saved scaler (same as train_graph.py)
         if combined_descriptor_data is not None:
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
@@ -269,7 +284,7 @@ for target in target_columns:
         train_loader = data.build_dataloader(train, num_workers=eval_num_workers, shuffle=False)
         val_loader = data.build_dataloader(val, num_workers=eval_num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=eval_num_workers, shuffle=False)
-        checkpoint_path, _, _, _,_ = build_experiment_paths(
+        checkpoint_path, _, _, _, _, _ = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
         last_ckpt = load_best_checkpoint(Path(checkpoint_path))
