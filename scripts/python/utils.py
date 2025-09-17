@@ -473,6 +473,7 @@ def build_model_and_trainer(
     early_stopping_min_delta: float = 0.0,
     max_epochs: int = 300,
     gradient_clip_val: float = 10.0,
+    save_checkpoint: bool = True,
     **trainer_kwargs
 ) -> Tuple[Any, Any]:  # Returns (model, trainer)
     """Build and configure a chemprop model and PyTorch Lightning trainer.
@@ -489,6 +490,7 @@ def build_model_and_trainer(
         early_stopping_min_delta: Minimum change to qualify as improvement
         max_epochs: Maximum number of training epochs
         gradient_clip_val: Maximum gradient norm for gradient clipping
+        save_checkpoint: Whether to save model checkpoints (default: True)
         **trainer_kwargs: Additional arguments for the PyTorch Lightning Trainer
         
     Returns:
@@ -574,17 +576,22 @@ def build_model_and_trainer(
     # Convert to Path object but don't create directory yet - let Lightning handle it
     checkpoint_path = Path(checkpoint_path)
     
-    # Configure model checkpointing
-    checkpointing = ModelCheckpoint(
-        dirpath=str(checkpoint_path),
-        filename="best-{epoch:03d}-{val_loss:.4f}",
-        monitor="val_loss",
-        mode="min",
-        save_top_k=1,
-        save_last=True,  # Save the last model as well for resuming training
-        save_weights_only=False,
-        auto_insert_metric_name=False,
-    )
+    # Configure callbacks
+    callbacks = []
+    
+    # Add checkpointing only if save_checkpoint is True
+    if save_checkpoint:
+        checkpointing = ModelCheckpoint(
+            dirpath=str(checkpoint_path),
+            filename="best-{epoch:03d}-{val_loss:.4f}",
+            monitor="val_loss",
+            mode="min",
+            save_top_k=1,
+            save_last=True,  # Save the last model as well for resuming training
+            save_weights_only=False,
+            auto_insert_metric_name=False,
+        )
+        callbacks.append(checkpointing)
     
     # Configure early stopping
     early_stop = EarlyStopping(
@@ -596,15 +603,14 @@ def build_model_and_trainer(
         check_finite=True,  # Stop if loss becomes NaN or infinite
         check_on_train_epoch_end=False,  # Only validate at the end of validation epoch
     )
+    callbacks.append(early_stop)
     
     # Configure learning rate monitor
     lr_monitor = pl.callbacks.LearningRateMonitor(
         logging_interval='epoch',
         log_momentum=True
     )
-    
-    # Configure callbacks
-    callbacks = [checkpointing, early_stop, lr_monitor]
+    callbacks.append(lr_monitor)
     
     # Configure logging with explicit flush_logs_every_n_steps
     logger = pl.loggers.CSVLogger(
@@ -818,13 +824,19 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
     batch_norm_suffix = "__batch_norm" if getattr(args, 'batch_norm', False) else ""
     
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}__rep{i}"
+    # Add train_size suffix if specified and not "full"
+    size_suffix = ""
+    train_size = getattr(args, 'train_size', None)
+    if train_size is not None and train_size.lower() != "full":
+        size_suffix = f"__size{train_size}"
+    
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
     
     checkpoint_path = checkpoint_dir / base_name
     model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
     preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
     
-    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix
 
 
 def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
@@ -972,13 +984,19 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
     batch_norm_suffix = "__batch_norm" if getattr(args, 'batch_norm', False) else ""
     
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}__rep{i}"
+    # Add train_size suffix if specified and not "full"
+    size_suffix = ""
+    train_size = getattr(args, 'train_size', None)
+    if train_size is not None and train_size.lower() != "full":
+        size_suffix = f"__size{train_size}"
+    
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
     
     checkpoint_path = checkpoint_dir / base_name
     model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
     preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
     
-    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix
 
 
 def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
@@ -1340,7 +1358,7 @@ def generate_data_splits(args, ys, n_splits, local_reps, seed):
     return train_indices, val_indices, test_indices
 
 
-def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, logger):
+def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger):
     """Save results using target-specific filenames to prevent overwriting.
     
     Args:
@@ -1351,14 +1369,15 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
         desc_suffix: Descriptor suffix for filename
         rdkit_suffix: RDKit suffix for filename
         batch_norm_suffix: Batch normalization suffix for filename
+        size_suffix: Train size suffix for filename
         logger: Logger instance
     """
     if model_name.lower() == "tabular":
         model_results_dir = results_dir / "tabular"
-        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}"
+        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
     else:
         model_results_dir = results_dir / model_name
-        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}_results"
+        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}_results"
     
     model_results_dir.mkdir(exist_ok=True)
     
@@ -1746,4 +1765,62 @@ def select_features_remove_constant_and_correlated(
         "kept": kept_cols,
         "transform": transform,
     }
+
+
+def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, model_name, 
+                    desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, split_idx, logger,
+                    test_ids=None):
+    """Save predictions for learning curve analysis.
+    
+    Args:
+        y_true: True labels/values
+        y_pred: Predicted labels/values  
+        predictions_dir: Base predictions directory
+        dataset_name: Dataset name
+        target: Target name
+        model_name: Model name (e.g., 'DMPNN')
+        desc_suffix: Descriptor suffix
+        rdkit_suffix: RDKit suffix
+        batch_norm_suffix: Batch norm suffix
+        size_suffix: Train size suffix
+        split_idx: Split index
+        logger: Logger instance
+        test_ids: Optional list of IDs/identifiers for order verification
+    """
+    import numpy as np
+    from pathlib import Path
+    
+    # Create predictions directory structure
+    model_pred_dir = predictions_dir / model_name
+    model_pred_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Build filename with all relevant identifiers
+    filename = f"{dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__split{split_idx}.npz"
+    pred_file = model_pred_dir / filename
+    
+    # Prepare data to save
+    save_data = {
+        'y_true': np.array(y_true),
+        'y_pred': np.array(y_pred),
+        'metadata': {
+            'dataset': dataset_name,
+            'target': target,
+            'model': model_name,
+            'split': split_idx,
+            'desc_suffix': desc_suffix,
+            'rdkit_suffix': rdkit_suffix,
+            'batch_norm_suffix': batch_norm_suffix,
+            'size_suffix': size_suffix
+        }
+    }
+    
+    # Add IDs if provided
+    if test_ids is not None:
+        save_data['test_ids'] = np.array(test_ids, dtype=object)
+        logger.info(f"Saving predictions with {len(test_ids)} IDs for order verification")
+    
+    # Save predictions as compressed numpy arrays
+    np.savez_compressed(pred_file, **save_data)
+    
+    logger.info(f"Saved predictions -> {pred_file}")
 

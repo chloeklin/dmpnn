@@ -146,7 +146,11 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 
                 if method == 'Graph':
                     df['model'] = model_name
-                # For Baseline, keep the original model column (Linear, RF, XGB)
+                elif method == 'Baseline':
+                    # For Baseline, combine encoder name with baseline model
+                    df['encoder'] = model_name  # Store the encoder (DMPNN/wDMPNN)
+                    df['baseline_model'] = df['model']  # Store original model (Linear/RF/XGB)
+                    df['model'] = df['model'] + f'-{model_name}'  # Combine for unique identification
                 
                 # Convert MSE to RMSE if MSE column exists
                 if 'mse' in df.columns:
@@ -256,7 +260,9 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     """Create bar plots comparing both tabular and graph feature combinations for a specific metric."""
     
     # Get unique targets and feature combinations in desired order
-    targets = sorted(data['target'].unique())
+    # Handle mixed data types (strings and NaN) by filtering out NaN values
+    unique_targets = data['target'].dropna().unique()
+    targets = sorted([str(t) for t in unique_targets])
     
     # Define desired feature order for combined plots, including batch norm variants
     base_features = [
@@ -298,8 +304,14 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
         'Tabular': {'Linear': '#1f77b4', 'RF': '#ff7f0e', 'XGB': '#2ca02c', 'LogReg': '#1f77b4'},
         'Graph': {'DMPNN': '#d62728', 'wDMPNN': '#9467bd', 'PPG': '#8c564b'},
         'Graph (BN)': {'DMPNN': '#ff7f7f', 'wDMPNN': '#c5b0d5', 'PPG': '#c49c94'},  # Lighter shades for BN variants
-        'Baseline': {'Linear': '#17becf', 'RF': '#bcbd22', 'XGB': '#e377c2'},
-        'Baseline (BN)': {'Linear': '#7fdfe0', 'RF': '#ddee66', 'XGB': '#f1bbd9'}  # Lighter shades for BN variants
+        'Baseline': {
+            'Linear-DMPNN': '#17becf', 'RF-DMPNN': '#bcbd22', 'XGB-DMPNN': '#e377c2',
+            'Linear-wDMPNN': '#7fdbff', 'RF-wDMPNN': '#ffdc00', 'XGB-wDMPNN': '#f012be'
+        },
+        'Baseline (BN)': {
+            'Linear-DMPNN': '#7fdfe0', 'RF-DMPNN': '#ddee66', 'XGB-DMPNN': '#f1bbd9',
+            'Linear-wDMPNN': '#b3e0ff', 'RF-wDMPNN': '#ffe666', 'XGB-wDMPNN': '#f566d9'
+        }
     }
     
     for i, target in enumerate(targets):
@@ -368,15 +380,26 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize combined tabular and graph results')
-    parser.add_argument('--results_dir', type=str, default='results', 
-                       help='Directory containing result CSV files')
-    parser.add_argument('--output_dir', type=str, default='plots/combined',
-                       help='Directory to save plots')
+    parser.add_argument('--results_dir', type=str, default=None, 
+                       help='Directory containing result CSV files (optional, defaults to ../../results)')
+    parser.add_argument('--output_dir', type=str, default=None,
+                       help='Directory to save plots (optional, defaults to ../../plots/combined)')
     args = parser.parse_args()
     
-    # Set up paths
-    results_dir = Path(args.results_dir)
-    output_dir = Path(args.output_dir)
+    # Set up paths relative to script location
+    script_dir = Path(__file__).parent
+    
+    # Default results_dir to ../../results relative to script
+    if args.results_dir is None:
+        results_dir = script_dir.parent.parent / "results"
+    else:
+        results_dir = Path(args.results_dir)
+    
+    # Default output_dir to ../../plots/combined relative to script  
+    if args.output_dir is None:
+        output_dir = script_dir.parent.parent / "plots" / "combined"
+    else:
+        output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     print("Loading combined results...")

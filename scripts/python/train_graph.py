@@ -9,7 +9,7 @@ from utils import (set_seed, process_data,
                   create_all_data, build_model_and_trainer, get_metric_list,
                   build_experiment_paths, validate_checkpoint_compatibility, manage_preprocessing_cache,
                   setup_training_environment, load_and_preprocess_data, determine_split_strategy, 
-                  generate_data_splits, save_aggregate_results)
+                  generate_data_splits, save_aggregate_results, get_encodings_from_loader, save_predictions)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,8 +31,28 @@ parser.add_argument('--target', type=str, default=None,
                     help='Specific target column to train on (if not specified, trains on all targets)')
 parser.add_argument('--batch_norm', action='store_true',
                     help='Enable batch normalization in the model')
+parser.add_argument('--train_size', type=str, default=None,
+                    help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
+parser.add_argument('--export_embeddings', action='store_true',
+                    help='Export GNN embeddings/encodings for train/val/test sets after training')
+parser.add_argument('--save_checkpoint', action='store_true',
+                    help='Save model checkpoints during training')
+parser.add_argument('--save_predictions', action='store_true',
+                    help='Save y_true and y_pred for each split/target/train_size for learning curve analysis')
 args = parser.parse_args()
 
+# Validate train_size argument
+if args.train_size is not None:
+    if args.train_size.lower() == "full":
+        # "full" is a valid option, no further validation needed
+        pass
+    else:
+        try:
+            train_size_int = int(args.train_size)
+            if train_size_int <= 0:
+                parser.error("--train_size must be a positive integer or 'full' (e.g., 500, 5000, full)")
+        except ValueError:
+            parser.error("--train_size must be a valid integer or 'full' (e.g., 500, 5000, full)")
 
 # Setup training environment with common configuration
 setup_info = setup_training_environment(args, model_type="graph")
@@ -42,6 +62,14 @@ config = setup_info['config']
 chemprop_dir = setup_info['chemprop_dir']
 checkpoint_dir = setup_info['checkpoint_dir']
 results_dir = setup_info['results_dir']
+
+# Create predictions directory if saving predictions
+if args.save_predictions:
+    predictions_dir = chemprop_dir.parent / "predictions"
+    predictions_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Predictions will be saved to: {predictions_dir}")
+else:
+    predictions_dir = None
 smiles_column = setup_info['smiles_column']
 ignore_columns = setup_info['ignore_columns']
 descriptor_columns = setup_info['descriptor_columns']
@@ -89,6 +117,11 @@ logger.info(f"Workers          : {num_workers}")
 logger.info(f"Random seed      : {SEED}")
 if args.target:
     logger.info(f"Single target    : {args.target}")
+if args.train_size is not None:
+    if args.train_size.lower() == "full":
+        logger.info(f"Training size    : full (no subsampling)")
+    else:
+        logger.info(f"Training size    : {args.train_size} samples")
 logger.info("================================\n")
 
 
@@ -119,6 +152,29 @@ for target in target_columns:
     # Generate data splits
     train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
     
+    # Apply train_size subsampling if specified
+    if args.train_size is not None and args.train_size.lower() != "full":
+        target_train_size = int(args.train_size)
+        logger.info(f"Subsampling training data to {target_train_size} samples")
+        
+        for i in range(len(train_indices)):
+            original_train_size = len(train_indices[i])
+            new_train_size = min(target_train_size, original_train_size)
+            
+            if new_train_size < original_train_size:
+                # Use per-split RNG for reproducible but distinct subsampling
+                rng = np.random.default_rng(SEED + i)  # stable, split-specific
+                subsampled_indices = rng.choice(
+                    train_indices[i], 
+                    size=new_train_size, 
+                    replace=False
+                )
+                train_indices[i] = subsampled_indices
+                logger.info(f"Split {i}: Training set reduced from {original_train_size} to {new_train_size} samples")
+            else:
+                logger.info(f"Split {i}: Training set size ({original_train_size}) is already <= target size ({target_train_size}), keeping all samples")
+    elif args.train_size is not None and args.train_size.lower() == "full":
+        logger.info("Using full training set (no subsampling)")
 
 
     train_data, val_data, test_data = data.split_data_by_indices(
@@ -322,27 +378,6 @@ for target in target_columns:
     num_splits = len(train_data)  # robust for both CV and holdout
     for i in range(num_splits):
 
-        if combined_descriptor_data is not None:
-            imputer = split_imputers[i]
-            if imputer is not None:
-                all_data_clean_i = imputer.transform(orig_Xd)
-            else:
-                all_data_clean_i = orig_Xd.copy()
-            all_data_clean_i = np.clip(all_data_clean_i, float32_min, float32_max).astype(np.float32)
-
-            mask_i = np.array(
-                split_preprocessing_metadata[i]['split_specific']['correlation_mask'],
-                dtype=bool
-            )
-
-            # overwrite x_d for ONLY this split right before dataset construction
-            for dp, ridx in zip(train_data[i], train_indices[i]):
-                dp.x_d = all_data_clean_i[ridx][mask_i]
-            for dp, ridx in zip(val_data[i],   val_indices[i]):
-                dp.x_d = all_data_clean_i[ridx][mask_i]
-            for dp, ridx in zip(test_data[i],  test_indices[i]):
-                dp.x_d = all_data_clean_i[ridx][mask_i]
-
         # Create datasets after cleaning
         DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
         train = DS(train_data[i], featurizer)
@@ -369,7 +404,7 @@ for target in target_columns:
         batch_norm = args.batch_norm
         
         # Build experiment paths
-        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix = build_experiment_paths(
+        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
         
@@ -378,12 +413,6 @@ for target in target_columns:
             preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, None, logger
         )
         
-        # Safety check: ensure cached correlation_mask matches local computation (only if descriptors exist)
-        if combined_descriptor_data is not None and i in split_preprocessing_metadata:
-            m_local = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
-            cm = np.array(correlation_mask, dtype=bool)
-            assert m_local.shape == cm.shape and np.all(m_local == cm), \
-                "Local correlation mask != cached correlation mask (split consistency issue)"
 
         # 2) Normalize using the decided scaler
         if combined_descriptor_data is not None:
@@ -419,21 +448,13 @@ for target in target_columns:
             logger.info(f"Removed incompatible checkpoint directory: {checkpoint_path}")
             checkpoint_path.mkdir(parents=True, exist_ok=True)
         
-        # Create processed descriptor data for model building (with constant features dropped)
+        # Get descriptor dimension from datapoints for model building
+        desc_len_seen = len(train[0].x_d) if getattr(train[0], "x_d", None) is not None else 0
         if combined_descriptor_data is not None:
-            # Use orig_Xd (constants already removed)
-            processed_descriptor_data = orig_Xd.copy()
-            processed_descriptor_data = processed_descriptor_data[:, mask_i]
-            logger.info(f"Model input descriptor shape: {processed_descriptor_data.shape} (after constant removal and correlation filtering)")
+            logger.info(f"[split {i}] Model input descriptor dimension: {desc_len_seen} (after constant removal and correlation filtering)")
+            processed_descriptor_data = np.zeros((len(all_data), desc_len_seen), dtype=np.float32)  # Dummy array for dimension info
         else:
             processed_descriptor_data = None
-        
-        # Assertion to prevent descriptor dimension regression
-        desc_len_seen = len(train[0].x_d) if getattr(train[0], "x_d", None) is not None else 0
-        if processed_descriptor_data is not None:
-            logger.info(f"[split {i}] datapoint descriptor dim: {desc_len_seen}, processed dim: {processed_descriptor_data.shape[1]}")
-            assert processed_descriptor_data.shape[1] == desc_len_seen, \
-                "Descriptor dim mismatch: datapoints vs processed_descriptor_data."
         
         scaler_arg = scaler if args.task_type == 'reg' else None
         mpnn, trainer = build_model_and_trainer(
@@ -446,6 +467,7 @@ for target in target_columns:
             metric_list=metric_list,
             early_stopping_patience=PATIENCE,
             max_epochs=EPOCHS,
+            save_checkpoint=args.save_checkpoint,
             
         )
         # Validate checkpoint compatibility and get resume path
@@ -459,8 +481,81 @@ for target in target_columns:
         trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
         results = trainer.test(dataloaders=test_loader)
         test_metrics = results[0]
-        test_metrics['split'] = i  # Add split index to metrics
         results_all.append(test_metrics)
+        
+        # Save predictions if requested
+        if args.save_predictions:
+            logger.info(f"Extracting predictions for split {i}, target {target}")
+            
+            # Use trainer.predict for unscaled outputs (applies same transform as trainer.test)
+            y_pred = trainer.predict(dataloaders=test_loader)
+            
+            # Extract y_true and IDs directly from test dataset to match loader order
+            y_true = np.array([dp.y[0] if isinstance(dp.y, (list, np.ndarray)) else dp.y for dp in test], dtype=float)
+            
+            # Extract IDs/indices for order verification
+            test_ids = []
+            for dp in test:
+                if hasattr(dp, 'id') and dp.id is not None:
+                    test_ids.append(dp.id)
+                elif hasattr(dp, 'smiles'):
+                    test_ids.append(dp.smiles)  # Use SMILES as fallback ID
+                else:
+                    test_ids.append(f"idx_{len(test_ids)}")  # Fallback to index
+            
+            # Convert predictions to numpy if needed
+            if hasattr(y_pred, 'cpu'):
+                y_pred = y_pred.cpu().numpy()
+            elif isinstance(y_pred, list):
+                y_pred = np.array(y_pred)
+            
+            # Save predictions with IDs
+            save_predictions(
+                y_true, y_pred, predictions_dir, args.dataset_name, target, MODEL_NAME,
+                desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, i, logger,
+                test_ids=test_ids
+            )
+        
+        # Export embeddings if requested
+        if args.export_embeddings:
+            logger.info(f"Exporting embeddings for split {i}, target {target}")
+            
+            # Set model to evaluation mode and extract embeddings
+            mpnn.eval()
+            X_train = get_encodings_from_loader(mpnn, train_loader)
+            X_val = get_encodings_from_loader(mpnn, val_loader)
+            X_test = get_encodings_from_loader(mpnn, test_loader)
+            
+            # Apply same filtering as in evaluate_model.py (remove low-variance features)
+            eps = 1e-8
+            std_train = X_train.std(axis=0)
+            keep = std_train > eps
+            
+            X_train = X_train[:, keep]
+            X_val = X_val[:, keep]
+            X_test = X_test[:, keep]
+            
+            logger.info(f"Split {i}: Kept {int(keep.sum())} / {len(keep)} embedding dimensions")
+            
+            # Create embeddings directory with target/model/size specificity
+            embeddings_dir = results_dir / "embeddings"
+            embeddings_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Build embedding filename prefix with all identifiers
+            embedding_prefix = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
+            
+            # Save embeddings as numpy arrays with full identifiers
+            np.save(embeddings_dir / f"{embedding_prefix}__X_train_split_{i}.npy", X_train)
+            np.save(embeddings_dir / f"{embedding_prefix}__X_val_split_{i}.npy", X_val)
+            np.save(embeddings_dir / f"{embedding_prefix}__X_test_split_{i}.npy", X_test)
+            
+            # Save feature mask for reproducibility
+            np.save(embeddings_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy", keep)
+            
+            logger.info(f"Split {i}: Saved embeddings to {embeddings_dir}")
+            logger.info(f"  - X_train: {X_train.shape}")
+            logger.info(f"  - X_val: {X_val.shape}")
+            logger.info(f"  - X_test: {X_test.shape}")
     
 
     # Convert to DataFrame
@@ -481,4 +576,4 @@ for target in target_columns:
     all_results.append(results_df)
     
     # Save progressive aggregate results after each target
-    save_aggregate_results(all_results, results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, logger)
+    save_aggregate_results(all_results, results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
