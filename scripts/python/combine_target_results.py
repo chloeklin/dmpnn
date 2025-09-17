@@ -26,10 +26,19 @@ def combine_results(results_dir: str):
     # Pattern to match target-specific result files
     pattern = re.compile(r'(.+_results)_.+\.csv$')
     
+    # Check for existing _results_ pattern files
     for file_path in results_dir.glob('*_results_*.csv'):
         match = pattern.search(file_path.name)
         if match:
             base_name = match.group(1)
+            file_groups[base_name].append(file_path)
+    
+    # Also check for _baseline pattern files  
+    pattern_baseline = re.compile(r'(.+)__.+_baseline\.csv$')
+    for file_path in results_dir.glob('*_baseline.csv'):
+        match = pattern_baseline.search(file_path.name)
+        if match:
+            base_name = match.group(1) + "_baseline"
             file_groups[base_name].append(file_path)
     
     if not file_groups:
@@ -42,7 +51,12 @@ def combine_results(results_dir: str):
         
         for file_path in file_paths:
             # Extract target name from filename
-            target = file_path.stem.split('_results_')[-1]
+            if '_baseline.csv' in file_path.name:
+                # For baseline files: dataset__target_baseline.csv -> target
+                target = file_path.stem.split('__')[-1].replace('_baseline', '')
+            else:
+                # For results files: dataset_results_target.csv -> target
+                target = file_path.stem.split('_results_')[-1]
             
             try:
                 # Read the CSV file

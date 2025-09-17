@@ -144,6 +144,15 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 df['features'] = features
                 df['method'] = method
                 
+                # Add target column if missing (some wDMPNN files don't have it)
+                if 'target' not in df.columns:
+                    # For classification datasets, use a default target name
+                    if any(col in df.columns for col in ['acc', 'f1_macro', 'logloss']):
+                        df['target'] = 'Class'
+                    else:
+                        # For regression, try to infer from dataset name or use default
+                        df['target'] = 'Target'
+                
                 if method == 'Graph':
                     df['model'] = model_name
                 elif method == 'Baseline':
