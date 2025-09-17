@@ -116,6 +116,37 @@ try:
         if task_type != 'reg':
             args.append(task_type)
         
+        # Add polymer type if specified
+        polymer_type = exp.get('polymer_type')
+        if polymer_type:
+            args.append(polymer_type)
+        
+        # Add pretrain_monomer flag if specified
+        if exp.get('pretrain_monomer', False):
+            args.append('pretrain_monomer')
+        
+        # Add save_checkpoint flag if specified
+        if exp.get('save_checkpoint', False):
+            args.append('save_checkpoint')
+        
+        # Add save_predictions flag if specified
+        if exp.get('save_predictions', False):
+            args.append('save_predictions')
+        
+        # Add export_embeddings flag if specified
+        if exp.get('export_embeddings', False):
+            args.append('export_embeddings')
+        
+        # Add train_size if specified
+        train_size = exp.get('train_size')
+        if train_size:
+            args.append(f'train_size={train_size}')
+        
+        # Add target if specified
+        target = exp.get('target')
+        if target:
+            args.append(f'target={target}')
+        
         # Add no-submit flag if specified
         if '$NO_SUBMIT':
             args.append('$NO_SUBMIT')

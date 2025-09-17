@@ -39,6 +39,9 @@ parser.add_argument('--save_checkpoint', action='store_true',
                     help='Save model checkpoints during training')
 parser.add_argument('--save_predictions', action='store_true',
                     help='Save y_true and y_pred for each split/target/train_size for learning curve analysis')
+parser.add_argument('--pretrain_monomer', action='store_true',
+                    help='Train a single multitask D-MPNN on pooled homopolymer data (ignores NaNs).')
+
 args = parser.parse_args()
 
 # Validate train_size argument
@@ -91,6 +94,81 @@ set_seed(SEED)
 
 # === Load and Preprocess Data ===
 df_input, target_columns = load_and_preprocess_data(args, setup_info)
+
+
+if args.pretrain_monomer:
+    assert args.model_name == "DMPNN", "Monomer pretraining uses the small-molecule D-MPNN."
+    # Use all numeric target columns at once (masked multitask)
+    multitask_targets = target_columns  # keep them all
+    ys = df_input.loc[:, multitask_targets].astype(float).values  # shape [N, T]; NaNs allowed
+
+    # Build datapoints with ALL targets
+    smis, df_input, combined_descriptor_data, _ = process_data(
+        df_input, smiles_column, descriptor_columns, multitask_targets, args
+    )
+    all_data = create_all_data(smis, ys, combined_descriptor_data, MODEL_NAME)
+
+    # Splits as usual (no group logic needed for homopolymers)
+    n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
+    train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+
+    train_data, val_data, test_data = data.split_data_by_indices(all_data, train_indices, val_indices, test_indices)
+
+    # Build datasets (small-molecule featurizer)
+    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
+    train = data.MoleculeDataset(train_data[0], featurizer)
+    val   = data.MoleculeDataset(val_data[0],   featurizer)
+    test  = data.MoleculeDataset(test_data[0],  featurizer)
+
+    # Target normalization (Chemprop handles per-column)
+    if args.task_type == 'reg':
+        scaler = train.normalize_targets()
+        val.normalize_targets(scaler)
+
+    # Metrics list: pick a default (RMSE for reg, etc.)
+    n_classes_arg = None
+    metric_list = get_metric_list(args.task_type)
+
+    # Paths and model
+    checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = \
+        build_experiment_paths(args, chemprop_dir, checkpoint_dir, "__multitask__", descriptor_columns, 0)
+
+    processed_descriptor_data = None
+    mpnn, trainer = build_model_and_trainer(
+        args=args,
+        combined_descriptor_data=processed_descriptor_data,
+        n_classes=n_classes_arg,
+        scaler=scaler if args.task_type == 'reg' else None,
+        checkpoint_path=checkpoint_path,
+        batch_norm=args.batch_norm,
+        metric_list=metric_list,
+        early_stopping_patience=PATIENCE,
+        max_epochs=EPOCHS,
+        save_checkpoint=args.save_checkpoint,
+    )
+
+    # Train one model (no per-target loop)
+    trainer.fit(mpnn, data.build_dataloader(train, num_workers=num_workers),
+                      data.build_dataloader(val,   num_workers=num_workers, shuffle=False))
+    _ = trainer.test(dataloaders=data.build_dataloader(test, num_workers=num_workers, shuffle=False))
+
+    # Optionally export embeddings for all monomers now
+    if args.export_embeddings:
+        mpnn.eval()
+        # Re-embed ALL datapoints (train+val+test order) for convenience
+        full_loader = data.build_dataloader(data.MoleculeDataset(all_data, featurizer), num_workers=num_workers, shuffle=False)
+        X_full = get_encodings_from_loader(mpnn, full_loader)
+        # Save as .npy; map to smiles with df_input[smiles_column]
+        emb_dir = results_dir / "embeddings"; emb_dir.mkdir(parents=True, exist_ok=True)
+        np.save(emb_dir / f"{args.dataset_name}__monomer_encoder.npy", X_full)
+        pd.DataFrame({
+            "smiles": [dp.smiles for dp in all_data],
+        }).assign(idx=np.arange(len(all_data))).to_csv(emb_dir / f"{args.dataset_name}__monomer_index.csv", index=False)
+
+    # Exit after pretraining (we don’t do per-target loops in this mode)
+    save_aggregate_results([], results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
+    raise SystemExit(0)
+
 
 # Filter to specific target if specified
 if args.target:

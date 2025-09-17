@@ -287,3 +287,31 @@ experiments:
     batch_norm: true
     task_type: reg
 
+  - dataset: ea_ip
+    model: tabular
+    walltime: "12:00:00"
+    incl_rdkit: true
+    task_type: reg
+    polymer_type: copolymer
+
+  - dataset: ea_ip
+    model: tabular
+    walltime: "12:00:00"
+    task_type: reg
+    polymer_type: copolymer
+
+  - dataset: combined_homopolymer
+    model: wDMPNN
+    walltime: "12:00:00"
+    incl_rdkit: true
+    task_type: reg
+    pretrain_monomer: true
+    save_checkpoint: true
+
+  - dataset: combined_homopolymer
+    model: wDMPNN
+    walltime: "12:00:00"
+    task_type: reg
+    pretrain_monomer: true
+    save_checkpoint: true
+

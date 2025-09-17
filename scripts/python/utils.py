@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 # Third-party imports (lightweight)
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
@@ -1357,6 +1358,60 @@ def generate_data_splits(args, ys, n_splits, local_reps, seed):
     
     return train_indices, val_indices, test_indices
 
+def unordered_pair(a: str, b: str):
+    """Stable, order-invariant key for a monomer pair."""
+    return tuple(sorted((str(a), str(b))))
+
+def make_groups_for_copolymer(df):
+    """Return array of group IDs (one per row) for unordered monomer pairs."""
+    sA = df["smiles_A"].astype(str).values
+    sB = df["smiles_B"].astype(str).values
+    groups = np.array([unordered_pair(a, b) for a, b in zip(sA, sB)], dtype=object)
+    return groups
+
+def group_splits(df, y, task_type, n_splits, seed, train_frac=0.8, val_frac=0.1, test_frac=0.1):
+    """
+    Produce train/val/test index lists with group integrity preserved.
+    - For CV (n_splits > 1): GroupKFold (or StratifiedGroupKFold for classification if available).
+    - For holdout (n_splits == 1): two-stage GroupShuffleSplit to get 80/10/10 by groups.
+    Returns: train_indices, val_indices, test_indices as lists (len = n_splits or 1).
+    """
+    assert abs(train_frac + val_frac + test_frac - 1.0) < 1e-8
+    groups = make_groups_for_copolymer(df)
+    n = len(df)
+
+    if n_splits > 1:
+        if task_type != "reg" and HAVE_SGKF:
+            # y must be 1D class labels here
+            splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+            cv_iter = splitter.split(np.zeros(n), y, groups)  # X dummy
+        else:
+            splitter = GroupKFold(n_splits=n_splits)
+            cv_iter = splitter.split(np.zeros(n), None, groups)
+
+        tr_list, va_list, te_list = [], [], []
+        for tr_idx, te_idx in cv_iter:
+            # split test off by groups; now carve out a val set from train by groups
+            g_tr = groups[tr_idx]
+            inner = GroupShuffleSplit(n_splits=1, train_size=1.0 - val_frac/train_frac, random_state=seed)
+            tr2_idx_rel, va_idx_rel = next(inner.split(tr_idx, groups=g_tr))
+            tr2_idx = tr_idx[tr2_idx_rel]
+            va_idx = tr_idx[va_idx_rel]
+            tr_list.append(tr2_idx); va_list.append(va_idx); te_list.append(te_idx)
+        return tr_list, va_list, te_list
+
+    else:
+        # 80/10/10 holdout by groups
+        outer = GroupShuffleSplit(n_splits=1, train_size=train_frac, random_state=seed)
+        tr_idx, temp_idx = next(outer.split(np.zeros(n), groups=groups))
+        # split temp equally into val/test
+        temp_groups = groups[temp_idx]
+        inner = GroupShuffleSplit(n_splits=1,
+                                  train_size=val_frac/(val_frac+test_frac),
+                                  random_state=seed)
+        va_rel, te_rel = next(inner.split(temp_idx, groups=temp_groups))
+        va_idx = temp_idx[va_rel]; te_idx = temp_idx[te_rel]
+        return [tr_idx], [va_idx], [te_idx]
 
 def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger):
     """Save results using target-specific filenames to prevent overwriting.

@@ -26,6 +26,7 @@ from sklearn.metrics import (
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 
+
 # Lazy imports for heavy dependencies
 RDKIT_AVAILABLE = False
 
@@ -467,6 +468,13 @@ def weighted_average(A: np.ndarray, B: np.ndarray, fa: np.ndarray, fb: np.ndarra
     
     return fa_norm * A + fb_norm * B
 
+def canon_pair(a, b, wa, wb):
+    # sort lexicographically; if swapped, flip fractions
+    if b < a:
+        return b, a, wb, wa
+    return a, b, wa, wb
+
+
 # ------------------------ Feature assembly ---------------------------
 
 def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: List[str], kind: str, use_rdkit: bool, use_ab: bool = True, pool: str = 'mean', add_counts: bool = False) -> Tuple[np.ndarray, np.ndarray, List[str]]:
@@ -503,8 +511,15 @@ def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: L
             names += desc_names
             
     else:
-        sA, sB = df["smiles_A"].tolist(), df["smiles_B"].tolist()
-        fA, fB = df["frac_A"].astype(float).values, df["frac_B"].astype(float).values
+        sA_raw, sB_raw = df["smiles_A"].astype(str).tolist(), df["smiles_B"].astype(str).tolist()
+        fA_raw, fB_raw = df["frac_A"].astype(float).values, df["frac_B"].astype(float).values
+
+        sA, sB, fA, fB = [], [], [], []
+        for a, b, wa, wb in zip(sA_raw, sB_raw, fA_raw, fB_raw):
+            a2, b2, wa2, wb2 = canon_pair(a, b, wa, wb)
+            sA.append(a2); sB.append(b2); fA.append(wa2); fB.append(wb2)
+        fA = np.asarray(fA, float); fB = np.asarray(fB, float)
+
         # Only include AB features if requested
         if use_ab:
             abA = atom_bond_block_from_smiles(sA, pool=pool, add_counts=add_counts)

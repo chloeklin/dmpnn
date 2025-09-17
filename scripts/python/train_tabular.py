@@ -25,6 +25,7 @@ from utils import (
     load_and_preprocess_data,
     determine_split_strategy,
     generate_data_splits,
+    group_splits
 )
 
 
@@ -51,8 +52,20 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
 
     # Determine split strategy and generate splits
     n_splits, local_reps = determine_split_strategy(len(y), replicates)
-    train_indices, val_indices, test_indices = generate_data_splits(args, y, n_splits, local_reps, seed)
-    
+
+    if args.polymer_type == "copolymer":
+        # produce repeats by reseeding group splits
+        train_indices, val_indices, test_indices = [], [], []
+        for r in range(local_reps):
+            tr, va, te = group_splits(df, y, args.task_type, n_splits, seed + r)
+            train_indices.extend(tr)
+            val_indices.extend(va)
+            test_indices.extend(te)
+    else:
+        train_indices, val_indices, test_indices = generate_data_splits(
+            args, y, n_splits, local_reps, seed
+        )
+
 
     detailed_rows = []
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
@@ -256,6 +269,7 @@ def main():
             continue
         # Create output directory for this target
         out_dir = feat_select_dir / tcol
+        out_dir.mkdir(parents=True, exist_ok=True)
         
         # Train models and get evaluation results
         target_existing = existing_results.get(tcol, {})
