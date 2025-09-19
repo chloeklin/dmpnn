@@ -151,7 +151,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # DMPNN training for target: ${target}
-python3 scripts/python/train_graph.py --dataset_name opv_camb3lyp --model_name DMPNN --target ${target}${rdkit_flag}${batch_norm_flag}
+python3 scripts/python/train_graph.py --dataset_name opv_camb3lyp --model_name DMPNN --target ${target}${rdkit_flag}${batch_norm_flag} 
 
 
 ##TODO

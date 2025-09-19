@@ -1,3 +1,4 @@
+results/embeddings/
 preprocessing/*
 out/*
 *.e*
@@ -194,4 +195,5 @@ config.toml
 !tests/data/*
 !results/*
 !results/**/*
+results/embeddings/
 plots/
