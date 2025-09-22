@@ -13,6 +13,7 @@ __all__ = [
     "SumAggregation",
     "NormAggregation",
     "AttentiveAggregation",
+    "IdentityAggregation"
 ]
 
 
