@@ -21,7 +21,7 @@ if [ $# -lt 3 ]; then
     echo ""
     echo "Available models: tabular, DMPNN, wDMPNN"
     echo "Walltime format: HH:MM:SS (e.g., 2:00:00 for 2 hours)"
-    echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi"
+    echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi, pretrain_monomer, save_checkpoint, save_predictions, export_embeddings"
     echo ""
     echo "Examples:"
     echo "  $0 insulator DMPNN 2:00:00"
@@ -37,6 +37,10 @@ INCL_RDKIT=""
 INCL_DESC=""
 INCL_AB=""
 BATCH_NORM=""
+PRETRAIN_MONOMER=""
+SAVE_CHECKPOINT=""
+SAVE_PREDICTIONS=""
+EXPORT_EMBEDDINGS=""
 TASK_TYPE="reg"
 
 # Validate model type
@@ -66,6 +70,18 @@ for arg in "${@:4}"; do
         batch_norm)
             BATCH_NORM="--batch_norm"
             ;;
+        pretrain_monomer)
+            PRETRAIN_MONOMER="--pretrain_monomer"
+            ;;
+        save_checkpoint)
+            SAVE_CHECKPOINT="--save_checkpoint"
+            ;;
+        save_predictions)
+            SAVE_PREDICTIONS="--save_predictions"
+            ;;
+        export_embeddings)
+            EXPORT_EMBEDDINGS="--export_embeddings"
+            ;;
         binary|multi)
             TASK_TYPE=$arg
             ;;
@@ -91,6 +107,9 @@ if [ -n "$INCL_AB" ]; then
 fi
 if [ -n "$BATCH_NORM" ]; then
     SUFFIX="${SUFFIX}_batch_norm"
+fi
+if [ -n "$PRETRAIN_MONOMER" ]; then
+    SUFFIX="${SUFFIX}_pretrain"
 fi
 if [ "$TASK_TYPE" != "reg" ]; then
     SUFFIX="${SUFFIX}_${TASK_TYPE}"
@@ -122,6 +141,18 @@ if [ -n "$INCL_AB" ]; then
 fi
 if [ -n "$BATCH_NORM" ]; then
     ARGS="$ARGS $BATCH_NORM"
+fi
+if [ -n "$PRETRAIN_MONOMER" ]; then
+    ARGS="$ARGS $PRETRAIN_MONOMER"
+fi
+if [ -n "$SAVE_CHECKPOINT" ]; then
+    ARGS="$ARGS $SAVE_CHECKPOINT"
+fi
+if [ -n "$SAVE_PREDICTIONS" ]; then
+    ARGS="$ARGS $SAVE_PREDICTIONS"
+fi
+if [ -n "$EXPORT_EMBEDDINGS" ]; then
+    ARGS="$ARGS $EXPORT_EMBEDDINGS"
 fi
 
 # Output script filename

@@ -24,29 +24,29 @@ experiments:
   #   batch_norm: true
   #   task_type: multi
 
-  # - dataset: polyinfo
-  #   model: wDMPNN
-  #   walltime: "10:30:00"
-  #   incl_rdkit: true
-  #   task_type: multi
+  - dataset: polyinfo
+    model: wDMPNN
+    walltime: "10:30:00"
+    incl_rdkit: true
+    task_type: multi
   
-  # - dataset: polyinfo
-  #   model: wDMPNN
-  #   walltime: "10:30:00"
-  #   task_type: multi
+  - dataset: polyinfo
+    model: wDMPNN
+    walltime: "10:30:00"
+    task_type: multi
 
-  # - dataset: polyinfo
-  #   model: wDMPNN
-  #   walltime: "10:30:00"
-  #   incl_rdkit: true
-  #   batch_norm: true
-  #   task_type: multi
+  - dataset: polyinfo
+    model: wDMPNN
+    walltime: "10:30:00"
+    incl_rdkit: true
+    batch_norm: true
+    task_type: multi
   
-  # - dataset: polyinfo
-  #   model: wDMPNN
-  #   walltime: "10:30:00"
-  #   batch_norm: true
-  #   task_type: multi
+  - dataset: polyinfo
+    model: wDMPNN
+    walltime: "10:30:00"
+    batch_norm: true
+    task_type: multi
     
   # - dataset: polyinfo
   #   model: tabular
@@ -92,29 +92,29 @@ experiments:
   #   batch_norm: true
   #   task_type: reg
     
-  # - dataset: insulator
-  #   model: wDMPNN
-  #   walltime: "6:00:00"
-  #   task_type: reg
+  - dataset: insulator
+    model: wDMPNN
+    walltime: "6:00:00"
+    task_type: reg
   
-  # - dataset: insulator
-  #   model: wDMPNN
-  #   incl_rdkit: true
-  #   walltime: "6:00:00"
-  #   task_type: reg
+  - dataset: insulator
+    model: wDMPNN
+    incl_rdkit: true
+    walltime: "6:00:00"
+    task_type: reg
 
-  # - dataset: insulator
-  #   model: wDMPNN
-  #   walltime: "6:00:00"
-  #   batch_norm: true
-  #   task_type: reg
+  - dataset: insulator
+    model: wDMPNN
+    walltime: "6:00:00"
+    batch_norm: true
+    task_type: reg
   
-  # - dataset: insulator
-  #   model: wDMPNN
-  #   incl_rdkit: true
-  #   walltime: "6:00:00"
-  #   batch_norm: true
-  #   task_type: reg
+  - dataset: insulator
+    model: wDMPNN
+    incl_rdkit: true
+    walltime: "6:00:00"
+    batch_norm: true
+    task_type: reg
     
   # - dataset: insulator
   #   model: tabular
