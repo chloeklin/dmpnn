@@ -131,3 +131,8 @@ class AttentiveAggregation(Aggregation):
         return torch.zeros(dim_size, H.shape[1], dtype=H.dtype, device=H.device).scatter_reduce_(
             self.dim, index_torch, alphas * H, reduce="sum", include_self=False
         )
+
+@AggregationRegistry.register("identity")
+class IdentityAggregation(Aggregation):
+    def forward(self, H: Tensor, batch: Tensor) -> Tensor:
+        return H  # already graph-level

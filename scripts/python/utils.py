@@ -609,7 +609,12 @@ def build_model_and_trainer(
         raise ValueError(f"Unsupported task_type: {args.task_type}")
     
     # Create aggregation and model
-    agg = nn.MeanAggregation()
+    if args.model_name == "wDMPNN":
+        mp = nn.WeightedBondMessagePassing()
+        agg = nn.IdentityAggregation()        # ✅ no-op for graph-level outputs
+    elif args.model_name == "DMPNN":
+        mp = nn.BondMessagePassing()
+        agg = nn.MeanAggregation()
     mpnn = models.MPNN(
         message_passing=mp, 
         agg=agg, 

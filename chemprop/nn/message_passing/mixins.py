@@ -52,9 +52,9 @@ class _WeightedBondMessagePassingMixin:
         # rev_message = H[b2revb]                                   # [num_bonds, hidden]
         # message = a_message[b2a] - rev_message                    # [num_bonds, hidden]
         rev_message = H[b2revb] * w_bonds[b2revb].unsqueeze(-1)  # apply edge weight
-        message = a_message[b2a] - rev_message
+        message = a_message[b2a] - rev_message                   # [num_bonds, hidden]
 
-        return self.W_h(message)                         # [num_bonds, hidden]
+        return message                         
 
     def forward(self, bmg: BatchPolymerMolGraph, V_d: Tensor | None = None) -> Tensor:
         bmg = self.graph_transform(bmg)
@@ -68,11 +68,37 @@ class _WeightedBondMessagePassingMixin:
             M = self.message(H, bmg)
             H = self.update(M, H_0)
 
-        index_torch = bmg.edge_index[1].unsqueeze(1).repeat(1, H.shape[1])
+        # index_torch = bmg.edge_index[1].unsqueeze(1).repeat(1, H.shape[1])
+        # M = torch.zeros(len(bmg.V), H.shape[1], dtype=H.dtype, device=H.device).scatter_reduce_(
+        #     0, index_torch, H, reduce="sum", include_self=False
+        # )
+        # --- FINAL EDGE->NODE AGGREGATION SHOULD BE WEIGHTED (as in SI) ---
+        # H_weighted_kv = w_kv * h_kv^T for each directed edge
+        H_weighted = H * bmg.edge_weights.unsqueeze(-1)  # [num_bonds, hidden]
+
+        index_torch = bmg.edge_index[1].unsqueeze(1).repeat(1, H.shape[1])  # [num_bonds, hidden]
         M = torch.zeros(len(bmg.V), H.shape[1], dtype=H.dtype, device=H.device).scatter_reduce_(
-            0, index_torch, H, reduce="sum", include_self=False
-        )
-        return self.finalize(M, bmg.V, V_d)
+            0, index_torch, H_weighted, reduce="sum", include_self=False
+        )  # M_v = sum_k w_kv h_kv^T
+
+        # (iii) Node readout (unchanged): H_v = τ(W_o([x_v || M_v])) (+ optional W_d with V_d)
+        H_v = super().finalize(M, bmg.V, V_d)                       # [num_atoms, d_out]
+
+        # (iv) Atom-weighted pooling to graph embeddings (stoichiometry-weighted mean)
+        batch = bmg.batch                                           # [num_atoms], long
+        w     = bmg.atom_weights.to(H_v.dtype).to(H_v.device).unsqueeze(-1)  # [num_atoms, 1]
+        hw    = H_v * w
+
+        n_graphs = int(batch.max().item()) + 1 if batch.numel() else 1
+        d_out    = H_v.shape[1]
+
+        sum_hw = torch.zeros(n_graphs, d_out, dtype=H_v.dtype, device=H_v.device)
+        sum_w  = torch.zeros(n_graphs, 1,     dtype=H_v.dtype, device=H_v.device)
+        sum_hw.index_add_(0, batch, hw)
+        sum_w.index_add_(0, batch, w)
+
+        g = sum_hw / sum_w.clamp_min(1e-12)
+        return g
 
 
 
