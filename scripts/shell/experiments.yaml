@@ -301,7 +301,7 @@ experiments:
     polymer_type: copolymer
 
   - dataset: combined_homopolymer
-    model: wDMPNN
+    model: DMPNN
     walltime: "12:00:00"
     incl_rdkit: true
     task_type: reg
@@ -309,7 +309,7 @@ experiments:
     save_checkpoint: true
 
   - dataset: combined_homopolymer
-    model: wDMPNN
+    model: DMPNN
     walltime: "12:00:00"
     task_type: reg
     pretrain_monomer: true

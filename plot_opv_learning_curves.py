@@ -95,7 +95,7 @@ def load_opv_results(results_dir):
 
 def calculate_metrics_summary(results_data, common_targets):
     """Calculate mean and std for each metric across replicates, only for common targets."""
-    summary_data = defaultdict(lambda: defaultdict(dict))  # {variant: {train_size: {target: {metric: (mean, std)}}}}
+    summary_data = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))  # {variant: {train_size: {target: {metric: (mean, std)}}}}
     
     for variant, size_data in results_data.items():
         for train_size, df in size_data.items():
