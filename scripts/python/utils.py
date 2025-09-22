@@ -387,80 +387,108 @@ def get_metric_list(
     df_input: Optional[pd.DataFrame] = None
 ) -> List[Any]:
     """Get a list of metrics appropriate for the given task type.
-    
-    Args:
-        task_type: Type of task - 'reg', 'binary', or 'multi'
-        target: Name of the target column (required for binary tasks with df_input)
-        n_classes: Number of classes (required for multi-class tasks)
-        df_input: DataFrame containing target values (required for binary tasks)
-        
-    Returns:
-        List of metric objects for the specified task type
-        
-    Raises:
-        ValueError: If task_type is invalid or required arguments are missing
-        ImportError: If chemprop is not available
+
+    Backward-compatible:
+      - 'reg'  -> regression metrics
+      - 'binary' -> binary metrics (AUROC only if both classes present in df_input[target])
+      - 'multi'  -> multiclass metrics (requires n_classes)
+      - 'mixed-reg-multi' -> returns a *combined* set of regression + multiclass metrics
+        using a single num_classes for the multiclass metrics, inferred from `target`
+        (encoded as 'name:k,name2:k2,...') or else from df_input as a safe maximum.
     """
     try:
         from chemprop import nn  # Local import for heavy dependency
     except ImportError as e:
         raise ImportError(
-            "chemprop package is required for metrics. "
-            "Install with: pip install chemprop"
+            "chemprop package is required for metrics. Install with: pip install chemprop"
         ) from e
-    
+
+    # ---------------- existing behavior ----------------
     if task_type == 'reg':
-        return [
-            nn.metrics.MAE(), 
-            nn.metrics.RMSE(), 
-            nn.metrics.R2Score()
-        ]
-    
+        return [nn.metrics.MAE(), nn.metrics.RMSE(), nn.metrics.R2Score()]
+
     elif task_type == 'binary':
         if df_input is not None and target is not None:
             unique_classes = df_input[target].dropna().unique()
             has_both_classes = len(unique_classes) > 1
         else:
             has_both_classes = False
-            
-        metrics = [
-            nn.metrics.BinaryAccuracy(), 
-            nn.metrics.BinaryF1Score()
-        ]
-        
-        # Add AUROC only if both classes are present
+
+        metrics = [nn.metrics.BinaryAccuracy(), nn.metrics.BinaryF1Score()]
         if has_both_classes:
             metrics.append(nn.metrics.BinaryAUROC())
-            
         return metrics
-    
+
     elif task_type == 'multi':
         if n_classes is None:
             raise ValueError("n_classes must be provided for multi-class tasks")
-            
         if n_classes < 2:
             raise ValueError(f"n_classes must be >= 2, got {n_classes}")
-            
         return [
-            nn.metrics.MulticlassAccuracy(
-                num_classes=n_classes, 
-                average='macro'
-            ),
-            nn.metrics.MulticlassF1Score(
-                num_classes=n_classes, 
-                average='macro'
-            ),
-            nn.metrics.MulticlassAUROC(
-                num_classes=n_classes, 
-                average='macro'
-            )
+            nn.metrics.MulticlassAccuracy(num_classes=n_classes, average='macro'),
+            nn.metrics.MulticlassF1Score(num_classes=n_classes, average='macro'),
+            nn.metrics.MulticlassAUROC(num_classes=n_classes, average='macro')
         ]
-    
+
+    # ---------------- new mixed branch (keeps signature) ----------------
+    elif task_type == 'mixed-reg-multi':
+        # Determine a single num_classes to configure multiclass metrics.
+        # Priority:
+        #   1) parse from `target` if provided as "name:k,name2:k2,..."
+        #   2) infer from df_input by scanning integer-like columns (safe upper bound)
+        num_classes_for_metrics = None
+
+        # Parse explicit "name:k" list passed via `target` (no API change)
+        if isinstance(target, str) and (":" in target):
+            try:
+                parts = [p.strip() for p in target.split(",") if p.strip()]
+                ks = []
+                for p in parts:
+                    name, k = p.split(":")
+                    ks.append(int(k))
+                if ks:
+                    num_classes_for_metrics = max(ks)
+            except Exception:
+                # fall back to inference if parsing fails
+                num_classes_for_metrics = None
+
+        # Fallback: infer from df_input (take a safe max)
+        if num_classes_for_metrics is None and df_input is not None:
+            candidate_max = 0
+            for col in df_input.columns:
+                s = df_input[col].dropna()
+                if s.empty:
+                    continue
+                # consider integer dtype or floats that look like integer labels
+                is_intish = (pd.api.types.is_integer_dtype(s) or
+                             (pd.api.types.is_float_dtype(s) and np.all(np.isclose(s, np.round(s)))))
+                if is_intish:
+                    vmax = int(s.max())
+                    candidate_max = max(candidate_max, vmax)
+            if candidate_max >= 1:
+                num_classes_for_metrics = candidate_max + 1  # assume 0-based
+
+        # Last resort default (keeps metrics constructible)
+        if num_classes_for_metrics is None:
+            num_classes_for_metrics = 2
+
+        # Return a combined set: regression + multiclass metrics
+        return [
+            # regression metrics
+            nn.metrics.MAE(),
+            nn.metrics.RMSE(),
+            nn.metrics.R2Score(),
+            # multiclass metrics (macro)
+            nn.metrics.MulticlassAccuracy(num_classes=num_classes_for_metrics, average='macro'),
+            nn.metrics.MulticlassF1Score(num_classes=num_classes_for_metrics, average='macro'),
+            nn.metrics.MulticlassAUROC(num_classes=num_classes_for_metrics, average='macro')
+        ]
+
     else:
         raise ValueError(
-            f"Unknown task_type: {task_type}. "
-            "Must be one of: 'reg', 'binary', 'multi'"
+            f"Unknown task_type: {task_type}. Must be one of: 'reg', 'binary', 'multi', 'mixed-reg-multi'"
         )
+
 
 def build_model_and_trainer(
     args: Any,
@@ -513,7 +541,7 @@ def build_model_and_trainer(
             "Required packages (chemprop, pytorch_lightning) not found. "
             "Install with: pip install chemprop pytorch_lightning"
         ) from e
-    
+
     # Validate inputs
     if not hasattr(args, 'task_type'):
         raise ValueError("args must have 'task_type' attribute")
@@ -560,6 +588,22 @@ def build_model_and_trainer(
         ffn = nn.MulticlassClassificationFFN(
             n_classes=n_classes, 
             input_dim=input_dim
+        )
+    elif args.task_type == 'mixed-reg-multi':
+        if not hasattr(args, "task_specs"):
+            raise ValueError("For task_type='mixed-reg-multi', provide args.task_specs aligned with target_columns.")
+        task_weights_tensor = None
+        if getattr(args, "task_weights", ""):
+            tw = [float(x) for x in args.task_weights.split(",")]
+            assert len(tw) == len(args.task_specs), "--task_weights must match number of tasks"
+            task_weights_tensor = torch.tensor(tw, dtype=torch.float32)
+
+        ffn = MixedRegMultiFFN(
+            task_specs=args.task_specs,
+            input_dim=input_dim,
+            task_weights=task_weights_tensor,
+            reg_mu_per_task=getattr(args, "reg_mu_per_task", None),
+            reg_sd_per_task=getattr(args, "reg_sd_per_task", None),
         )
     else:
         raise ValueError(f"Unsupported task_type: {args.task_type}")

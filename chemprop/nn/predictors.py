@@ -4,7 +4,7 @@ from lightning.pytorch.core.mixins import HyperparametersMixin
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
-
+from typing import List, Tuple, Optional
 from chemprop.conf import DEFAULT_HIDDEN_DIM
 from chemprop.nn.ffn import MLP
 from chemprop.nn.hparams import HasHParams
@@ -20,6 +20,7 @@ from chemprop.nn.metrics import (
     MulticlassMCCMetric,
     MVELoss,
     QuantileLoss,
+    MixedRegMultiLoss,
 )
 from chemprop.nn.transforms import UnscaleTransform
 from chemprop.utils import ClassRegistry, Factory
@@ -36,6 +37,7 @@ __all__ = [
     "MulticlassClassificationFFN",
     "MulticlassDirichletFFN",
     "SpectralFFN",
+    "MixedRegMultiFFN"
 ]
 
 
@@ -369,3 +371,100 @@ class SpectralFFN(_FFNPredictorBase):
         return Y / Y.sum(1, keepdim=True)
 
     train_step = forward
+
+
+class MixedRegMultiFFN(nn.Module, HasHParams, HyperparameterMixin):
+    """
+    task_specs: list of tuples aligned with target_columns:
+        ("reg", None)    -> regression scalar
+        ("multi", C)     -> multiclass logits of length C
+    reg_mu_per_task / reg_sd_per_task: lists aligned with task_specs; set None for non-reg tasks.
+    """
+    def __init__(
+        self,
+        task_specs: List[Tuple[str, Optional[int]]],
+        input_dim: int = DEFAULT_HIDDEN_DIM,
+        hidden_dim: int = 300,
+        n_layers: int = 1,
+        dropout: float = 0.0,
+        activation: str | nn.Module = "relu",
+        task_weights: Optional[torch.Tensor] = None,
+        reg_mu_per_task: Optional[List[Optional[float]]] = None,
+        reg_sd_per_task: Optional[List[Optional[float]]] = None,
+    ):
+        super().__init__()
+        self.task_specs = task_specs
+        self.n_tasks = len(task_specs)
+
+        self.reg_mu_per_task = reg_mu_per_task or [None] * self.n_tasks
+        self.reg_sd_per_task = reg_sd_per_task or [None] * self.n_tasks
+
+        # Build slice map over a single concatenated output
+        self.slices: List[slice] = []
+        offset = 0
+        for kind, ncls in task_specs:
+            width = 1 if kind == "reg" else int(ncls)
+            self.slices.append(slice(offset, offset + width))
+            offset += width
+        self.sum_out = offset
+
+        ignore = ["activation"]
+        self.save_hyperparameters(ignore=ignore)
+        self.hparams["activation"] = activation
+        self.hparams["cls"] = self.__class__
+
+        self.ffn = MLP.build(
+            input_dim=input_dim,
+            output_dim=self.sum_out,
+            hidden_dim=hidden_dim,
+            n_layers=n_layers,
+            dropout=dropout,
+            activation=activation,
+        )
+
+        self.criterion = MixedRegMultiLoss(
+            task_specs=self.task_specs,
+            slices=self.slices,
+            task_weights=task_weights
+        )
+
+    @property
+    def input_dim(self) -> int:
+        return self.ffn.input_dim
+
+    @property
+    def output_dim(self) -> int:
+        return self.sum_out
+
+    def encode(self, Z: Tensor, i: int) -> Tensor:
+        return self.ffn[:i](Z)
+
+    def train_step(self, Z: Tensor) -> Tensor:
+        # Return logits/normalized-regression (normalized y) for the loss
+        return self.ffn(Z)
+
+    def forward(self, Z: Tensor) -> Tensor:
+        """
+        Return a condensed [B, T] view for logging:
+          - regression: UN-SCALED to original units using per-task mu/sd if provided; else normalized
+          - multiclass: max softmax probability per task (scalar)
+        NOTE: Because shapes are mixed, rely on val_loss for selection; metrics for mixed are optional.
+        """
+        Y = self.ffn(Z)                         # [B, SUM]
+        B = Y.shape[0]
+        out = Y.new_zeros((B, self.n_tasks))
+        for t, (kind, ncls) in enumerate(self.task_specs):
+            sl = self.slices[t]
+            if kind == "reg":
+                val = Y[:, sl][:, 0]
+                mu_t = self.reg_mu_per_task[t]
+                sd_t = self.reg_sd_per_task[t]
+                if (mu_t is not None) and (sd_t is not None):
+                    val = val * val.new_tensor(sd_t) + val.new_tensor(mu_t)
+                out[:, t] = val
+            else:
+                logits = Y[:, sl]
+                out[:, t] = logits.softmax(-1).max(-1).values
+        return out
+
+

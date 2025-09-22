@@ -60,6 +60,7 @@ from .predictors import (
     QuantileFFN,
     RegressionFFN,
     SpectralFFN,
+    MixedRegMultiFFN
 )
 from .transforms import GraphTransform, ScaleTransform, UnscaleTransform
 from .utils import Activation
@@ -129,6 +130,7 @@ __all__ = [
     "BinaryDirichletFFN",
     "MulticlassClassificationFFN",
     "SpectralFFN",
+    "MixedRegMultiFFN",
     "Activation",
     "GraphTransform",
     "ScaleTransform",

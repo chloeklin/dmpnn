@@ -7,7 +7,7 @@ from torch.nn import functional as F
 import torchmetrics
 from torchmetrics.utilities.compute import auc
 from torchmetrics.utilities.data import dim_zero_cat
-
+from typing import List, Tuple, Optional
 from chemprop.utils.registry import ClassRegistry
 
 __all__ = [
@@ -121,7 +121,37 @@ class ChempropMetric(torchmetrics.Metric):
     def extra_repr(self) -> str:
         return f"task_weights={self.task_weights.tolist()}"
 
+class MixedRegMultiLoss(ChempropMetric):
+    """
+    preds:   [B, SUM]  (concatenated; reg width=1, multi width=C)
+    targets: [B, T]    (float for reg, int indices for multi; NaN where missing)
+    mask:    [B, T]    (True where label exists)
+    """
+    def __init__(self,
+                 task_specs: List[Tuple[str, Optional[int]]],
+                 slices: List[slice],
+                 task_weights: Optional[torch.Tensor] = None):
+        super().__init__(task_weights if task_weights is not None else 1.0)
+        self.task_specs = task_specs
+        self.slices = slices
 
+    def _calc_unreduced_loss(self, preds: Tensor, targets: Tensor, mask: Tensor, weights: Tensor, *_) -> Tensor:
+        B, _ = preds.shape
+        T = len(self.task_specs)
+        out = torch.zeros(B, T, device=preds.device, dtype=preds.dtype)
+
+        for t, (kind, ncls) in enumerate(self.task_specs):
+            sl = self.slices[t]
+            if kind == "reg":
+                yhat = preds[:, sl][:, 0]                 # normalized regression prediction
+                out[:, t] = (yhat - targets[:, t])**2
+            else:
+                logits = preds[:, sl]                     # [B, C]
+                tgt = targets[:, t]
+                tgt_int = torch.where(mask[:, t], tgt, torch.zeros_like(tgt)).long()
+                out[:, t] = F.cross_entropy(logits, tgt_int, reduction="none")
+        return out
+        
 LossFunctionRegistry = ClassRegistry[ChempropMetric]()
 MetricRegistry = ClassRegistry[ChempropMetric]()
 

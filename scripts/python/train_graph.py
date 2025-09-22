@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 parser = argparse.ArgumentParser(description='Train a Chemprop model for regression or classification')
 parser.add_argument('--dataset_name', type=str, required=True,
                     help='Name of the dataset file (without .csv extension)')
-parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default="reg",
-                    help='Type of task: "reg" for regression or "binary" or "multi" for classification')
+parser.add_argument('--task_type', type=str,
+    choices=['reg','binary','multi','mixed-reg-multi'], default='reg')
+
 parser.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
 parser.add_argument('--incl_rdkit', action='store_true',
@@ -41,6 +42,12 @@ parser.add_argument('--save_predictions', action='store_true',
                     help='Save y_true and y_pred for each split/target/train_size for learning curve analysis')
 parser.add_argument('--pretrain_monomer', action='store_true',
                     help='Train a single multitask D-MPNN on pooled homopolymer data (ignores NaNs).')
+parser.add_argument('--multiclass_targets', type=str, default="polyinfo_Class:21",
+  help='Comma list NAME:NUM_CLASSES for multiclass tasks, e.g. "phase_label:11,color:3". Others are regression.')
+parser.add_argument('--task_weights', type=str, default="",
+  help='Optional comma list of per-task loss weights aligned with target_columns.')
+
+
 
 args = parser.parse_args()
 
@@ -96,21 +103,94 @@ set_seed(SEED)
 df_input, target_columns = load_and_preprocess_data(args, setup_info)
 
 
+
+
 if args.pretrain_monomer:
     assert args.model_name == "DMPNN", "Monomer pretraining uses the small-molecule D-MPNN."
+    # Parse multiclass specs
+    mc_map = {}
+    if args.multiclass_targets:
+        for tok in args.multiclass_targets.split(","):
+            name, k = tok.split(":")
+            mc_map[name.strip()] = int(k)
+
+    # Build task_specs aligned with target_columns
+    task_specs = []
+    for t in target_columns:
+        if t in mc_map:
+            task_specs.append(("multi", mc_map[t]))
+        else:
+            task_specs.append(("reg", None))
+    args.task_specs = task_specs
+
+    # Select the mixed head
+    args.task_type = 'mixed-reg-multi'
+
     # Use all numeric target columns at once (masked multitask)
-    multitask_targets = target_columns  # keep them all
-    ys = df_input.loc[:, multitask_targets].astype(float).values  # shape [N, T]; NaNs allowed
+    ys_df = df_input[target_columns].copy()  
+    # Factorize multiclass columns (0..K-1), keep NaNs
+    for tname in target_columns:
+        if tname in mc_map:
+            col = ys_df[tname]
+            not_nan = col.notna()
+            codes, classes = pd.factorize(col[not_nan].astype(str), sort=True)
+            tmp = pd.Series(np.nan, index=col.index, dtype=float)
+            tmp.loc[not_nan] = codes.astype(float)
+            ys_df[tname] = tmp
 
     # Build datapoints with ALL targets
     smis, df_input, combined_descriptor_data, _ = process_data(
-        df_input, smiles_column, descriptor_columns, multitask_targets, args
+        df_input, smiles_column, descriptor_columns, target_columns, args
     )
-    all_data = create_all_data(smis, ys, combined_descriptor_data, MODEL_NAME)
+    
 
-    # Splits as usual (no group logic needed for homopolymers)
-    n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
-    train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+    # Generate splits FIRST (we'll need train indices for stats)
+    ys_full = ys_df.values  # shape [N, T] with NaNs
+    first_mc = next((i for i,(k,_) in enumerate(task_specs) if k == "multi"), None)
+    if first_mc is not None:
+        y_strat = ys_df.iloc[:, first_mc].values  # 0..K-1 with NaNs
+    else:
+        y_strat = None
+    n_splits, local_reps = determine_split_strategy(len(ys_full), REPLICATES)
+    from copy import deepcopy
+    split_args = deepcopy(args)
+    split_args.task_type = 'multi' if first_mc is not None else 'reg'
+    ys_for_split = (y_strat if first_mc is not None else ys_full)
+    train_indices, val_indices, test_indices = generate_data_splits(split_args, ys_for_split, n_splits, local_reps, SEED)
+
+    # Identify regression target indices
+    reg_idx = [i for i,(k,_) in enumerate(args.task_specs) if k == 'reg']
+
+    # For pretrain_monomer (single split path in your code), pick split 0.
+    tr = train_indices[0]
+
+    # Train-only stats (μ, σ) per regression column
+    mu = np.nanmean(ys_full[tr][:, reg_idx], axis=0)
+    sd = np.nanstd (ys_full[tr][:, reg_idx], axis=0)
+    # handle all-NaN columns
+    nan_cols = np.isnan(mu) | np.isnan(sd)
+    mu[nan_cols] = 0.0
+    sd[nan_cols] = 1.0
+    sd[sd < 1e-8] = 1.0
+
+    # Map μ,σ to per-task lists aligned with task_specs
+    reg_mu_per_task = [None] * len(task_specs)
+    reg_sd_per_task = [None] * len(task_specs)
+    rj = 0
+    for t, (kind, _) in enumerate(task_specs):
+        if kind == "reg":
+            reg_mu_per_task[t] = float(mu[rj])
+            reg_sd_per_task[t] = float(sd[rj])
+            rj += 1
+
+    args.reg_mu_per_task = reg_mu_per_task
+    args.reg_sd_per_task = reg_sd_per_task
+
+    # Create normalized targets for datapoints
+    ys_norm = ys_full.copy()
+    ys_norm[:, reg_idx] = (ys_norm[:, reg_idx] - mu) / sd
+
+    all_data = create_all_data(smis, ys_norm, combined_descriptor_data, MODEL_NAME)
 
     train_data, val_data, test_data = data.split_data_by_indices(all_data, train_indices, val_indices, test_indices)
 
@@ -120,14 +200,10 @@ if args.pretrain_monomer:
     val   = data.MoleculeDataset(val_data[0],   featurizer)
     test  = data.MoleculeDataset(test_data[0],  featurizer)
 
-    # Target normalization (Chemprop handles per-column)
-    if args.task_type == 'reg':
-        scaler = train.normalize_targets()
-        val.normalize_targets(scaler)
 
     # Metrics list: pick a default (RMSE for reg, etc.)
     n_classes_arg = None
-    metric_list = get_metric_list(args.task_type)
+    metric_list = []
 
     # Paths and model
     checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = \
@@ -138,7 +214,7 @@ if args.pretrain_monomer:
         args=args,
         combined_descriptor_data=processed_descriptor_data,
         n_classes=n_classes_arg,
-        scaler=scaler if args.task_type == 'reg' else None,
+        scaler=None,
         checkpoint_path=checkpoint_path,
         batch_norm=args.batch_norm,
         metric_list=metric_list,

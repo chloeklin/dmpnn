@@ -70,7 +70,7 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     detailed_rows = []
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
         # Extract and process features
-        ab_block, descriptor_block, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit, use_ab=args.incl_ab)
+        ab_block, descriptor_block, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit, use_ab=args.incl_ab, smiles_column=smiles_column)
         
         orig_desc_names = [n for n in feat_names if not n.startswith('AB_')]
 
