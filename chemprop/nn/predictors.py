@@ -373,7 +373,7 @@ class SpectralFFN(_FFNPredictorBase):
     train_step = forward
 
 
-class MixedRegMultiFFN(nn.Module, HasHParams, HyperparameterMixin):
+class MixedRegMultiFFN(nn.Module, HasHParams, HyperparametersMixin):
     """
     task_specs: list of tuples aligned with target_columns:
         ("reg", None)    -> regression scalar
