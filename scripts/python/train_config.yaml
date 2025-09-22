@@ -27,6 +27,10 @@ dataset_ignore:
     "Theta0_min_x","Theta0_max","Theta0_ave",
     "K_dih_max","K_dih_min","K_dih_ave",
     "ABC"]
+  block:
+    ["BigSMILES"]
+  combined_homopolymer:
+    ["dataset_source"]
 
 # Model-specific settings
 models:

@@ -512,7 +512,14 @@ def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: L
             
     else:
         sA_raw, sB_raw = df["smiles_A"].astype(str).tolist(), df["smiles_B"].astype(str).tolist()
-        fA_raw, fB_raw = df["frac_A"].astype(float).values, df["frac_B"].astype(float).values
+        
+        # Handle both naming conventions for fraction columns
+        if "frac_A" in df.columns and "frac_B" in df.columns:
+            fA_raw, fB_raw = df["frac_A"].astype(float).values, df["frac_B"].astype(float).values
+        elif "fracA" in df.columns and "fracB" in df.columns:
+            fA_raw, fB_raw = df["fracA"].astype(float).values, df["fracB"].astype(float).values
+        else:
+            raise KeyError("Could not find fraction columns. Expected either 'frac_A'/'frac_B' or 'fracA'/'fracB'")
 
         sA, sB, fA, fB = [], [], [], []
         for a, b, wa, wb in zip(sA_raw, sB_raw, fA_raw, fB_raw):
