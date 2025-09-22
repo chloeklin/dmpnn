@@ -163,7 +163,7 @@ generate_evaluation_script() {
 #PBS -N eval_${MODEL_NAME}_opv_${target}${rdkit_suffix}${batch_norm_suffix}${size_suffix}_lc
 
 module use /g/data/dk92/apps/Modules/modulefiles
-module load python3/3.12.1
+module load python3/3.12.1 cuda/12.0.0
 source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
