@@ -3,7 +3,7 @@
 # Batch Training Script Generator
 # Reads experiment configurations from a YAML file and generates training scripts
 #
-# Usage: ./batch_generate_scripts.sh <config_file.yaml> [--no-submit]
+# Usage: ./batch_generate_scripts.sh <config_file.yaml> [--no-submit] [--model MODEL_NAME]
 #
 # YAML Format:
 # experiments:
@@ -27,7 +27,7 @@ if ! command -v python3 &> /dev/null; then
 fi
 
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <config_file.yaml> [--no-submit]"
+    echo "Usage: $0 <config_file.yaml> [--no-submit] [--model MODEL_NAME]"
     echo ""
     echo "YAML file format:"
     echo "experiments:"
@@ -51,16 +51,35 @@ if [ $# -lt 1 ]; then
     echo ""
     echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm (true/false)"
     echo "task_type defaults to 'reg' if not specified"
+    echo ""
+    echo "Additional options:"
+    echo "  --no-submit       Generate scripts without submitting to queue"
+    echo "  --model MODEL     Only generate scripts for specified model (DMPNN, wDMPNN, tabular)"
     exit 1
 fi
 
 CONFIG_FILE="$1"
 NO_SUBMIT=""
+MODEL_FILTER=""
 
-# Check for --no-submit flag
-if [[ "$2" == "--no-submit" ]]; then
-    NO_SUBMIT="--no-submit"
-fi
+# Parse command line arguments
+shift  # Remove config file from arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-submit)
+            NO_SUBMIT="--no-submit"
+            shift
+            ;;
+        --model)
+            MODEL_FILTER="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 # Check if config file exists
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -69,6 +88,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 echo "Batch generating training scripts from: $CONFIG_FILE"
+if [[ -n "$MODEL_FILTER" ]]; then
+    echo "Model filter: $MODEL_FILTER"
+fi
 echo "=================================================="
 
 # Parse YAML and generate scripts using Python
@@ -93,6 +115,12 @@ try:
         
         if not all([dataset, model, walltime]):
             print(f"Skipping incomplete experiment: {exp}")
+            continue
+        
+        # Apply model filter if specified
+        model_filter = '$MODEL_FILTER'
+        if model_filter and model != model_filter:
+            print(f"Skipping {dataset}-{model} (model filter: {model_filter})")
             continue
         
         # Build arguments
