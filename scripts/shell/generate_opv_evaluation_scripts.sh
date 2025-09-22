@@ -152,13 +152,14 @@ generate_evaluation_script() {
     cat > "$filepath" << EOF
 #!/bin/bash
 
-#PBS -q normal
+#PBS -q gpuvolta
 #PBS -P um09
 #PBS -l ncpus=12
+#PBS -l ngpus=1
 #PBS -l mem=64GB
 #PBS -l walltime=${WALLTIME}
 #PBS -l storage=scratch/um09+gdata/dk92
-#PBS -l jobfs=50GB
+#PBS -l jobfs=100GB
 #PBS -N eval_${MODEL_NAME}_opv_${target}${rdkit_suffix}${batch_norm_suffix}${size_suffix}_lc
 
 module use /g/data/dk92/apps/Modules/modulefiles
