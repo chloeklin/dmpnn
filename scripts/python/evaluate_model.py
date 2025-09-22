@@ -287,13 +287,8 @@ for target in target_columns:
         checkpoint_path, _, _, _, _, _ = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
-        last_ckpt = load_best_checkpoint(Path(checkpoint_path))
-        if last_ckpt is None:
-            # no checkpoint → skip this replicate (leave row without this target's metrics)
-            logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
-            continue
-
-        # Check if embeddings already exist from train_graph.py --export_embeddings
+        
+        # Check if embeddings already exist from train_graph.py --export_embeddings FIRST
         embeddings_dir = Path(checkpoint_path) / "embeddings"
         embedding_files_exist = (
             (embeddings_dir / f"X_train_split_{i}.npy").exists() and
@@ -303,7 +298,7 @@ for target in target_columns:
         )
         
         if embedding_files_exist:
-            logger.info(f"Loading existing embeddings from {embeddings_dir}")
+            logger.info(f"✅ Found existing embeddings at {embeddings_dir} - loading directly (fast path)")
             X_train = np.load(embeddings_dir / f"X_train_split_{i}.npy")
             X_val = np.load(embeddings_dir / f"X_val_split_{i}.npy")
             X_test = np.load(embeddings_dir / f"X_test_split_{i}.npy")
@@ -314,7 +309,15 @@ for target in target_columns:
             logger.info(f"  - X_val: {X_val.shape}")
             logger.info(f"  - X_test: {X_test.shape}")
         else:
-            logger.info("No existing embeddings found, extracting from model...")
+            logger.info("❌ No existing embeddings found, need to extract from checkpoint (slow path)")
+            
+            # Only now check for checkpoint since we need to extract embeddings
+            last_ckpt = load_best_checkpoint(Path(checkpoint_path))
+            if last_ckpt is None:
+                # no checkpoint → skip this replicate (leave row without this target's metrics)
+                logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
+                continue
+            
             # Load encoder and make fingerprints (map to CPU if CUDA not available)
             import torch
             map_location = torch.device('cpu') if not torch.cuda.is_available() else None
