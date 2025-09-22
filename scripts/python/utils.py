@@ -526,7 +526,7 @@ def build_model_and_trainer(
     
     # Select Message Passing Scheme
     if args.model_name == "wDMPNN":
-        mp = nn.WeightedBondMessagePassing(d_v=72, d_e=86)
+        mp = nn.WeightedBondMessagePassing() #d_v=72, d_e=86
     elif args.model_name == "DMPNN":
         mp = nn.BondMessagePassing()
     else:

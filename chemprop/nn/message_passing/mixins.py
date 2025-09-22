@@ -49,8 +49,10 @@ class _WeightedBondMessagePassingMixin:
 
         # Sum over neighbors (excluding reverse message)
         a_message = nei_a_message.sum(dim=1)                      # [num_atoms, hidden]
-        rev_message = H[b2revb]                                   # [num_bonds, hidden]
-        message = a_message[b2a] - rev_message                    # [num_bonds, hidden]
+        # rev_message = H[b2revb]                                   # [num_bonds, hidden]
+        # message = a_message[b2a] - rev_message                    # [num_bonds, hidden]
+        rev_message = H[b2revb] * w_bonds[b2revb].unsqueeze(-1)  # apply edge weight
+        message = a_message[b2a] - rev_message
 
         return self.W_h(message)                         # [num_bonds, hidden]
 

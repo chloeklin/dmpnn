@@ -488,8 +488,10 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
                     else:
                         f_bond = np.concatenate([f_bond, descr])
 
-                E.append(np.concatenate([V[a1], f_bond]))
-                E.append(np.concatenate([V[a2], f_bond]))
+                # E.append(np.concatenate([V[a1], f_bond]))
+                # E.append(np.concatenate([V[a2], f_bond]))
+                E.append(f_bond)
+                E.append(f_bond)
 
                 # Update index mappings
                 b1 = n_bonds
@@ -569,8 +571,10 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
                 else:
                     f_bond = np.concatenate([f_bond, descr])
 
-            E.append(np.concatenate([V[a1], f_bond]))
-            E.append(np.concatenate([V[a2], f_bond]))
+            # E.append(np.concatenate([V[a1], f_bond]))
+            # E.append(np.concatenate([V[a2], f_bond]))
+            E.append(f_bond)
+            E.append(f_bond)
 
             # Update index mappings
             b1 = n_bonds
@@ -600,6 +604,7 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         tgt = [a for a in range(n_atoms) for _ in a2b[a]]
         edge_index = np.array([src, tgt], dtype=int)    
         rev_edge_index = np.array(b2revb, dtype=int)
+        E_arr = np.vstack(E).astype(np.single) if len(E) else np.empty((0, 0), dtype=np.single)
         W_atoms = np.array(W_atoms, dtype=np.single)
         W_bonds = np.array(W_bonds, dtype=np.single)
 
@@ -618,12 +623,13 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         # else:
             # print("[PolymerMolGraphFeaturizer] No bonds/features in E.")
         self.atom_fdim = V.shape[1]
-        self.bond_fdim = np.array(E).shape[1]
+        self.bond_fdim = E_arr.shape[1]
+        # self.bond_fdim = np.array(E).shape[1]
 
 
         return PolymerMolGraph(
             V=V,
-            E=E,
+            E=E_arr,
             edge_index=edge_index,
             rev_edge_index=rev_edge_index,
             edge_weights=W_bonds,

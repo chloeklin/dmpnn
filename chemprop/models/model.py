@@ -126,11 +126,40 @@ class MPNN(pl.LightningModule):
         self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
     ) -> Tensor:
         """the learned fingerprints for the input molecules"""
-        H_v = self.message_passing(bmg, V_d)
-        H = self.agg(H_v, bmg.batch)
+        # 1) Node (or edge) encodings from message passing
+        H_v = self.message_passing(bmg, V_d)  # [num_nodes, d]
+
+        # 2) Weighted readout (only if polymer graph provides atom_weights)
+        if isinstance(bmg, BatchPolymerMolGraph) and getattr(bmg, "atom_weights", None) is not None:
+            # pre-multiply node states by atom weights
+            H_v = H_v * bmg.atom_weights.unsqueeze(1)  # [num_nodes, d]
+
+        # 3) Aggregate (Sum/Mean/etc.)
+        H = self.agg(H_v, bmg.batch)  # [num_graphs, d]
+
+        # 3b) WD-MPNN weighted readout
+        if isinstance(bmg, BatchPolymerMolGraph):
+            # Compute per-graph denominator = sum of weights
+            num_graphs = int(bmg.batch.max().item()) + 1
+            denom = torch.zeros(num_graphs, 1, dtype=H.dtype, device=H.device).scatter_reduce_(
+                0,
+                bmg.batch.unsqueeze(1),
+                bmg.atom_weights.unsqueeze(1),
+                reduce="sum",
+                include_self=False,
+            ).clamp_min(1e-8)
+
+            # If your agg is SumAggregation, divide to get weighted-mean.
+            # If your agg is MeanAggregation, you *still* want to divide by denom,
+            # because MeanAggregation divided by |V|, not by sum(weights).
+            from chemprop.nn import SumAggregation, MeanAggregation
+            if isinstance(self.agg, (SumAggregation, MeanAggregation)):
+                H = H / denom
+
+        # 4) BatchNorm
         H = self.bn(H)
 
-        # ✅ Scale by degree of polymerization if present (i.e., polymer graph)
+        # 5) Degree-of-polymerization scaling (as you had)
         if isinstance(bmg, BatchPolymerMolGraph):
             H = H * bmg.degree_of_polym.unsqueeze(1)
 
