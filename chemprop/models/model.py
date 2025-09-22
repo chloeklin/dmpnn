@@ -135,9 +135,6 @@ class MPNN(pl.LightningModule):
             H_v = H_v * bmg.atom_weights.unsqueeze(1)  # [num_nodes, d]
 
         # 3) Aggregate (Sum/Mean/etc.)
-        H = self.agg(H_v, bmg.batch)  # [num_graphs, d]
-
-        # 3b) WD-MPNN weighted readout
         if isinstance(bmg, BatchPolymerMolGraph):
             # Compute per-graph denominator = sum of weights
             num_graphs = int(bmg.batch.max().item()) + 1
@@ -155,6 +152,9 @@ class MPNN(pl.LightningModule):
             from chemprop.nn import SumAggregation, MeanAggregation
             if isinstance(self.agg, (SumAggregation, MeanAggregation)):
                 H = H / denom
+        else:
+            # non-polymer graphs: use the configured aggregator
+            H = self.agg(H_v, bmg.batch)  # [num_graphs, d]
 
         # 4) BatchNorm
         H = self.bn(H)
