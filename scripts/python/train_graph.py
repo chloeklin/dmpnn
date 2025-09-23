@@ -102,6 +102,16 @@ set_seed(SEED)
 # === Load and Preprocess Data ===
 df_input, target_columns = load_and_preprocess_data(args, setup_info)
 
+# Debug: Show what columns we're working with
+logger.info(f"DataFrame columns after preprocessing: {list(df_input.columns)}")
+logger.info(f"Detected target columns: {target_columns}")
+logger.info(f"DataFrame shape: {df_input.shape}")
+
+# Check for any remaining string columns
+for col in df_input.columns:
+    if df_input[col].dtype == 'object':
+        logger.warning(f"Column '{col}' still has object dtype after preprocessing")
+
 
 
 
@@ -128,6 +138,18 @@ if args.pretrain_monomer:
 
     # Use all numeric target columns at once (masked multitask)
     ys_df = df_input[target_columns].copy()  
+    
+    # Debug: Check for non-numeric columns
+    for col in target_columns:
+        if ys_df[col].dtype == 'object':
+            logger.warning(f"Target column '{col}' has object dtype. Sample values: {ys_df[col].dropna().head().tolist()}")
+            # Try to convert to numeric
+            try:
+                ys_df[col] = pd.to_numeric(ys_df[col], errors='coerce')
+                logger.info(f"Successfully converted '{col}' to numeric")
+            except Exception as e:
+                logger.error(f"Failed to convert '{col}' to numeric: {e}")
+    
     # Factorize multiclass columns (0..K-1), keep NaNs
     for tname in target_columns:
         if tname in mc_map:
@@ -173,13 +195,35 @@ if args.pretrain_monomer:
     )
     # Identify regression target indices
     reg_idx = [i for i,(k,_) in enumerate(args.task_specs) if k == 'reg']
+    
+    # Debug: Check task specs and data types
+    logger.info(f"Task specs: {args.task_specs}")
+    logger.info(f"Regression indices: {reg_idx}")
+    logger.info(f"ys_full shape: {ys_full.shape}")
+    logger.info(f"ys_full dtype: {ys_full.dtype}")
+    
+    # Check if any columns still contain strings
+    for i, col_name in enumerate(target_columns):
+        col_data = ys_full[:, i]
+        if col_data.dtype == 'object':
+            logger.error(f"Column {i} ({col_name}) still has object dtype!")
+            sample_vals = col_data[~pd.isna(col_data)][:5]
+            logger.error(f"Sample values: {sample_vals}")
 
     # For pretrain_monomer (single split path in your code), pick split 0.
     tr = train_indices[0]
 
     # Train-only stats (μ, σ) per regression column
-    mu = np.nanmean(ys_full[tr][:, reg_idx], axis=0)
-    sd = np.nanstd (ys_full[tr][:, reg_idx], axis=0)
+    if reg_idx:
+        logger.info(f"Computing stats for regression columns at indices: {reg_idx}")
+        reg_data = ys_full[tr][:, reg_idx]
+        logger.info(f"Regression data shape: {reg_data.shape}, dtype: {reg_data.dtype}")
+        mu = np.nanmean(reg_data, axis=0)
+        sd = np.nanstd(reg_data, axis=0)
+    else:
+        logger.info("No regression columns found")
+        mu = np.array([])
+        sd = np.array([])
     # handle all-NaN columns
     nan_cols = np.isnan(mu) | np.isnan(sd)
     mu[nan_cols] = 0.0
@@ -201,7 +245,8 @@ if args.pretrain_monomer:
 
     # Create normalized targets for datapoints
     ys_norm = ys_full.copy()
-    ys_norm[:, reg_idx] = (ys_norm[:, reg_idx] - mu) / sd
+    if reg_idx:  # Only normalize if there are regression columns
+        ys_norm[:, reg_idx] = (ys_norm[:, reg_idx] - mu) / sd
 
     all_data = create_all_data(smis, ys_norm, combined_descriptor_data, MODEL_NAME)
 

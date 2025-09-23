@@ -1339,11 +1339,16 @@ def load_and_preprocess_data(args, setup_info):
     # ---------------------- Apply dataset_ignore ----------------------
     cfg = setup_info.get('config', {})
     ds_ignore = cfg.get('DATASET_IGNORE', {}).get(args.dataset_name, []) or []
+    logger.info(f"Dataset ignore config for '{args.dataset_name}': {ds_ignore}")
     if ds_ignore:
         drop_cols = [c for c in ds_ignore if c in df_input.columns]
         if drop_cols:
             logger.info(f"Dropping {len(drop_cols)} dataset_ignore columns: {drop_cols}")
             df_input = df_input.drop(columns=drop_cols, errors="ignore")
+        else:
+            logger.info(f"No columns to drop from dataset_ignore list: {ds_ignore}")
+    else:
+        logger.info(f"No dataset_ignore configuration found for '{args.dataset_name}'")
 
     # ---------------------- Model-specific wDMPNN filters (unchanged) ----------------------
     if args.dataset_name == "insulator" and hasattr(args, 'model_name') and args.model_name == "wDMPNN":
@@ -1529,38 +1534,49 @@ def group_splits(df, y, task_type, n_splits, seed, train_frac=0.8, val_frac=0.1,
     groups = make_groups_for_copolymer(df)
     n = len(df)
 
+    # ---------------------- Cross-validation path ----------------------
     if n_splits > 1:
         if task_type != "reg" and HAVE_SGKF:
-            # y must be 1D class labels here
             splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-            cv_iter = splitter.split(np.zeros(n), y, groups)  # X dummy
+            cv_iter = splitter.split(np.zeros(n), y, groups)
         else:
-            splitter = GroupKFold(n_splits=n_splits)
-            cv_iter = splitter.split(np.zeros(n), None, groups)
+            splitter = GroupKFold(n_splits=n_splits)  # deterministic, no shuffle
+            cv_iter = splitter.split(np.zeros(n), groups=groups)
 
         tr_list, va_list, te_list = [], [], []
-        for tr_idx, te_idx in cv_iter:
-            # split test off by groups; now carve out a val set from train by groups
-            g_tr = groups[tr_idx]
-            inner = GroupShuffleSplit(n_splits=1, train_size=1.0 - val_frac/train_frac, random_state=seed)
-            tr2_idx_rel, va_idx_rel = next(inner.split(tr_idx, groups=g_tr))
-            tr2_idx = tr_idx[tr2_idx_rel]
-            va_idx = tr_idx[va_idx_rel]
-            tr_list.append(tr2_idx); va_list.append(va_idx); te_list.append(te_idx)
+        # proportion actually available for training folds in CV (rest is test)
+        train_total = 1.0 - 1.0 / n_splits
+        # inner val fraction relative to TRAIN so that global val ≈ val_frac
+        inner_val = min(max(val_frac / train_total, 0.0), 1.0)
+
+        for k, (tr_idx, te_idx) in enumerate(cv_iter):
+            # carve validation from training by groups
+            inner = GroupShuffleSplit(n_splits=1, train_size=1.0 - inner_val,
+                                      random_state=seed + k)
+            tr2_rel, va_rel = next(inner.split(tr_idx, groups=groups[tr_idx]))
+            tr2_idx = tr_idx[tr2_rel]
+            va_idx = tr_idx[va_rel]
+
+            tr_list.append(tr2_idx)
+            va_list.append(va_idx)
+            te_list.append(te_idx)
+
         return tr_list, va_list, te_list
 
-    else:
-        # 80/10/10 holdout by groups
-        outer = GroupShuffleSplit(n_splits=1, train_size=train_frac, random_state=seed)
-        tr_idx, temp_idx = next(outer.split(np.zeros(n), groups=groups))
-        # split temp equally into val/test
-        temp_groups = groups[temp_idx]
-        inner = GroupShuffleSplit(n_splits=1,
-                                  train_size=val_frac/(val_frac+test_frac),
-                                  random_state=seed)
-        va_rel, te_rel = next(inner.split(temp_idx, groups=temp_groups))
-        va_idx = temp_idx[va_rel]; te_idx = temp_idx[te_rel]
-        return [tr_idx], [va_idx], [te_idx]
+    # ---------------------- Holdout path (80/10/10 by default) ----------------------
+    outer = GroupShuffleSplit(n_splits=1, train_size=train_frac, random_state=seed)
+    tr_idx, temp_idx = next(outer.split(np.zeros(n), groups=groups))
+
+    temp_groups = groups[temp_idx]
+    # fraction of TEMP that should become VAL (so VAL:TEST ≈ val_frac:test_frac)
+    inner_train_size = val_frac / (val_frac + test_frac)
+    inner = GroupShuffleSplit(n_splits=1, train_size=inner_train_size, random_state=seed + 1)
+    va_rel, te_rel = next(inner.split(temp_idx, groups=temp_groups))
+
+    va_idx = temp_idx[va_rel]
+    te_idx = temp_idx[te_rel]
+
+    return [tr_idx], [va_idx], [te_idx]
 
 def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger):
     """Save results using target-specific filenames to prevent overwriting.
