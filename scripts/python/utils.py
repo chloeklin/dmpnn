@@ -533,6 +533,7 @@ def build_model_and_trainer(
     """
     try:
         # Local imports for heavy dependencies
+        import torch
         from chemprop import nn, models
         from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
         import lightning.pytorch as pl
@@ -552,11 +553,13 @@ def build_model_and_trainer(
     if not hasattr(args, 'model_name'):
         raise ValueError("args must have 'model_name' attribute")
     
-    # Select Message Passing Scheme
+    # Create aggregation and model
     if args.model_name == "wDMPNN":
-        mp = nn.WeightedBondMessagePassing() #d_v=72, d_e=86
+        mp = nn.WeightedBondMessagePassing()
+        agg = nn.WeightedMeanAggregation()        # ✅ no-op for graph-level outputs
     elif args.model_name == "DMPNN":
         mp = nn.BondMessagePassing()
+        agg = nn.MeanAggregation()
     else:
         raise ValueError(f"Unsupported model_name: {args.model_name}")
     
@@ -608,13 +611,7 @@ def build_model_and_trainer(
     else:
         raise ValueError(f"Unsupported task_type: {args.task_type}")
     
-    # Create aggregation and model
-    if args.model_name == "wDMPNN":
-        mp = nn.WeightedBondMessagePassing()
-        agg = nn.IdentityAggregation()        # ✅ no-op for graph-level outputs
-    elif args.model_name == "DMPNN":
-        mp = nn.BondMessagePassing()
-        agg = nn.MeanAggregation()
+    
     mpnn = models.MPNN(
         message_passing=mp, 
         agg=agg, 

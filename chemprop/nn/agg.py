@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from typing import Any
 
 import torch
 from torch import Tensor, nn
@@ -13,7 +14,8 @@ __all__ = [
     "SumAggregation",
     "NormAggregation",
     "AttentiveAggregation",
-    "IdentityAggregation"
+    "IdentityAggregation",
+    "WeightedMeanAggregation",
 ]
 
 
@@ -137,3 +139,59 @@ class AttentiveAggregation(Aggregation):
 class IdentityAggregation(Aggregation):
     def forward(self, H: Tensor, batch: Tensor) -> Tensor:
         return H  # already graph-level
+
+@AggregationRegistry.register("weighted_mean")
+class WeightedMeanAggregation(Aggregation):
+    r"""
+    Graph readout that computes a weighted mean over node embeddings.
+
+    • Polymer graphs: pass the BatchPolymerMolGraph (must have `.batch` and `.atom_weights`).
+      g_i = (sum_{v in graph i} w_v * h_v) / (sum_{v in graph i} w_v)
+
+    • Non-polymer graphs: if given a batch index tensor, falls back to an unweighted mean.
+
+    Notes
+    -----
+    This class accepts either:
+      - (H: [num_nodes, d], bmg: object with .batch [num_nodes] and .atom_weights [num_nodes])
+      - (H: [num_nodes, d], batch: LongTensor [num_nodes])
+    """
+
+    def forward(self, H: Tensor, batch_or_bmg: Any) -> Tensor:
+        # --- Polymer path: BatchPolymerMolGraph with weights ---
+        if hasattr(batch_or_bmg, "batch") and hasattr(batch_or_bmg, "atom_weights"):
+            bmg = batch_or_bmg
+            batch = bmg.batch
+            w = bmg.atom_weights.to(H.dtype).to(H.device).unsqueeze(-1)  # [num_nodes, 1]
+            hw = H * w                                                   # [num_nodes, d]
+
+            num_graphs = int(batch.max().item()) + 1 if batch.numel() else 1
+            d = H.size(1)
+
+            sum_hw = torch.zeros(num_graphs, d, dtype=H.dtype, device=H.device)
+            sum_w  = torch.zeros(num_graphs, 1, dtype=H.dtype, device=H.device)
+
+            sum_hw.index_add_(0, batch, hw)
+            sum_w.index_add_(0, batch, w)
+
+            return sum_hw / sum_w.clamp_min(1e-12)
+
+        # --- Fallback: unweighted mean using a batch index tensor ---
+        batch = batch_or_bmg  # expect LongTensor [num_nodes]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() else 1
+        d = H.size(1)
+
+        index = batch.unsqueeze(1).expand(-1, d)
+
+        # numerator: per-graph sum of H
+        num = torch.zeros(num_graphs, d, dtype=H.dtype, device=H.device).scatter_reduce_(
+            0, index, H, reduce="sum", include_self=False
+        )
+
+        # denominator: per-graph counts
+        ones = torch.ones(batch.size(0), 1, dtype=H.dtype, device=H.device)
+        den = torch.zeros(num_graphs, 1, dtype=H.dtype, device=H.device).scatter_reduce_(
+            0, batch.unsqueeze(1), ones, reduce="sum", include_self=False
+        ).clamp_min_(1e-12)
+
+        return num / den

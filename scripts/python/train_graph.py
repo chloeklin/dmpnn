@@ -147,17 +147,30 @@ if args.pretrain_monomer:
     # Generate splits FIRST (we'll need train indices for stats)
     ys_full = ys_df.values  # shape [N, T] with NaNs
     first_mc = next((i for i,(k,_) in enumerate(task_specs) if k == "multi"), None)
-    if first_mc is not None:
-        y_strat = ys_df.iloc[:, first_mc].values  # 0..K-1 with NaNs
-    else:
-        y_strat = None
+
+    # Choose a stratification column if we have a multiclass task
+    y_strat = ys_df.iloc[:, first_mc].values if first_mc is not None else None
+
+    # --- PATCH: if stratification labels contain NaNs, fallback to unstratified ---
+    use_strat = (first_mc is not None)
+    if use_strat:
+        y_strat_np = y_strat.astype(float)
+        if np.isnan(y_strat_np).any():
+            logger.warning("NaNs found in stratification labels for pretrain_monomer; "
+                        "falling back to unstratified splits.")
+            use_strat = False
+
     n_splits, local_reps = determine_split_strategy(len(ys_full), REPLICATES)
+
     from copy import deepcopy
     split_args = deepcopy(args)
-    split_args.task_type = 'multi' if first_mc is not None else 'reg'
-    ys_for_split = (y_strat if first_mc is not None else ys_full)
-    train_indices, val_indices, test_indices = generate_data_splits(split_args, ys_for_split, n_splits, local_reps, SEED)
+    # Only stratify if we have a valid multiclass column WITHOUT NaNs
+    split_args.task_type = 'multi' if use_strat else 'reg'
+    ys_for_split = (y_strat if use_strat else ys_full)
 
+    train_indices, val_indices, test_indices = generate_data_splits(
+        split_args, ys_for_split, n_splits, local_reps, SEED
+    )
     # Identify regression target indices
     reg_idx = [i for i,(k,_) in enumerate(args.task_specs) if k == 'reg']
 

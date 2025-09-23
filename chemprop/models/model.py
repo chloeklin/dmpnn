@@ -14,6 +14,7 @@ from chemprop.nn import Aggregation, ChempropMetric, MessagePassing, Predictor
 from chemprop.nn.transforms import ScaleTransform
 from chemprop.schedulers import build_NoamLike_LRSched
 from chemprop.utils.registry import Factory
+from chemprop.nn.agg import WeightedMeanAggregation
 
 logger = logging.getLogger(__name__)
 
@@ -126,41 +127,25 @@ class MPNN(pl.LightningModule):
         self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
     ) -> Tensor:
         """the learned fingerprints for the input molecules"""
-        # 1) Node (or edge) encodings from message passing
-        H_v = self.message_passing(bmg, V_d)  # [num_nodes, d]
-
-        if isinstance(bmg, BatchPolymerMolGraph) and getattr(bmg, "atom_weights", None) is not None:
-            # --- WD-MPNN weighted readout ---
-            # Pre-weight node states
-            H_w = H_v * bmg.atom_weights.unsqueeze(1)  # [num_nodes, d]
-
-            # Per-graph weighted sum (numerator)
-            num_graphs = int(bmg.batch.max().item()) + 1
-            index = bmg.batch.unsqueeze(1).expand(-1, H_w.size(1))  # [num_nodes, d]
-            num = torch.zeros(num_graphs, H_w.size(1), dtype=H_w.dtype, device=H_w.device) \
-                    .scatter_reduce_(0, index, H_w, reduce="sum", include_self=False)
-
-            # Per-graph sum of weights (denominator)
-            denom = torch.zeros(num_graphs, 1, dtype=H_w.dtype, device=H_w.device) \
-                    .scatter_reduce_(0,
-                                    bmg.batch.unsqueeze(1),
-                                    bmg.atom_weights.unsqueeze(1),
-                                    reduce="sum",
-                                    include_self=False) \
-                    .clamp_min_(1e-8)
-
-            H = num / denom  # weighted mean per graph: [num_graphs, d]
+        # 1) Encodings from message passing (node-level OR graph-level)
+        H_v = self.message_passing(bmg, V_d)
+        if isinstance(self.agg, WeightedMeanAggregation):
+            H = self.agg(H_v, bmg)         # gives it access to .atom_weights
         else:
-            # Non-polymer (or no weights): use configured aggregator
-            H = self.agg(H_v, bmg.batch)  # [num_graphs, d]
+            H = self.agg(H_v, bmg.batch)   # standard aggregations
 
-        # 4) BatchNorm
+        # 2) If node-level (one row per atom), aggregate to graphs
+        if H.size(0) == bmg.V.size(0):
+            H = self.agg(H, bmg.batch)  # -> [num_graphs, d]
+
+        # 3) BatchNorm on graph-level embeddings
         H = self.bn(H)
 
-        # 5) Degree-of-polymerization scaling (as you had)
+        # 4) Optional degree-of-polymerization scaling
         if isinstance(bmg, BatchPolymerMolGraph):
             H = H * bmg.degree_of_polym.unsqueeze(1)
 
+        # 5) Concatenate tabular descriptors if present
         return H if X_d is None else torch.cat((H, self.X_d_transform(X_d)), dim=1)
 
     def encoding(

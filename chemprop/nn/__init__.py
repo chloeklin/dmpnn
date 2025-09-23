@@ -6,6 +6,7 @@ from .agg import (
     MeanAggregation,
     NormAggregation,
     SumAggregation,
+    WeightedMeanAggregation,
 )
 from .ffn import ConstrainerFFN
 from .message_passing import (
@@ -74,6 +75,7 @@ __all__ = [
     "NormAggregation",
     "AttentiveAggregation",
     "IdentityAggregation",
+    "WeightedMeanAggregation",
     "ConstrainerFFN",
     "ChempropMetric",
     "ClassificationMixin",
@@ -116,6 +118,7 @@ __all__ = [
     "MessagePassing",
     "AtomMessagePassing",
     "BondMessagePassing",
+    "WeightedBondMessagePassing"
     "MABAtomMessagePassing",
     "MABBondMessagePassing",
     "MABMessagePassing",
