@@ -477,95 +477,146 @@ def canon_pair(a, b, wa, wb):
 
 # ------------------------ Feature assembly ---------------------------
 
-def build_features(df: pd.DataFrame, train_idx: List[int], descriptor_columns: List[str], kind: str, use_rdkit: bool, use_ab: bool = True, pool: str = 'mean', add_counts: bool = False) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+def build_features(
+    df: pd.DataFrame,
+    train_idx: List[int],
+    descriptor_columns: List[str],
+    kind: str,
+    use_rdkit: bool,
+    use_ab: bool = True,
+    pool: str = 'mean',
+    add_counts: bool = False,
+    smiles_column: str = "smiles",
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Assemble feature blocks for homo- and co-polymers.
+
+    Returns:
+      ab_block: np.ndarray or None
+      descriptor_block: np.ndarray or None
+      names: list[str] (AB_* first, then descriptor names)
+    """
     use_descriptor = len(descriptor_columns) > 0
-    
     ab_block = None
     descriptor_block = None
-    names = []
+    names: List[str] = []
 
+    # -------------------- HOMOPOLYMER --------------------
     if kind == "homo":
-        smiles = df["smiles"].tolist()
-        
-        # Only include AB features if requested
+        if smiles_column not in df.columns:
+            raise KeyError(f"homo mode expects a SMILES column '{smiles_column}' (pass via smiles_column).")
+        smiles = df[smiles_column].astype(str).tolist()
+
+        # AB pooled features
         if use_ab:
             ab_block = atom_bond_block_from_smiles(smiles, pool=pool, add_counts=add_counts)
             names += [f"AB_{i}" for i in range(ab_block.shape[1])]
-        
-        # Combine RDKit and descriptor blocks
-        desc_blocks = []
-        desc_names = []
-        
+
+        # RDKit + dataset descriptors
+        desc_blocks, desc_names = [], []
+
         if use_rdkit:
+            # ensure RD_DESC_NAMES is initialized
+            _init_rdkit_descriptors()
             rdkit_block = rdkit_block_from_smiles(smiles)
             desc_blocks.append(rdkit_block)
             desc_names += [f"RD_{n}" for n in RD_DESC_NAMES]
-            
+
         if use_descriptor:
             dataset_desc_block = df[descriptor_columns].values
             desc_blocks.append(dataset_desc_block)
             desc_names += descriptor_columns
-            
+
         if desc_blocks:
             descriptor_block = np.concatenate(desc_blocks, axis=1)
             names += desc_names
-            
+
+        if ab_block is None and descriptor_block is None:
+            raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
+
+        return ab_block, descriptor_block, names
+
+    # -------------------- COPOLYMER --------------------
+    # accept either smilesA/smilesB or smiles_A/smiles_B
+    smilesA_col = "smilesA" if "smilesA" in df.columns else "smiles_A"
+    smilesB_col = "smilesB" if "smilesB" in df.columns else "smiles_B"
+    if smilesA_col not in df.columns or smilesB_col not in df.columns:
+        raise KeyError("copolymer mode expects 'smilesA'/'smilesB' or 'smiles_A'/'smiles_B' columns.")
+
+    sA_raw = df[smilesA_col].astype(str).tolist()
+    sB_raw = df[smilesB_col].astype(str).tolist()
+
+    # accept either fracA/fracB or frac_A/frac_B; compute fracB if missing
+    if "fracA" in df.columns or "fracB" in df.columns:
+        fA_raw = pd.to_numeric(df.get("fracA", np.nan), errors="coerce")
+        fB_raw = pd.to_numeric(df.get("fracB", np.nan), errors="coerce")
+    elif "frac_A" in df.columns or "frac_B" in df.columns:
+        fA_raw = pd.to_numeric(df.get("frac_A", np.nan), errors="coerce")
+        fB_raw = pd.to_numeric(df.get("frac_B", np.nan), errors="coerce")
     else:
-        sA_raw, sB_raw = df["smiles_A"].astype(str).tolist(), df["smiles_B"].astype(str).tolist()
-        
-        # Handle both naming conventions for fraction columns
-        if "frac_A" in df.columns and "frac_B" in df.columns:
-            fA_raw, fB_raw = df["frac_A"].astype(float).values, df["frac_B"].astype(float).values
-        elif "fracA" in df.columns and "fracB" in df.columns:
-            fA_raw, fB_raw = df["fracA"].astype(float).values, df["fracB"].astype(float).values
-        else:
-            raise KeyError("Could not find fraction columns. Expected either 'frac_A'/'frac_B' or 'fracA'/'fracB'")
+        raise KeyError("copolymer mode expects fraction columns: 'fracA'/'fracB' or 'frac_A'/'frac_B'.")
 
-        sA, sB, fA, fB = [], [], [], []
-        for a, b, wa, wb in zip(sA_raw, sB_raw, fA_raw, fB_raw):
-            a2, b2, wa2, wb2 = canon_pair(a, b, wa, wb)
-            sA.append(a2); sB.append(b2); fA.append(wa2); fB.append(wb2)
-        fA = np.asarray(fA, float); fB = np.asarray(fB, float)
+    # if only fA provided, infer fB
+    if fB_raw.isna().any() and not fA_raw.isna().all():
+        fB_raw = 1.0 - fA_raw
 
-        # Only include AB features if requested
-        if use_ab:
-            abA = atom_bond_block_from_smiles(sA, pool=pool, add_counts=add_counts)
-            abB = atom_bond_block_from_smiles(sB, pool=pool, add_counts=add_counts)
-            ab_block = weighted_average(abA, abB, fA, fB)
-            names += [f"AB_{i}" for i in range(ab_block.shape[1])]
-        
-        # Combine RDKit and descriptor blocks
-        desc_blocks = []
-        desc_names = []
-        
-        if use_rdkit:
-            rdA = rdkit_block_from_smiles(sA)
-            rdB = rdkit_block_from_smiles(sB)
+    if fA_raw.isna().any() or fB_raw.isna().any():
+        raise ValueError("Found NaNs in fracA/fracB after coercion/inference.")
 
-            # impute NaNs using train-only means, then fit scaler on train rows only
-            train_stack = np.vstack([rdA[train_idx], rdB[train_idx]])
-            sc = StandardScaler().fit(train_stack)
+    # clip tiny numeric issues and normalize to sum 1.0 (safe normalization)
+    fsum = (fA_raw.values.astype(float) + fB_raw.values.astype(float))
+    bad = ~np.isfinite(fsum) | (fsum <= 0)
+    if bad.any():
+        raise ValueError("Invalid fractions: non-finite or non-positive totals in fracA+fracB.")
+    fA_raw = fA_raw.values.astype(float) / fsum
+    fB_raw = 1.0 - fA_raw
 
-            rdA_z = sc.transform(rdA)
-            rdB_z = sc.transform(rdB)
+    # canonicalize pairs so A+B == B+A; swap fractions accordingly
+    sA, sB, fA, fB = [], [], [], []
+    for a, b, wa, wb in zip(sA_raw, sB_raw, fA_raw, fB_raw):
+        a2, b2, wa2, wb2 = canon_pair(a, b, wa, wb)
+        sA.append(a2); sB.append(b2); fA.append(wa2); fB.append(wb2)
+    fA = np.asarray(fA, float); fB = np.asarray(fB, float)
 
-            rdkit_block = weighted_average(rdA_z, rdB_z, fA, fB)
-            desc_blocks.append(rdkit_block)
-            desc_names += [f"RD_{n}" for n in RD_DESC_NAMES]
+    # AB pooled: per monomer then weighted blend
+    if use_ab:
+        abA = atom_bond_block_from_smiles(sA, pool=pool, add_counts=add_counts)
+        abB = atom_bond_block_from_smiles(sB, pool=pool, add_counts=add_counts)
+        ab_block = weighted_average(abA, abB, fA, fB)
+        names += [f"AB_{i}" for i in range(ab_block.shape[1])]
 
-        if use_descriptor:
-            dataset_desc_block = df[descriptor_columns].values
-            desc_blocks.append(dataset_desc_block)
-            desc_names += descriptor_columns
-            
-        if desc_blocks:
-            descriptor_block = np.concatenate(desc_blocks, axis=1)
-            names += desc_names
+    # RDKit + dataset descriptors
+    desc_blocks, desc_names = [], []
+
+    if use_rdkit:
+        _init_rdkit_descriptors()
+        rdA = rdkit_block_from_smiles(sA)
+        rdB = rdkit_block_from_smiles(sB)
+
+        # fit scaler on TRAIN rows only, using both monomer matrices (as you had)
+        train_stack = np.vstack([rdA[train_idx], rdB[train_idx]])
+        sc = StandardScaler().fit(train_stack)
+        rdA_z = sc.transform(rdA)
+        rdB_z = sc.transform(rdB)
+
+        rd_blend = weighted_average(rdA_z, rdB_z, fA, fB)
+        desc_blocks.append(rd_blend)
+        desc_names += [f"RD_{n}" for n in RD_DESC_NAMES]
+
+    if use_descriptor:
+        dataset_desc_block = df[descriptor_columns].values
+        desc_blocks.append(dataset_desc_block)
+        desc_names += descriptor_columns
+
+    if desc_blocks:
+        descriptor_block = np.concatenate(desc_blocks, axis=1)
+        names += desc_names
 
     if ab_block is None and descriptor_block is None:
-        raise ValueError("No features selected. Use --descriptor and/or --incl_rdkit.")
-    
+        raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
+
     return ab_block, descriptor_block, names
+
 
 
 def eval_regression(y_true, y_pred) -> Dict[str, float]:

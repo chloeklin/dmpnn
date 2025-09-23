@@ -32,14 +32,14 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any
         {
             'GLOBAL': Dict of global configuration parameters,
             'MODELS': Dict of model configurations,
-            'DATASET_DESCRIPTORS': Dict of dataset descriptors
+            'DATASET_DESCRIPTORS': Dict of dataset descriptors,
+            'DATASET_IGNORE': Dict of dataset ignore-lists,
+            'PATHS': Dict of path settings
         }
-        
-    Raises:
-        FileNotFoundError: If the config file doesn't exist
-        yaml.YAMLError: If the YAML file is malformed
     """
-    import yaml  # Local import for optional dependency
+    import yaml
+    import os
+    from pathlib import Path
     
     if config_path is None:
         config_path = Path(__file__).parent / 'train_config.yaml'
@@ -52,16 +52,18 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f) or {}
     
-    # Convert to the expected format with consistent key casing
+    # normalize keys and build result
     result = {
         'GLOBAL': {k.upper(): v for k, v in config.get('global', {}).items()},
-        'MODELS': {k: v for k, v in config.get('models', {}).items()},
-        'DATASET_DESCRIPTORS': config.get('dataset_descriptors', {})
+        'MODELS': config.get('models', {}),
+        'DATASET_DESCRIPTORS': config.get('dataset_descriptors', {}),
+        'DATASET_IGNORE': config.get('dataset_ignore', {}),
+        'PATHS': config.get('paths', {}),
     }
     
     # Handle dynamic values
-    if 'num_workers' in result['GLOBAL']:
-        num_workers = result['GLOBAL'].pop('num_workers')
+    if 'NUM_WORKERS' not in result['GLOBAL'] and 'num_workers' in config.get('global', {}):
+        num_workers = config['global']['num_workers']
         max_workers = os.cpu_count() or 1
         result['GLOBAL']['NUM_WORKERS'] = min(
             num_workers if isinstance(num_workers, int) else max_workers,
@@ -69,6 +71,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any
         )
     
     return result
+
 
 def set_seed(seed: int = 42) -> None:
     """Set random seeds for reproducibility.
@@ -1318,41 +1321,141 @@ def setup_training_environment(args, model_type="graph"):
 
 def load_and_preprocess_data(args, setup_info):
     """Load and preprocess data with common filtering logic.
-    
-    Args:
-        args: Command line arguments
-        setup_info: Dictionary from setup_training_environment
-        
-    Returns:
-        Tuple of (df_input, target_columns)
+
+    - Applies dataset-specific ignores from config
+    - Handles homopolymer (single smiles) and copolymer (A/B + fractions)
+    - For copolymers: infers/normalizes fracB and creates a 'group_key'
+    - Auto-detects target columns after exclusions
     """
     import logging
+    import numpy as np
+    import pandas as pd
+
     logger = logging.getLogger(__name__)
-    
-    # Load data
+
+    # ---------------------- Load raw CSV ----------------------
     df_input = pd.read_csv(setup_info['input_path'])
-    
-    # Apply insulator dataset filtering if needed (for wDMPNN)
+
+    # ---------------------- Apply dataset_ignore ----------------------
+    cfg = setup_info.get('config', {})
+    ds_ignore = cfg.get('DATASET_IGNORE', {}).get(args.dataset_name, []) or []
+    if ds_ignore:
+        drop_cols = [c for c in ds_ignore if c in df_input.columns]
+        if drop_cols:
+            logger.info(f"Dropping {len(drop_cols)} dataset_ignore columns: {drop_cols}")
+            df_input = df_input.drop(columns=drop_cols, errors="ignore")
+
+    # ---------------------- Model-specific wDMPNN filters (unchanged) ----------------------
     if args.dataset_name == "insulator" and hasattr(args, 'model_name') and args.model_name == "wDMPNN":
         df_input = filter_insulator_data(args, df_input, setup_info['smiles_column'])
-    
-    # Read the saved exclusions from the wDMPNN preprocessing step
+
     if not (hasattr(args, 'model_name') and args.model_name == "wDMPNN"):
         drop_idx, excluded_smis = load_drop_indices(setup_info['chemprop_dir'], args.dataset_name)
         if drop_idx:
             logger.info(f"Dropping {len(drop_idx)} rows from {args.dataset_name} due to exclusions.")
             df_input = df_input.drop(index=drop_idx, errors="ignore").reset_index(drop=True)
-    
-    # Automatically detect target columns
-    target_columns = [c for c in df_input.columns
-                     if c not in ([setup_info['smiles_column']] + 
-                                setup_info['DATASET_DESCRIPTORS'] + 
-                                setup_info['ignore_columns'])]
-    
+
+    # ---------------------- Copolymer handling ----------------------
+    if args.polymer_type == "copolymer":
+        # Accept both naming conventions
+        sA_col = "smilesA" if "smilesA" in df_input.columns else ("smiles_A" if "smiles_A" in df_input.columns else None)
+        sB_col = "smilesB" if "smilesB" in df_input.columns else ("smiles_B" if "smiles_B" in df_input.columns else None)
+        if sA_col is None or sB_col is None:
+            raise KeyError("Copolymer mode expects 'smilesA'/'smilesB' or 'smiles_A'/'smiles_B' columns.")
+
+        # Fractions: accept A/B or A_B; infer fracB if missing
+        if "fracA" in df_input.columns or "fracB" in df_input.columns:
+            df_input["fracA"] = pd.to_numeric(df_input.get("fracA"), errors="coerce")
+            if "fracB" in df_input.columns:
+                df_input["fracB"] = pd.to_numeric(df_input.get("fracB"), errors="coerce")
+            else:
+                df_input["fracB"] = 1.0 - df_input["fracA"]
+        elif "frac_A" in df_input.columns or "frac_B" in df_input.columns:
+            df_input["fracA"] = pd.to_numeric(df_input.get("frac_A"), errors="coerce")
+            if "frac_B" in df_input.columns:
+                df_input["fracB"] = pd.to_numeric(df_input.get("frac_B"), errors="coerce")
+            else:
+                df_input["fracB"] = 1.0 - df_input["fracA"]
+        else:
+            raise KeyError("Copolymer mode expects 'fracA'/'fracB' or 'frac_A'/'frac_B' columns.")
+
+        # Validate / normalize fractions (robust to tiny numeric noise)
+        if df_input[["fracA", "fracB"]].isna().any().any():
+            raise ValueError("Found NaNs in fracA/fracB after coercion.")
+
+        ssum = (df_input["fracA"].astype(float) + df_input["fracB"].astype(float)).values
+        if not np.isfinite(ssum).all() or np.any(ssum <= 0):
+            raise ValueError("Invalid fractions: non-finite or non-positive totals in fracA+fracB.")
+
+        # Normalize so fracA+fracB == 1.0 exactly
+        df_input["fracA"] = (df_input["fracA"].astype(float) / ssum)
+        df_input["fracB"] = 1.0 - df_input["fracA"]
+
+        # Canonicalize pair & build group_key (A+B == B+A) to avoid leakage across splits
+        def _canon_pair(a, b, wa, wb):
+            a = "" if pd.isna(a) else str(a)
+            b = "" if pd.isna(b) else str(b)
+            if b < a:
+                return b, a, wb, wa
+            return a, b, wa, wb
+
+        def _round6(x):  # stable key vs tiny fp jitter
+            try:
+                return round(float(x), 6)
+            except Exception:
+                return x
+
+        canA, canB, fA_list, fB_list = [], [], [], []
+        for a, b, wa, wb in zip(df_input[sA_col].astype(str), df_input[sB_col].astype(str),
+                                df_input["fracA"].values, df_input["fracB"].values):
+            a2, b2, wa2, wb2 = _canon_pair(a, b, wa, wb)
+            canA.append(a2); canB.append(b2); fA_list.append(wa2); fB_list.append(wb2)
+
+        df_input["smilesA"] = canA  # normalized names going forward
+        df_input["smilesB"] = canB
+        df_input["fracA"] = np.asarray(fA_list, float)
+        df_input["fracB"] = np.asarray(fB_list, float)
+
+        df_input["group_key"] = [
+            f"{a}|||{b}|||{_round6(wa)}|||{_round6(wb)}"
+            for a, b, wa, wb in zip(df_input["smilesA"], df_input["smilesB"], df_input["fracA"], df_input["fracB"])
+        ]
+
+        # ---------------------- Target column detection (copolymer) ----------------------
+        exclude_cols = {
+            # smiles/fractions, both raw variants and normalized
+            "smilesA", "smilesB", "fracA", "fracB",
+            sA_col, sB_col, "frac_A", "frac_B",
+            # descriptors & ignores
+            *setup_info.get('DATASET_DESCRIPTORS', []),
+            *setup_info.get('ignore_columns', []),
+            # internal helper col
+            "group_key"
+        }
+        target_columns = [c for c in df_input.columns if c not in exclude_cols]
+
+    else:
+        # ---------------------- Homopolymer target detection ----------------------
+        smiles_col = setup_info.get('smiles_column', 'smiles')
+        exclude_cols = set([smiles_col]) if smiles_col else set()
+        exclude_cols.update(setup_info.get('DATASET_DESCRIPTORS', []))
+        exclude_cols.update(setup_info.get('ignore_columns', []))
+
+        if smiles_col and smiles_col not in df_input.columns:
+            raise KeyError(f"Homo mode expects SMILES column '{smiles_col}' present in CSV.")
+
+        target_columns = [c for c in df_input.columns if c not in exclude_cols]
+
     if not target_columns:
-        raise ValueError(f"No target columns found. Expected at least one column other than '{setup_info['smiles_column']}'")
-    
+        msg = "No target columns found after exclusions."
+        if args.polymer_type == "homo":
+            msg += f" Expected at least one column other than '{setup_info.get('smiles_column','smiles')}'."
+        else:
+            msg += " Ensure your CSV includes targets beyond smilesA/B and fracA/B."
+        raise ValueError(msg)
+
     return df_input, target_columns
+
 
 
 def determine_split_strategy(dataset_size, replicates):

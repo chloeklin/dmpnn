@@ -31,7 +31,7 @@ from utils import (
 
 # ---------------------------- Training Loop ----------------------------
 
-def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, args, existing_results=None):
+def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, args, existing_results=None, smiles_column="smiles"):
     """Train and evaluate models for a single target variable.
     
     Args:
@@ -236,8 +236,7 @@ def main():
     descriptor_columns = setup_info['descriptor_columns']
     SEED = setup_info['SEED']
     REPLICATES = setup_info['REPLICATES']
-    smiles_column = setup_info['smiles_column']
-    DATASET_DESCRIPTORS = setup_info['DATASET_DESCRIPTORS']
+
     
     # === Set Random Seed ===
     set_seed(SEED)
