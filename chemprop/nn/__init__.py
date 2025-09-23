@@ -2,6 +2,7 @@ from .agg import (
     Aggregation,
     AggregationRegistry,
     AttentiveAggregation,
+    IdentityAggregation,
     MeanAggregation,
     NormAggregation,
     SumAggregation,
