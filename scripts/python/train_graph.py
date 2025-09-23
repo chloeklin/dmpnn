@@ -30,6 +30,8 @@ parser.add_argument('--model_name', type=str, default="DMPNN", choices=["DMPNN",
                     help='Name of the model to use')
 parser.add_argument('--target', type=str, default=None,
                     help='Specific target column to train on (if not specified, trains on all targets)')
+parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
+                        help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
 parser.add_argument('--batch_norm', action='store_true',
                     help='Enable batch normalization in the model')
 parser.add_argument('--train_size', type=str, default=None,

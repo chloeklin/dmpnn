@@ -50,27 +50,42 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     """
     logger = logging.getLogger(__name__)
 
+    # Filter out NaN values for splitting (especially important for copolymers)
+    if args.task_type == "reg":
+        valid_mask = ~np.isnan(y)
+    else:
+        valid_mask = ~pd.isna(y)
+    
+    if not valid_mask.all():
+        n_invalid = (~valid_mask).sum()
+        logger.info(f"Filtering out {n_invalid} samples with NaN target values for {target_name}")
+        df_valid = df.iloc[valid_mask].reset_index(drop=True)
+        y_valid = y[valid_mask]
+    else:
+        df_valid = df
+        y_valid = y
+
     # Determine split strategy and generate splits
-    n_splits, local_reps = determine_split_strategy(len(y), replicates)
+    n_splits, local_reps = determine_split_strategy(len(y_valid), replicates)
 
     if args.polymer_type == "copolymer":
         # produce repeats by reseeding group splits
         train_indices, val_indices, test_indices = [], [], []
         for r in range(local_reps):
-            tr, va, te = group_splits(df, y, args.task_type, n_splits, seed + r)
+            tr, va, te = group_splits(df_valid, y_valid, args.task_type, n_splits, seed + r)
             train_indices.extend(tr)
             val_indices.extend(va)
             test_indices.extend(te)
     else:
         train_indices, val_indices, test_indices = generate_data_splits(
-            args, y, n_splits, local_reps, seed
+            args, y_valid, n_splits, local_reps, seed
         )
 
 
     detailed_rows = []
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
         # Extract and process features
-        ab_block, descriptor_block, feat_names = build_features(df, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit, use_ab=args.incl_ab, smiles_column=smiles_column)
+        ab_block, descriptor_block, feat_names = build_features(df_valid, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit, use_ab=args.incl_ab, smiles_column=smiles_column)
         
         orig_desc_names = [n for n in feat_names if not n.startswith('AB_')]
 
@@ -120,11 +135,11 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         target_scaler = None
         if args.task_type == 'reg':
             target_scaler = StandardScaler()
-            y_tr = target_scaler.fit_transform(y[train_idx].reshape(-1, 1)).flatten()
-            y_val = target_scaler.transform(y[val_idx].reshape(-1, 1)).flatten()
-            y_te = y[test_idx]  # Keep original for final evaluation
+            y_tr = target_scaler.fit_transform(y_valid[train_idx].reshape(-1, 1)).flatten()
+            y_val = target_scaler.transform(y_valid[val_idx].reshape(-1, 1)).flatten()
+            y_te = y_valid[test_idx]  # Keep original for final evaluation
         else:
-            y_tr, y_val, y_te = y[train_idx], y[val_idx], y[test_idx]
+            y_tr, y_val, y_te = y_valid[train_idx], y_valid[val_idx], y_valid[test_idx]
 
 
         # models
@@ -272,7 +287,7 @@ def main():
         
         # Train models and get evaluation results
         target_existing = existing_results.get(tcol, {})
-        rows = train(df_input, y_vec, tcol, descriptor_columns, REPLICATES, SEED, out_dir, args, target_existing)
+        rows = train(df_input, y_vec, tcol, descriptor_columns, REPLICATES, SEED, out_dir, args, target_existing, setup_info['smiles_column'])
 
         # Aggregate results across all targets
         all_rows.extend(rows)

@@ -1530,9 +1530,19 @@ def group_splits(df, y, task_type, n_splits, seed, train_frac=0.8, val_frac=0.1,
     - For holdout (n_splits == 1): two-stage GroupShuffleSplit to get 80/10/10 by groups.
     Returns: train_indices, val_indices, test_indices as lists (len = n_splits or 1).
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     assert abs(train_frac + val_frac + test_frac - 1.0) < 1e-8
+    
+    # Debug: Check input sizes
+    logger.info(f"group_splits: df.shape={df.shape}, y.shape={getattr(y, 'shape', len(y))}")
+    
     groups = make_groups_for_copolymer(df)
     n = len(df)
+    
+    # Debug: Check groups size
+    logger.info(f"group_splits: groups.shape={groups.shape}, n={n}")
 
     # ---------------------- Cross-validation path ----------------------
     if n_splits > 1:
