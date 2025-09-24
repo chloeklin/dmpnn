@@ -1520,7 +1520,8 @@ def make_groups_for_copolymer(df):
     """Return array of group IDs (one per row) for unordered monomer pairs."""
     sA = df["smiles_A"].astype(str).values
     sB = df["smiles_B"].astype(str).values
-    groups = np.array([unordered_pair(a, b) for a, b in zip(sA, sB)], dtype=object)
+    # Create string-based group IDs instead of tuples to avoid numpy shape issues
+    groups = np.array([f"{min(a, b)}|{max(a, b)}" for a, b in zip(sA, sB)], dtype=str)
     return groups
 
 def group_splits(df, y, task_type, n_splits, seed, train_frac=0.8, val_frac=0.1, test_frac=0.1):
@@ -1535,14 +1536,8 @@ def group_splits(df, y, task_type, n_splits, seed, train_frac=0.8, val_frac=0.1,
     
     assert abs(train_frac + val_frac + test_frac - 1.0) < 1e-8
     
-    # Debug: Check input sizes
-    logger.info(f"group_splits: df.shape={df.shape}, y.shape={getattr(y, 'shape', len(y))}")
-    
     groups = make_groups_for_copolymer(df)
     n = len(df)
-    
-    # Debug: Check groups size
-    logger.info(f"group_splits: groups.shape={groups.shape}, n={n}")
 
     # ---------------------- Cross-validation path ----------------------
     if n_splits > 1:

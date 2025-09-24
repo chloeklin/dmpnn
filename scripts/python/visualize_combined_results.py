@@ -142,7 +142,7 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 # Add metadata
                 df['dataset'] = dataset
                 df['features'] = features
-                df['method'] = method
+                df['method'] = f"{method}_{model_name}"  # Distinguish between DMPNN and wDMPNN
                 
                 # Add target column if missing (some wDMPNN files don't have it)
                 if 'target' not in df.columns:
@@ -311,16 +311,12 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     # Define colors for different methods and models with distinct colors for batch norm variants
     colors = {
         'Tabular': {'Linear': '#1f77b4', 'RF': '#ff7f0e', 'XGB': '#2ca02c', 'LogReg': '#1f77b4'},
-        'Graph': {'DMPNN': '#d62728', 'wDMPNN': '#9467bd', 'PPG': '#8c564b'},
-        'Graph (BN)': {'DMPNN': '#ff7f7f', 'wDMPNN': '#c5b0d5', 'PPG': '#c49c94'},  # Lighter shades for BN variants
-        'Baseline': {
-            'Linear-DMPNN': '#17becf', 'RF-DMPNN': '#bcbd22', 'XGB-DMPNN': '#e377c2',
-            'Linear-wDMPNN': '#7fdbff', 'RF-wDMPNN': '#ffdc00', 'XGB-wDMPNN': '#f012be'
-        },
-        'Baseline (BN)': {
-            'Linear-DMPNN': '#7fdfe0', 'RF-DMPNN': '#ddee66', 'XGB-DMPNN': '#f1bbd9',
-            'Linear-wDMPNN': '#b3e0ff', 'RF-wDMPNN': '#ffe666', 'XGB-wDMPNN': '#f566d9'
-        }
+        'Graph_DMPNN': '#d62728',
+        'Graph_wDMPNN': '#9467bd', 
+        'Graph_PPG': '#8c564b',
+        'Baseline_DMPNN': '#17becf',
+        'Baseline_wDMPNN': '#bcbd22',
+        'Baseline_PPG': '#e377c2'
     }
     
     for i, target in enumerate(targets):
@@ -345,8 +341,12 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
             
             model_data = target_data[(target_data['model'] == model) & (target_data['method'] == method)]
             
-            # Get color
-            color = colors.get(method, {}).get(model, '#1f77b4')
+            # Get color - handle both new flat structure and old nested structure
+            if method == 'Tabular':
+                color = colors.get('Tabular', {}).get(model, '#1f77b4')
+            else:
+                # For Graph_DMPNN, Baseline_wDMPNN, etc.
+                color = colors.get(method, '#1f77b4')
             
             means = []
             stds = []
