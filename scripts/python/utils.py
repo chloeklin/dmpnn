@@ -538,6 +538,7 @@ def build_model_and_trainer(
         # Local imports for heavy dependencies
         import torch
         from chemprop import nn, models
+        from chemprop.nn import MixedRegMultiFFN
         from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
         import lightning.pytorch as pl
     except ImportError as e:
