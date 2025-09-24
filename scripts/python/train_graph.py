@@ -250,7 +250,15 @@ if args.pretrain_monomer:
     if reg_idx:  # Only normalize if there are regression columns
         ys_norm[:, reg_idx] = (ys_norm[:, reg_idx] - mu) / sd
 
+    # Debug: Check inputs to create_all_data
+    logger.info(f"create_all_data inputs: len(smis)={len(smis)}, ys_norm.shape={ys_norm.shape}")
+    logger.info(f"combined_descriptor_data type: {type(combined_descriptor_data)}")
+    if combined_descriptor_data is not None:
+        logger.info(f"combined_descriptor_data shape: {combined_descriptor_data.shape}")
+    
     all_data = create_all_data(smis, ys_norm, combined_descriptor_data, MODEL_NAME)
+    
+    logger.info(f"create_all_data returned: len(all_data)={len(all_data)}")
 
     train_data, val_data, test_data = data.split_data_by_indices(all_data, train_indices, val_indices, test_indices)
 

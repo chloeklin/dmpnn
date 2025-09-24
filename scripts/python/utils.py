@@ -370,13 +370,13 @@ def create_all_data(
         return [
             datapoint_class.from_smi(smi, y, x_d=desc) 
             for smi, y, desc in zip(smis, ys, combined_descriptor_data)
-            if smi and pd.notna(y).all()  # Skip invalid SMILES or NaN targets
+            if smi and pd.notna(y).any()  # Skip invalid SMILES, but allow NaN targets (for multitask)
         ]
     else:
         return [
             datapoint_class.from_smi(smi, y)
             for smi, y in zip(smis, ys)
-            if smi and pd.notna(y).all()  # Skip invalid SMILES or NaN targets
+            if smi and pd.notna(y).any()  # Skip invalid SMILES, but allow NaN targets (for multitask)
         ]
 
 
