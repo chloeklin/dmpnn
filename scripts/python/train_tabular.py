@@ -50,9 +50,6 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     """
     logger = logging.getLogger(__name__)
 
-    # Debug: Check input sizes before filtering
-    logger.info(f"train function input: df.shape={df.shape}, y.shape={getattr(y, 'shape', len(y))}")
-    
     # Filter out NaN values for splitting (especially important for copolymers)
     if args.task_type == "reg":
         valid_mask = ~np.isnan(y)
@@ -67,9 +64,6 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     else:
         df_valid = df
         y_valid = y
-    
-    # Debug: Check sizes after filtering
-    logger.info(f"After NaN filtering: df_valid.shape={df_valid.shape}, y_valid.shape={getattr(y_valid, 'shape', len(y_valid))}")
 
     # Determine split strategy and generate splits
     n_splits, local_reps = determine_split_strategy(len(y_valid), replicates)
