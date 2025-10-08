@@ -315,3 +315,17 @@ experiments:
     pretrain_monomer: true
     save_checkpoint: true
 
+
+  - dataset: pae_tg
+    model: tabular
+    walltime: "12:00:00"
+    incl_rdkit: true
+    task_type: reg
+    polymer_type: copolymer
+
+  - dataset: ea_ip
+    model: tabular
+    walltime: "12:00:00"
+    task_type: reg
+    polymer_type: copolymer
+

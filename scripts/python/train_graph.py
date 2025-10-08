@@ -77,7 +77,7 @@ results_dir = setup_info['results_dir']
 
 # Create predictions directory if saving predictions
 if args.save_predictions:
-    predictions_dir = chemprop_dir.parent / "predictions"
+    predictions_dir = chemprop_dir / "predictions"
     predictions_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Predictions will be saved to: {predictions_dir}")
 else:
@@ -378,6 +378,7 @@ for target in target_columns:
         all_data, train_indices, val_indices, test_indices
     )
 
+    # Descriptor cleaning (if incl_desc or incl_rdkit is enabled)
     if combined_descriptor_data is not None:
         # Initial data preparation (no imputation yet to avoid leakage)
         orig_Xd = np.asarray(combined_descriptor_data, dtype=np.float64)  # Use float64 first

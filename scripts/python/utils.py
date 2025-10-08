@@ -19,6 +19,126 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 
+# --- put near imports in attentivefp.py ---
+import json
+import numpy as np
+from pathlib import Path
+from sklearn.impute import SimpleImputer
+import joblib
+
+def load_dmpnn_preproc(preprocessing_path: Path, split_id: int):
+    """
+    Load the exact preprocessing artifacts D-MPNN saved for this split.
+    Files expected under preprocessing_path:
+      - preprocessing_metadata_split_{i}.json
+      - correlation_mask.npy
+      - constant_features_removed.npy
+      - descriptor_scaler.pkl (optional)
+    Returns a dict with everything needed to reproduce X_d.
+    """
+    meta_fp = preprocessing_path / f"preprocessing_metadata_split_{split_id}.json"
+    cm_fp   = preprocessing_path / "correlation_mask.npy"
+    cf_fp   = preprocessing_path / "constant_features_removed.npy"
+    sc_fp   = preprocessing_path / "descriptor_scaler.pkl"
+
+    with meta_fp.open("r") as f:
+        meta = json.load(f)
+    corr_mask = np.load(cm_fp).astype(bool)
+    const_idx = np.load(cf_fp)
+    scaler = joblib.load(sc_fp) if sc_fp.exists() else None
+
+    cleaning = meta.get("cleaning", {})
+    imputer_stats = cleaning.get("imputer_statistics", None)
+    f32_min = np.float32(cleaning.get("float32_min", np.finfo(np.float32).min))
+    f32_max = np.float32(cleaning.get("float32_max", np.finfo(np.float32).max))
+
+    return {
+        "meta": meta,
+        "const_idx": const_idx,
+        "corr_mask": corr_mask,
+        "scaler": scaler,
+        "imputer_stats": imputer_stats,
+        "f32_min": f32_min,
+        "f32_max": f32_max,
+    }
+
+def apply_dmpnn_preproc(X_all: np.ndarray, artifacts: dict) -> np.ndarray:
+    """
+    Reproduce D-MPNN pipeline on the full descriptor matrix:
+      1) drop constant columns (global)
+      2) impute with train medians from JSON
+      3) clip to float32 range & cast
+      4) apply per-split correlation mask
+      5) (optional) apply the saved StandardScaler
+    """
+    X = np.asarray(X_all, dtype=np.float64, copy=True)
+
+    # 1) drop constants (indices are w.r.t original combined_descriptor_data)
+    const_idx = artifacts["const_idx"]
+    if const_idx.size > 0:
+        X = np.delete(X, const_idx, axis=1)
+
+    # 2) impute from saved train statistics (median)
+    im_stats = artifacts["imputer_stats"]
+    if im_stats is not None:
+        imp = SimpleImputer(strategy="median")
+        imp.statistics_ = np.asarray(im_stats, dtype=np.float64)
+        X = imp.transform(X)
+
+    # 3) clip & cast
+    X = np.clip(X, artifacts["f32_min"], artifacts["f32_max"]).astype(np.float32, copy=False)
+
+    # 4) correlation mask (boolean over post-constant space)
+    X = X[:, artifacts["corr_mask"]]
+
+    # 5) optional descriptor scaler
+    if artifacts["scaler"] is not None:
+        X = artifacts["scaler"].transform(X)
+
+    return X
+
+
+def _norm_str(x):
+    if pd.isna(x):
+        return ""
+    s = str(x).strip()
+    return "" if s.lower() in ("nan", "none", "") else s
+
+def _row_group_from_two_sides(row, A_cols, B_cols):
+    A = sorted([_norm_str(row[c]) for c in A_cols if c in row.index and _norm_str(row[c])])
+    B = sorted([_norm_str(row[c]) for c in B_cols if c in row.index and _norm_str(row[c])])
+    a_tag = "+".join(A) if A else "Ø"
+    b_tag = "+".join(B) if B else "Ø"
+    side1, side2 = sorted([a_tag, b_tag])  # unordered AB
+    return f"{side1}||{side2}"
+
+def compute_group_id(df: pd.DataFrame) -> pd.Series:
+    """Return group IDs for unordered A/B monomer *sets* across several schemas."""
+    # 0) If caller already provided group_id, just use it.
+    if "group_id" in df.columns:
+        return df["group_id"].astype(str)
+
+    # 1) PAE-wide by names
+    A_name = [c for c in ["a1","a2","a3","a4"] if c in df.columns]
+    B_name = [c for c in ["b1","b2","b3","b4"] if c in df.columns]
+    if A_name and B_name:
+        return df.apply(lambda r: _row_group_from_two_sides(r, A_name, B_name), axis=1)
+
+    # 2) PAE-wide by SMILES
+    A_sm = [c for c in ["smilesA1","smilesA2","smilesA3","smilesA4"] if c in df.columns]
+    B_sm = [c for c in ["smilesB1","smilesB2","smilesB3","smilesB4"] if c in df.columns]
+    if A_sm and B_sm:
+        return df.apply(lambda r: _row_group_from_two_sides(r, A_sm, B_sm), axis=1)
+
+    # 3) Legacy simple AB
+    if {"smiles_A","smiles_B"}.issubset(df.columns):
+        return df.apply(lambda r: _row_group_from_two_sides(r, ["smiles_A"], ["smiles_B"]), axis=1)
+
+    raise KeyError(
+        "Could not infer A/B monomer columns to build groups "
+        "(expected a1..a4/b1..b4 or smilesA*/smilesB* or smiles_A/smiles_B, "
+        "or provide a 'group_id' column)."
+    )
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     """Load and process configuration from a YAML file.
@@ -1045,6 +1165,8 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     
     checkpoint_path = checkpoint_dir / base_name
     model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
+    if model_name == "AttentiveFP":
+        model_name = "DMPNN"
     preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
     
     return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix
@@ -1298,7 +1420,7 @@ def setup_training_environment(args, model_type="graph"):
     
     # Get dataset descriptors from config
     DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
-    descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
+    descriptor_columns =  []
     
     return {
         'config': config,
@@ -1517,13 +1639,10 @@ def unordered_pair(a: str, b: str):
     """Stable, order-invariant key for a monomer pair."""
     return tuple(sorted((str(a), str(b))))
 
-def make_groups_for_copolymer(df):
-    """Return array of group IDs (one per row) for unordered monomer pairs."""
-    sA = df["smiles_A"].astype(str).values
-    sB = df["smiles_B"].astype(str).values
-    # Create string-based group IDs instead of tuples to avoid numpy shape issues
-    groups = np.array([f"{min(a, b)}|{max(a, b)}" for a, b in zip(sA, sB)], dtype=str)
-    return groups
+def make_groups_for_copolymer(df: pd.DataFrame):
+    """Return array of group IDs (one per row). Prefers a provided 'group_id' column."""
+    gids = compute_group_id(df)
+    return gids.astype(str).values
 
 def group_splits(df, y, task_type, n_splits, seed, train_frac=0.8, val_frac=0.1, test_frac=0.1):
     """
