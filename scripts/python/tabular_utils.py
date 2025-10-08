@@ -477,62 +477,7 @@ def canon_pair(a, b, wa, wb):
 
 # ------------------------ Feature assembly ---------------------------
 
-def _copolymer_rdkit_from_pae_mixture(df: pd.DataFrame, train_idx):
-    # expects columns like: a1..a4, ratio_a1..ratio_a4, smilesA1..smilesA4 (and B-side)
-    from sklearn.preprocessing import StandardScaler
-    _init_rdkit_descriptors()  # ensures RD_DESC_NAMES and rdkit_block_from_smiles() exist
 
-    def gather(side_prefix: str, smi_prefix: str, ratio_prefix: str):
-        comps = []
-        for _, row in df.iterrows():
-            items = []
-            for k in (1, 2, 3, 4):
-                smi = row.get(f"{smi_prefix}{k}")
-                wt  = row.get(f"{ratio_prefix}{k}")
-                if pd.notna(smi) and pd.notna(wt) and float(wt) > 0:
-                    items.append((str(smi), float(wt)))
-            s = sum(w for _, w in items)
-            items = [(smi, w / s) for smi, w in items] if s > 0 else []
-            comps.append(items)
-        return comps
-
-    A_comps = gather("a", "smilesA", "ratio_a")
-    B_comps = gather("b", "smilesB", "ratio_b")
-
-    # fit scaler on TRAIN monomer vectors (A+B) to mimic your copolymer branch
-    cache = {}
-    def rd_vec(smi):
-        if smi in cache: return cache[smi]
-        arr = rdkit_block_from_smiles([smi])
-        cache[smi] = None if arr is None or len(arr)==0 else arr[0]
-        return cache[smi]
-
-    train_monos = []
-    for i in train_idx:
-        for smi, _ in A_comps[i] + B_comps[i]:
-            v = rd_vec(smi)
-            if v is not None:
-                train_monos.append(v)
-    if not train_monos:
-        raise ValueError("No valid monomers on train rows to fit RDKit scaler.")
-    scaler = StandardScaler().fit(np.vstack(train_monos))
-
-    rows = []
-    for A, B in zip(A_comps, B_comps):
-        vec = np.zeros(len(RD_DESC_NAMES), float)
-        for smi, w in A:
-            v = rd_vec(smi)
-            if v is not None:
-                vec += w * scaler.transform(v[None, :])[0]
-        for smi, w in B:
-            v = rd_vec(smi)
-            if v is not None:
-                vec += w * scaler.transform(v[None, :])[0]
-        rows.append(vec)
-
-    desc_block = np.vstack(rows)
-    names = [f"RD_{n}" for n in RD_DESC_NAMES]
-    return desc_block, names
 
 
 def build_features(
@@ -558,14 +503,6 @@ def build_features(
     ab_block = None
     descriptor_block = None
     names: List[str] = []
-
-    if kind == "copolymer":
-        # PAE mixture schema support (RDKit inline)
-        has_pae_mix = any(c in df.columns for c in ["smilesA1", "smilesB1", "ratio_a1", "ratio_b1"])
-        if use_rdkit and not use_descriptor and has_pae_mix:
-            descriptor_block, desc_names = _copolymer_rdkit_from_pae_mixture(df, train_idx)
-            return None, descriptor_block, desc_names
-
 
     # -------------------- HOMOPOLYMER --------------------
     if kind == "homo":
@@ -787,16 +724,15 @@ def preprocess_descriptor_data(descriptor_block: np.ndarray, train_idx: List[int
     
     # Handle NaN values with median imputation fitted only on training data
     nan_mask = np.isnan(desc_tr)
+    imputer = SimpleImputer(strategy='median')
     if np.any(nan_mask):
         logger.warning(f"Found {np.sum(nan_mask)} NaN values in training descriptors, using median imputation")
-        imputer = SimpleImputer(strategy='median')
-        desc_tr = imputer.fit_transform(desc_tr)
-        desc_val = imputer.transform(desc_val)
-        desc_te = imputer.transform(desc_te)
-    else:
-        # Create dummy imputer for consistency even if no NaNs
-        imputer = SimpleImputer(strategy='median')
-        imputer.fit(desc_tr)  # Fit on training data for consistency
+    # Fit on training either way
+    desc_tr = imputer.fit_transform(desc_tr)
+    # ALWAYS transform val/test
+    desc_val = imputer.transform(desc_val)
+    desc_te  = imputer.transform(desc_te)
+
     
     # Correlation filtering on TRAIN ONLY, using constant-removed training set
     desc_tr_df = pd.DataFrame(desc_tr, columns=const_kept_names)

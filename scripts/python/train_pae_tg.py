@@ -62,54 +62,30 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
 
     n_splits, local_reps = determine_split_strategy(len(y_valid), replicates)
 
-    if args.polymer_type == "copolymer":
-        train_indices, val_indices, test_indices = [], [], []
-        for r in range(local_reps):
-            tr, va, te = group_splits(df_valid, y_valid, args.task_type, n_splits, seed + r)
-            train_indices.extend(tr)
-            val_indices.extend(va)
-            test_indices.extend(te)
-    else:
-        train_indices, val_indices, test_indices = generate_data_splits(args, y_valid, n_splits, local_reps, seed)
+    train_indices, val_indices, test_indices = [], [], []
+    for r in range(local_reps):
+        tr, va, te = group_splits(df_valid, y_valid, args.task_type, n_splits, seed + r)
+        train_indices.extend(tr)
+        val_indices.extend(va)
+        test_indices.extend(te)
 
     detailed_rows = []
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
         # Build features using your existing function (ab/rdkit); we only want descriptor block here.
-        ab_block, descriptor_block, feat_names = build_features(
-            df_valid, train_idx, descriptor_columns,
-            args.polymer_type, use_rdkit=args.incl_rdkit,
-            use_ab=args.incl_ab, smiles_column=smiles_column
+        descriptor_block = df[descriptor_columns].iloc[train_idx].values
+        orig_desc_names = descriptor_columns
+
+
+        (desc_tr_selected, desc_val_selected, desc_te_selected, selected_desc_names,
+            preprocessing_metadata, imputer, constant_mask, corr_mask) = preprocess_descriptor_data(
+            descriptor_block, train_idx, val_idx, test_idx, orig_desc_names, logger
         )
-        orig_desc_names = [n for n in feat_names if not n.startswith('AB_')]
+        
+        X_tr, X_val, X_te = desc_tr_selected, desc_val_selected, desc_te_selected
+        feat_names = selected_desc_names
 
-        if ab_block is not None:
-            ab_tr, ab_val, ab_te = ab_block[train_idx], ab_block[val_idx], ab_block[test_idx]
-            ab_names = [name for name in feat_names if name.startswith('AB_')]
-
-        if descriptor_block is not None:
-            (desc_tr_selected, desc_val_selected, desc_te_selected, selected_desc_names,
-             preprocessing_metadata, imputer, constant_mask, corr_mask) = preprocess_descriptor_data(
-                descriptor_block, train_idx, val_idx, test_idx, orig_desc_names, logger
-            )
-            if ab_block is not None:
-                X_tr = np.concatenate([ab_tr, desc_tr_selected], axis=1)
-                X_val = np.concatenate([ab_val, desc_val_selected], axis=1)
-                X_te = np.concatenate([ab_te, desc_te_selected], axis=1)
-                feat_names = ab_names + selected_desc_names
-            else:
-                X_tr, X_val, X_te = desc_tr_selected, desc_val_selected, desc_te_selected
-                feat_names = selected_desc_names
-        else:
-            X_tr, X_val, X_te = ab_tr, ab_val, ab_te
-            feat_names = ab_names
-
-        if descriptor_block is not None:
-            save_preprocessing_objects(out_dir, i, preprocessing_metadata, imputer, constant_mask, corr_mask, selected_desc_names)
-
-        if X_tr.shape[1] == 0:
-            logger.warning("Feature selection yielded 0 columns; reverting to AB features only for this split.")
-            X_tr, X_val, X_te = ab_tr, ab_val, ab_te
-            feat_names = ab_names
+        save_preprocessing_objects(out_dir, i, preprocessing_metadata, imputer, constant_mask, corr_mask, selected_desc_names)
+            
 
         target_scaler = None
         if args.task_type == 'reg':

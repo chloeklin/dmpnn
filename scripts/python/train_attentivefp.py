@@ -221,6 +221,8 @@ def main():
     ap = argparse.ArgumentParser(description="AttentiveFP training aligned with Chemprop/D-MPNN pipeline")
     ap.add_argument('--dataset_name', type=str, required=True)
     ap.add_argument('--target', type=str, default="")
+    ap.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
+                        help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
     ap.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
     ap.add_argument('--incl_rdkit', action='store_true',
