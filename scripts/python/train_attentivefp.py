@@ -220,7 +220,7 @@ def main():
     logger = logging.getLogger(__name__)    
     ap = argparse.ArgumentParser(description="AttentiveFP training aligned with Chemprop/D-MPNN pipeline")
     ap.add_argument('--dataset_name', type=str, required=True)
-    ap.add_argument('--target', type=str, required=True)
+    ap.add_argument('--target', type=str, default="")
     ap.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
     ap.add_argument('--incl_rdkit', action='store_true',

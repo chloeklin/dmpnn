@@ -46,6 +46,10 @@ models:
     smiles_column: smiles
     ignore_columns: []
 
+  AttentiveFP:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
+
 # Paths
 paths:
   data_dir: data
