@@ -17,7 +17,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # tabular training
-python3 scripts/python/train_tabular.py --dataset_name ea_ip --polymer_type copolymer
+python3 scripts/python/train_tabular.py --dataset_name ea_ip --polymer_type copolymer --incl_ab
 
 
 ##TODO

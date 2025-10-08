@@ -1,3 +1,4 @@
+predictions/*
 results/embeddings/
 preprocessing/*
 out/*
