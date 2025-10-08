@@ -455,29 +455,22 @@ def main():
 
             # optional embedding export (pooled graph reps)
             if args.export_embeddings:
-                emb_dir = (setup_info['results_dir'] / "embeddings"); emb_dir.mkdir(parents=True, exist_ok=True)
-                class RepExtractor(nn.Module):
-                    def __init__(self, core): super().__init__(); self.core = core
-                    def forward(self, x, edge_index, edge_attr, batch):
-                        return self.core.gnn(x, edge_index, edge_attr, batch)  # [B, hidden]
-                rep = RepExtractor(model.core).to(device).eval()
+                emb_dir = (results_dir / "embeddings")
+                emb_dir.mkdir(parents=True, exist_ok=True)
+                # Some PyG versions don’t expose .gnn on AttentiveFP; avoid crashing.
+                if not hasattr(model.core, "gnn"):
+                    logger.warning("Embeddings export skipped: this AttentiveFP version does not expose `.gnn`.")
+                else:
+                    class RepExtractor(nn.Module):
+                        def __init__(self, core): super().__init__(); self.core = core
+                        def forward(self, x, edge_index, edge_attr, batch):
+                            return self.core.gnn(x, edge_index, edge_attr, batch)  # [B, hidden]
+                    rep = RepExtractor(model.core).to(device).eval()
 
-                def dump(loader, df_part, split_tag):
-                    outs=[]
-                    with torch.no_grad():
-                        for batch in loader:
-                            batch = batch.to(device)
-                            H = rep(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                            outs.append(H.cpu().numpy())
-                    X = np.concatenate(outs, axis=0)
-                    base = f"{args.dataset_name}__{target}__{split_tag}__split{i}"
-                    np.save(emb_dir / f"{base}.npy", X)
-                    pd.DataFrame({"smiles": df_part[smiles_column].values}).to_csv(emb_dir / f"{base}__index.csv", index=False)
-
-                dump(train_loader, df_tr, "train")
-                dump(val_loader,   df_va, "val")
-                dump(test_loader,  df_te, "test")
-
+                if hasattr(model.core, "gnn"):
+                    dump(train_loader, df_tr, "train")
+                    dump(val_loader,   df_va, "val")
+                    dump(test_loader,  df_te, "test")
     # aggregate + save like your script
     results_df = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
     results_df['target'] = target
