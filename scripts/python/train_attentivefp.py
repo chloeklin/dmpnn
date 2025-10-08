@@ -30,6 +30,9 @@ from utils import (
 
 from joblib import load as joblib_load
 
+
+
+
 def load_dmpnn_preproc(preproc_dir: Path, split_i: int):
     import json, numpy as np
     meta_f = preproc_dir / f"preprocessing_metadata_split_{split_i}.json"
@@ -349,7 +352,7 @@ def main():
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
             # per-split bookkeeping (mirrors your naming)
             ckpt_path, preprocessing_path, desc_suf, rdkit_suf, bn_suf, size_suf = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, args.target, descriptor_columns, i
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             ckpt_path.mkdir(parents=True, exist_ok=True)
 
@@ -369,9 +372,9 @@ def main():
             df_tr, df_va, df_te = df_input.iloc[tr].reset_index(drop=True), df_input.iloc[va].reset_index(drop=True), df_input.iloc[te].reset_index(drop=True)
 
             # datasets
-            ds_tr = GraphCSV(df_tr, smiles_column, args.target)
-            ds_va = GraphCSV(df_va, smiles_column, args.target)
-            ds_te = GraphCSV(df_te, smiles_column, args.target)
+            ds_tr = GraphCSV(df_tr, smiles_column, target)
+            ds_va = GraphCSV(df_va, smiles_column, target)
+            ds_te = GraphCSV(df_te, smiles_column, target)
 
             # scaler (fit on train, apply to train+val; test left raw)
             scaler = StandardScaler().fit(ds_tr.y)
@@ -407,7 +410,7 @@ def main():
                 tr_loss /= max(1,ntr)
 
                 va_loss = eval_loss(model, val_loader, device, task="reg")
-                print(f"[{args.target}] split {i} | epoch {ep:03d} | train {tr_loss:.6f} | val {va_loss:.6f}")
+                print(f"[{target}] split {i} | epoch {ep:03d} | train {tr_loss:.6f} | val {va_loss:.6f}")
 
                 if va_loss + 1e-12 < best_val:
                     best_val = va_loss
@@ -445,7 +448,7 @@ def main():
                 # align to your helper’s filename scheme & IDs
                 test_ids = df_te[smiles_column].tolist()
                 save_predictions(
-                    y_true, y_pred, predictions_dir, args.dataset_name, args.target,
+                    y_true, y_pred, predictions_dir, args.dataset_name, target,
                     "AttentiveFP", desc_suf, rdkit_suf, "", size_suf, i, logger=logger,
                     test_ids=test_ids
                 )
@@ -467,7 +470,7 @@ def main():
                             H = rep(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
                             outs.append(H.cpu().numpy())
                     X = np.concatenate(outs, axis=0)
-                    base = f"{args.dataset_name}__{args.target}__{split_tag}__split{i}"
+                    base = f"{args.dataset_name}__{target}__{split_tag}__split{i}"
                     np.save(emb_dir / f"{base}.npy", X)
                     pd.DataFrame({"smiles": df_part[smiles_column].values}).to_csv(emb_dir / f"{base}__index.csv", index=False)
 
@@ -477,7 +480,7 @@ def main():
 
     # aggregate + save like your script
     results_df = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
-    results_df['target'] = args.target
+    results_df['target'] = target
     save_aggregate_results([results_df], results_dir, "AttentiveFP", args.dataset_name, "", "", "", "", logger)
 
 

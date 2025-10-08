@@ -9,22 +9,25 @@ This module provides various utility functions for:
 """
 
 # Standard library imports
+import json
 import logging
 import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
-# Third-party imports (lightweight)
+# Third-party imports
+import joblib
 import numpy as np
 import pandas as pd
+from sklearn.impute import SimpleImputer
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 
-# --- put near imports in attentivefp.py ---
-import json
-import numpy as np
-from pathlib import Path
-from sklearn.impute import SimpleImputer
-import joblib
+try:
+    from sklearn.model_selection import StratifiedGroupKFold
+    HAVE_SGKF = True
+except Exception:
+    StratifiedGroupKFold = None  # type: ignore
+    HAVE_SGKF = False
 
 def load_dmpnn_preproc(preprocessing_path: Path, split_id: int):
     """
@@ -989,72 +992,6 @@ def build_sklearn_models(task_type, n_classes=None, scaler_flag=False):
     return models_dict
 
 
-def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i):
-    """Build all paths needed for experiment tracking."""
-    desc_suffix = "__desc" if descriptor_columns else ""
-    rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
-    batch_norm_suffix = "__batch_norm" if getattr(args, 'batch_norm', False) else ""
-    
-    # Add train_size suffix if specified and not "full"
-    size_suffix = ""
-    train_size = getattr(args, 'train_size', None)
-    if train_size is not None and train_size.lower() != "full":
-        size_suffix = f"__size{train_size}"
-    
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
-    
-    checkpoint_path = checkpoint_dir / base_name
-    model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
-    preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
-    
-    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix
-
-
-def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
-    """Check if existing checkpoints are compatible with current preprocessing.
-    
-    Args:
-        checkpoint_path: Path to checkpoint directory
-        preprocessing_path: Path to preprocessing metadata
-        i: Split index
-        descriptor_dim: Number of descriptor features after all preprocessing (int)
-        logger: Logger instance
-    """
-    import os
-    import json
-    
-    if not checkpoint_path.exists():
-        return None
-        
-    ckpt_files = [f for f in os.listdir(checkpoint_path) if f.endswith(".ckpt")]
-    if not ckpt_files:
-        return None
-        
-    metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
-    logger.info(f"Looking for preprocessing metadata at: {metadata_file}")
-    if not metadata_file.exists():
-        logger.warning(f"No preprocessing metadata found for checkpoint validation at: {metadata_file}")
-        return None
-        
-    try:
-        with open(metadata_file, 'r') as f:
-            saved_metadata = json.load(f)
-        
-        # Use the processed descriptor dimension directly
-        current_n_features = descriptor_dim
-        saved_n_features = saved_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
-        
-        if current_n_features == saved_n_features:
-            last_ckpt = str(checkpoint_path / sorted(ckpt_files)[-1])
-            logger.info(f"Loading checkpoint: {last_ckpt} (features match: {current_n_features})")
-            return last_ckpt
-        else:
-            logger.warning(f"Checkpoint feature mismatch: current={current_n_features}, saved={saved_n_features}")
-            return None
-            
-    except Exception as e:
-        logger.warning(f"Could not validate checkpoint compatibility: {e}")
-        return None
 
 
 def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, 

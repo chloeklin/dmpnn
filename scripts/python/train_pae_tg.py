@@ -70,15 +70,15 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         test_indices.extend(te)
 
     detailed_rows = []
+    full_desc_block = df_valid[descriptor_columns].values
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
         # Build features using your existing function (ab/rdkit); we only want descriptor block here.
-        descriptor_block = df[descriptor_columns].iloc[train_idx].values
         orig_desc_names = descriptor_columns
 
 
         (desc_tr_selected, desc_val_selected, desc_te_selected, selected_desc_names,
-            preprocessing_metadata, imputer, constant_mask, corr_mask) = preprocess_descriptor_data(
-            descriptor_block, train_idx, val_idx, test_idx, orig_desc_names, logger
+        preprocessing_metadata, imputer, constant_mask, corr_mask) = preprocess_descriptor_data(
+            full_desc_block, train_idx, val_idx, test_idx, orig_desc_names, logger
         )
         
         X_tr, X_val, X_te = desc_tr_selected, desc_val_selected, desc_te_selected
@@ -100,8 +100,7 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         model_specs = build_sklearn_models(args.task_type, num_classes, scaler_flag=True)
 
         for name, (model, needs_scaler) in model_specs.items():
-            if (existing_results and target_name in existing_results and
-                i in existing_results[target_name] and name in existing_results[target_name][i]):
+            if existing_results and i in existing_results and name in existing_results[i]:
                 logging.info(f"Skipping {target_name} split {i} model {name} (already completed)")
                 continue
 
@@ -357,13 +356,6 @@ def main():
 
     if not runs:
         raise SystemExit("No representation selected.")
-
-    # === Common flags: only descriptors (no AB, no on-the-fly RDKit) ===
-    args.incl_desc  = False
-    args.incl_ab    = False
-    args.incl_rdkit = True
-
-
 
     # === Train for each representation; save results separately ===
     tabular_results_dir = results_dir / "tabular"
