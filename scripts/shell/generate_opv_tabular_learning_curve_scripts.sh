@@ -37,6 +37,10 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
+        --submit)
+            SUBMIT_JOBS=true
+            shift
+            ;;
         --targets)
             shift
             TARGETS=()
