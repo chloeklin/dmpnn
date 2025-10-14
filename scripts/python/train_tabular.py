@@ -80,6 +80,29 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         train_indices, val_indices, test_indices = generate_data_splits(
             args, y_valid, n_splits, local_reps, seed
         )
+    
+    if args.train_size is not None and args.train_size.lower() != "full":
+        target_train_size = int(args.train_size)
+        logger.info(f"Subsampling training data to {target_train_size} samples")
+        
+        for i in range(len(train_indices)):
+            original_train_size = len(train_indices[i])
+            new_train_size = min(target_train_size, original_train_size)
+            
+            if new_train_size < original_train_size:
+                # Use per-split RNG for reproducible but distinct subsampling
+                rng = np.random.default_rng(SEED + i)  # stable, split-specific
+                subsampled_indices = rng.choice(
+                    train_indices[i], 
+                    size=new_train_size, 
+                    replace=False
+                )
+                train_indices[i] = subsampled_indices
+                logger.info(f"Split {i}: Training set reduced from {original_train_size} to {new_train_size} samples")
+            else:
+                logger.info(f"Split {i}: Training set size ({original_train_size}) is already <= target size ({target_train_size}), keeping all samples")
+    elif args.train_size is not None and args.train_size.lower() == "full":
+        logger.info("Using full training set (no subsampling)")
 
 
     detailed_rows = []
@@ -141,7 +164,6 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         else:
             y_tr, y_val, y_te = y_valid[train_idx], y_valid[val_idx], y_valid[test_idx]
 
-
         # models
         num_classes = len(np.unique(y_tr)) if args.task_type != "reg" else None
         model_specs = build_sklearn_models(args.task_type, num_classes, scaler_flag=True)
@@ -149,10 +171,10 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         for name, (model, needs_scaler) in model_specs.items():
             # Check if this target-split-model combination already exists
             if (existing_results and 
-                target_name in existing_results and 
-                i in existing_results[target_name] and 
-                name in existing_results[target_name][i]):
-                logger.info(f"Skipping {target_name} split {i} model {name} (already completed)")
+                target in existing_results and 
+                i in existing_results[target] and 
+                name in existing_results[target][i]):
+                logger.info(f"Skipping {target} split {i} model {name} (already completed)")
                 continue
             
             # Apply scaling for models that require it (linear/logistic)
@@ -231,7 +253,23 @@ def main():
                         help='Include atom/bond pooled features')
     parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
+    parser.add_argument('--train_size', type=str, default=None,
+                    help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
+    
     args = parser.parse_args()
+    
+    # Validate train_size argument
+    if args.train_size is not None:
+        if args.train_size.lower() == "full":
+            # "full" is a valid option, no further validation needed
+            pass
+        else:
+            try:
+                train_size_int = int(args.train_size)
+                if train_size_int <= 0:
+                    parser.error("--train_size must be a positive integer or 'full' (e.g., 500, 5000, full)")
+            except ValueError:
+                parser.error("--train_size must be a valid integer or 'full' (e.g., 500, 5000, full)")
 
 
     logging.basicConfig(
@@ -262,6 +300,13 @@ def main():
 
     # Check for existing results and determine what needs to be run
     suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "") + ("_ab" if args.incl_ab else "")
+    train_size = getattr(args, 'train_size', None)
+    if train_size is not None and train_size.lower() != "full":
+        size_suffix = f"__size{train_size}"
+    else:
+        size_suffix = ""
+    suffix += size_suffix
+    
     tabular_results_dir = results_dir / "tabular"
     tabular_results_dir.mkdir(exist_ok=True)
     detailed_csv = tabular_results_dir / f"{args.dataset_name}{suffix}.csv"
