@@ -91,7 +91,7 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
             
             if new_train_size < original_train_size:
                 # Use per-split RNG for reproducible but distinct subsampling
-                rng = np.random.default_rng(SEED + i)  # stable, split-specific
+                rng = np.random.default_rng(seed + i)  # stable, split-specific
                 subsampled_indices = rng.choice(
                     train_indices[i], 
                     size=new_train_size, 
