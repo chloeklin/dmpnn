@@ -143,8 +143,6 @@ for size in "${TRAIN_SIZES[@]}"; do
     generate_script "all" "$size"
 done
 
-# Also generate a script for the full dataset
-generate_script "all" "full"
 
 echo "✨ Script generation complete!"
 
