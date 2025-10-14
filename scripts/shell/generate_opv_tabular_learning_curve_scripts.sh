@@ -112,13 +112,12 @@ module load python3/3.12.1 cuda/12.0.0
 source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
-# Tabular learning curve training for target: ${target}, train_size: ${train_size}
+# Tabular learning curve training for OPV CAM-B3LYP dataset, train_size: ${train_size}
 python3 scripts/python/train_tabular.py \
     --dataset_name opv_camb3lyp \
-    --target ${target} \
+    --task_type reg \
     --train_size ${train_size} \
-    --save_predictions \
-    --export_embeddings \
+    --polymer_type homo \
     --incl_desc \
     --incl_rdkit \
     --incl_ab
@@ -136,18 +135,16 @@ EOF
 echo "🚀 Generating tabular learning curve training scripts for opv_camb3lyp"
 echo "📁 Output directory: $OUTPUT_DIR"
 echo "⏰ Walltime: $WALLTIME"
-echo "🎯 Targets: ${TARGETS[*]}"
+echo "📝 Note: Will process all targets in the dataset"
 echo "📊 Train sizes: ${TRAIN_SIZES[*]}"
 
-# Generate scripts for each target and train size
-for target in "${TARGETS[@]}"; do
-    for size in "${TRAIN_SIZES[@]}"; do
-        generate_script "$target" "$size"
-    done
-    
-    # Also generate a script for the full dataset
-    generate_script "$target" "full"
+# Generate scripts for each train size
+for size in "${TRAIN_SIZES[@]}"; do
+    generate_script "all" "$size"
 done
+
+# Also generate a script for the full dataset
+generate_script "all" "full"
 
 echo "✨ Script generation complete!"
 
