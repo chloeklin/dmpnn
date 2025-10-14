@@ -136,6 +136,9 @@ featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name =
 # Prepare results list for tabular format (same as train_tabular.py)
 all_results = []
 
+# Initialize result storage for all targets
+rep_model_to_row = {}
+
 # Iterate per target
 for target in target_columns:
     # Prepare data
@@ -200,7 +203,6 @@ for target in target_columns:
                 orig_Xd = np.delete(orig_Xd, constant_features, axis=1)
         
     # === Evaluation Loop ===
-    rep_model_to_row = {}
     for i in range(num_splits):
         logger.info(f"\n=== Replicate {i+1}/{num_splits} ===")
         
@@ -442,57 +444,57 @@ for target in target_columns:
                         pass
         
 
-    # Convert to train_graph.py format with appropriate metrics for task type
-    eval_results = []
-    for (rep_idx, model_name), row_data in rep_model_to_row.items():
-        for target in target_columns:
-            if args.task_type == "reg" and f"{target}_R2" in row_data:
-                # Regression metrics
-                eval_results.append({
-                    'target': target,
-                    'split': rep_idx,
-                    'test/mae': row_data[f"{target}_MAE"],
-                    'test/r2': row_data[f"{target}_R2"],
-                    'test/rmse': row_data[f"{target}_RMSE"],
-                    'model': model_name
-                })
-            elif args.task_type in ["binary", "multi"] and f"{target}_ACC" in row_data:
-                # Classification metrics
-                result_row = {
-                    'target': target,
-                    'split': rep_idx,
-                    'test/accuracy': row_data[f"{target}_ACC"],
-                    'test/f1': row_data[f"{target}_F1"],
-                    'model': model_name
-                }
-                # Add ROC-AUC if available
-                if f"{target}_ROC_AUC" in row_data:
-                    result_row['test/roc_auc'] = row_data[f"{target}_ROC_AUC"]
-                eval_results.append(result_row)
+# Convert to train_graph.py format with appropriate metrics for task type
+eval_results = []
+for (rep_idx, model_name), row_data in rep_model_to_row.items():
+    for target in target_columns:
+        if args.task_type == "reg" and f"{target}_R2" in row_data:
+            # Regression metrics
+            eval_results.append({
+                'target': target,
+                'split': rep_idx,
+                'test/mae': row_data[f"{target}_MAE"],
+                'test/r2': row_data[f"{target}_R2"],
+                'test/rmse': row_data[f"{target}_RMSE"],
+                'model': model_name
+            })
+        elif args.task_type in ["binary", "multi"] and f"{target}_ACC" in row_data:
+            # Classification metrics
+            result_row = {
+                'target': target,
+                'split': rep_idx,
+                'test/accuracy': row_data[f"{target}_ACC"],
+                'test/f1': row_data[f"{target}_F1"],
+                'model': model_name
+            }
+            # Add ROC-AUC if available
+            if f"{target}_ROC_AUC" in row_data:
+                result_row['test/roc_auc'] = row_data[f"{target}_ROC_AUC"]
+            eval_results.append(result_row)
+
+if eval_results:
+    results_df = pd.DataFrame(eval_results)
     
-    if eval_results:
-        results_df = pd.DataFrame(eval_results)
-        
-        # Use train_graph.py naming convention and directory structure
-        desc_suffix = "__desc" if descriptor_columns else ""
-        rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
-        batch_norm_suffix = "__batch_norm" if args.batch_norm else ""
-        target_suffix = f"__{args.target}" if args.target else ""
-        
-        model_results_dir = results_dir / args.model_name
-        model_results_dir.mkdir(exist_ok=True)
-        out_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{target_suffix}_baseline.csv"
-        
-        # Organize columns to match train_graph.py: target, split, then metrics, then model
-        base_cols = ["target", "split"]
-        if args.task_type == "reg":
-            metric_cols = ["test/mae", "test/r2", "test/rmse"]
-        else:
-            metric_cols = ["test/accuracy", "test/f1"]
-            if "test/roc_auc" in results_df.columns:
-                metric_cols.append("test/roc_auc")
-        extra_cols = [c for c in results_df.columns if c not in base_cols + metric_cols]
-        results_df = results_df[base_cols + metric_cols + extra_cols]
-        
-        results_df.to_csv(out_csv, index=False)
-        logger.info(f"Wrote/updated: {out_csv}")
+    # Use train_graph.py naming convention and directory structure
+    desc_suffix = "__desc" if descriptor_columns else ""
+    rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
+    batch_norm_suffix = "__batch_norm" if args.batch_norm else ""
+    target_suffix = f"__{args.target}" if args.target else ""
+    
+    model_results_dir = results_dir / args.model_name
+    model_results_dir.mkdir(exist_ok=True)
+    out_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{target_suffix}_baseline.csv"
+    
+    # Organize columns to match train_graph.py: target, split, then metrics, then model
+    base_cols = ["target", "split"]
+    if args.task_type == "reg":
+        metric_cols = ["test/mae", "test/r2", "test/rmse"]
+    else:
+        metric_cols = ["test/accuracy", "test/f1"]
+        if "test/roc_auc" in results_df.columns:
+            metric_cols.append("test/roc_auc")
+    extra_cols = [c for c in results_df.columns if c not in base_cols + metric_cols]
+    results_df = results_df[base_cols + metric_cols + extra_cols]
+    
+    results_df.to_csv(out_csv, index=False)
+    logger.info(f"Wrote/updated: {out_csv}")

@@ -441,6 +441,7 @@ def main():
             # metrics + logging like your pipeline
             m = compute_reg_metrics(y_true, y_pred)
             m['split'] = i
+            m['target'] = target
             all_results.append(pd.DataFrame([m]))
 
             # optional predictions save (same helper you use)
@@ -473,7 +474,6 @@ def main():
                     dump(test_loader,  df_te, "test")
     # aggregate + save like your script
     results_df = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
-    results_df['target'] = target
     save_aggregate_results([results_df], results_dir, "AttentiveFP", args.dataset_name, "", "", "", "", logger)
 
 
