@@ -330,6 +330,12 @@ def main():
     smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
     # Store all results for aggregate saving
     all_results = []
+    
+    # Initialize suffix variables (will be set in first iteration)
+    desc_suffix = ""
+    rdkit_suffix = ""
+    bn_suffix = ""
+    size_suffix = ""
 
     for target in target_columns:
         # Extract target values
@@ -355,6 +361,13 @@ def main():
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             ckpt_path.mkdir(parents=True, exist_ok=True)
+            
+            # Store suffixes from first iteration for use in aggregate results
+            if i == 0:
+                desc_suffix = desc_suf
+                rdkit_suffix = rdkit_suf
+                bn_suffix = bn_suf
+                size_suffix = size_suf
             
             # Check if checkpoint exists for this split
             checkpoint_file = ckpt_path / "best.pt"
@@ -489,7 +502,7 @@ def main():
                     dump(test_loader,  df_te, "test")
     # aggregate + save like your script
     results_df = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
-    save_aggregate_results([results_df], results_dir, "AttentiveFP", args.dataset_name, "", "", "", "", logger)
+    save_aggregate_results([results_df], results_dir, "AttentiveFP", args.dataset_name, desc_suffix, rdkit_suffix, bn_suffix, size_suffix, logger)
 
 
 
