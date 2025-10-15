@@ -355,6 +355,13 @@ def main():
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             ckpt_path.mkdir(parents=True, exist_ok=True)
+            
+            # Check if checkpoint exists for this split
+            checkpoint_file = ckpt_path / "best.pt"
+            skip_training = checkpoint_file.exists()
+            
+            if skip_training:
+                logger.info(f"[{target}] split {i}: Found existing checkpoint, skipping training and loading for evaluation")
 
             # if combined_descriptor_data is not None:
             #     arts = load_dmpnn_preproc(preprocessing_path, i)
@@ -391,40 +398,48 @@ def main():
                 num_layers=2, num_timesteps=2, dropout=0.0
             ).to(device)
             model = EdgeGuard(core, edge_dim=10).to(device)
-            opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+            
+            if not skip_training:
+                # Train from scratch
+                opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-            # train w/ early stopping on val loss
-            best_val = float("inf"); best_state = None; no_improve = 0
-            E = args.epochs if args.epochs is not None else EPOCHS
-            P = args.patience if args.patience is not None else PATIENCE
+                # train w/ early stopping on val loss
+                best_val = float("inf"); best_state = None; no_improve = 0
+                E = args.epochs if args.epochs is not None else EPOCHS
+                P = args.patience if args.patience is not None else PATIENCE
 
-            for ep in range(1, E+1):
-                model.train(); tr_loss=0; ntr=0
-                for batch in train_loader:
-                    batch = batch.to(device)
-                    opt.zero_grad()
-                    pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                    loss = F.mse_loss(pred.view(-1,1), batch.y.view(-1,1))
-                    loss.backward(); opt.step()
-                    tr_loss += loss.item()*batch.num_graphs; ntr += batch.num_graphs
-                tr_loss /= max(1,ntr)
+                for ep in range(1, E+1):
+                    model.train(); tr_loss=0; ntr=0
+                    for batch in train_loader:
+                        batch = batch.to(device)
+                        opt.zero_grad()
+                        pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                        loss = F.mse_loss(pred.view(-1,1), batch.y.view(-1,1))
+                        loss.backward(); opt.step()
+                        tr_loss += loss.item()*batch.num_graphs; ntr += batch.num_graphs
+                    tr_loss /= max(1,ntr)
 
-                va_loss = eval_loss(model, val_loader, device, task="reg")
-                print(f"[{target}] split {i} | epoch {ep:03d} | train {tr_loss:.6f} | val {va_loss:.6f}")
+                    va_loss = eval_loss(model, val_loader, device, task="reg")
+                    print(f"[{target}] split {i} | epoch {ep:03d} | train {tr_loss:.6f} | val {va_loss:.6f}")
 
-                if va_loss + 1e-12 < best_val:
-                    best_val = va_loss
-                    best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
-                    no_improve = 0
-                    torch.save({"state_dict": best_state}, ckpt_path / "best.pt")
-                else:
-                    no_improve += 1
-                    if no_improve >= P:
-                        break
+                    if va_loss + 1e-12 < best_val:
+                        best_val = va_loss
+                        best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+                        no_improve = 0
+                        torch.save({"state_dict": best_state}, ckpt_path / "best.pt")
+                    else:
+                        no_improve += 1
+                        if no_improve >= P:
+                            break
 
-            # load best
-            if best_state is not None:
-                model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+                # load best
+                if best_state is not None:
+                    model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+            else:
+                # Load existing checkpoint
+                logger.info(f"[{target}] split {i}: Loading checkpoint from {checkpoint_file}")
+                checkpoint = torch.load(checkpoint_file, map_location=device)
+                model.load_state_dict({k: v.to(device) for k, v in checkpoint["state_dict"].items()})
 
             # test (invert scale)
             model.eval()
