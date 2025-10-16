@@ -1,64 +1,146 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/source/_static/images/logo/chemprop_logo_dark_mode.svg">
-  <img alt="Chemprop Logo" src="docs/source/_static/images/logo/chemprop_logo.svg">
-</picture>
+# Project Structure
 
-# Chemprop
+This document describes the directory structure and organization of the polymer property prediction project built on Chemprop v2.
 
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/chemprop)](https://badge.fury.io/py/chemprop)
-[![PyPI version](https://badge.fury.io/py/chemprop.svg)](https://badge.fury.io/py/chemprop)
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/chemprop/badges/version.svg)](https://anaconda.org/conda-forge/chemprop)
-[![Build Status](https://github.com/chemprop/chemprop/workflows/tests/badge.svg)](https://github.com/chemprop/chemprop/actions/workflows/tests.yml)
-[![Documentation Status](https://readthedocs.org/projects/chemprop/badge/?version=main)](https://chemprop.readthedocs.io/en/main/?badge=main)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Downloads](https://static.pepy.tech/badge/chemprop)](https://pepy.tech/project/chemprop)
-[![Downloads](https://static.pepy.tech/badge/chemprop/month)](https://pepy.tech/project/chemprop)
-[![Downloads](https://static.pepy.tech/badge/chemprop/week)](https://pepy.tech/project/chemprop)
+## Directory Overview
 
-Chemprop is a repository containing message passing neural networks for molecular property prediction.
+### `data/`
+Contains input datasets in CSV format for training and evaluation. Datasets typically include:
+- SMILES strings for molecular structures
+- Target property values (e.g., HOMO, LUMO, bandgap, optical properties)
+- Optional dataset-specific descriptors
+- Metadata columns (e.g., dataset source, polymer type)
 
-Documentation can be found [here](https://chemprop.readthedocs.io/en/main/).
+### `scripts/`
+Training, evaluation, and utility scripts for the project. See [`scripts/README.md`](scripts/README.md) for detailed documentation of each script.
 
-There are tutorial notebooks in the [`examples/`](https://github.com/chemprop/chemprop/tree/main/examples) directory.
+**Subdirectories:**
+- `python/` - Python scripts for training models, evaluation, and data processing
+- `shell/` - Bash scripts for batch job submission and experiment generation (PBS/HPC)
 
-Chemprop recently underwent a ground-up rewrite and new major release (v2.0.0). A helpful transition guide from Chemprop v1 to v2 can be found [here](https://docs.google.com/spreadsheets/u/3/d/e/2PACX-1vRshySIknVBBsTs5P18jL4WeqisxDAnDE5VRnzxqYEhYrMe4GLS17w5KeKPw9sged6TmmPZ4eEZSTIy/pubhtml). This includes a side-by-side comparison of CLI argument options, a list of which arguments will be implemented in later versions of v2, and a list of changes to default hyperparameters.
+### `chemprop/`
+Modified Chemprop v2 library source code with custom extensions for polymer property prediction. This is a fork of the main Chemprop repository with project-specific modifications.
 
-**License:** Chemprop is free to use under the [MIT License](LICENSE.txt). The Chemprop logo is free to use under [CC0 1.0](docs/source/_static/images/logo/LICENSE.txt).
+### `checkpoints/`
+Saved model checkpoints organized by experiment configuration:
+- Path pattern: `{dataset}__{target}{descriptors}{rdkit}{batch_norm}{size}__rep{split}/`
+- Contains PyTorch Lightning checkpoint files (`.ckpt`)
+- Checkpoints are saved only when `--save_checkpoint` flag is used
+- Enables model resumption and inference on new data
 
-**References**: Please cite the appropriate papers if Chemprop is helpful to your research.
+### `preprocessing/`
+Preprocessing metadata and artifacts for reproducible feature engineering:
 
-- Chemprop was initially described in the papers [Analyzing Learned Molecular Representations for Property Prediction](https://pubs.acs.org/doi/abs/10.1021/acs.jcim.9b00237) for molecules and [Machine Learning of Reaction Properties via Learned Representations of the Condensed Graph of Reaction](https://doi.org/10.1021/acs.jcim.1c00975) for reactions.
-- The interpretation functionality (available in v1, but not yet implemented in v2) is based on the paper [Multi-Objective Molecule Generation using Interpretable Substructures](https://arxiv.org/abs/2002.03244).
-- Chemprop now has its own dedicated manuscript that describes and benchmarks it in more detail: [Chemprop: A Machine Learning Package for Chemical Property Prediction](https://doi.org/10.1021/acs.jcim.3c01250).
-- A paper describing and benchmarking the changes in v2.0.0 is forthcoming.
-- Support for atom and bond predictions is based on the paper [When Do Quantum Mechanical Descriptors Help Graph Neural Networks to Predict Chemical Properties?](https://pubs.acs.org/doi/10.1021/jacs.4c04670)
+**For graph models (DMPNN, AttentiveFP):**
+- Location: `preprocessing/{ModelName}/{experiment_name}/`
+- Files per split:
+  - `preprocessing_metadata_split_{i}.json` - Full preprocessing configuration
+  - `correlation_mask.npy` - Boolean mask for correlated feature removal
+  - `constant_features_removed.npy` - Indices of constant features removed
+  - `descriptor_scaler.pkl` - Fitted StandardScaler for descriptor normalization
 
-**Selected Applications**: Chemprop has been successfully used in the following works.
+**For tabular models (Linear, RF, XGB):**
+- Location: `out/{target}/` (or with config suffix for different feature sets)
+- Files per split:
+  - `preprocessing_metadata_split_{i}.json` - Preprocessing configuration
+  - `descriptor_imputer_{i}.pkl` - Fitted median imputer
+  - `constant_mask_{i}.npy` - Boolean mask for constant removal
+  - `corr_mask_{i}.npy` - Boolean mask for correlation filtering
+  - `split_{i}.txt` - List of selected feature names
+  - `feature_scaler_split_{i}_{Model}.pkl` - Per-model input scaler
 
-- [A Deep Learning Approach to Antibiotic Discovery](https://www.cell.com/cell/fulltext/S0092-8674(20)30102-1) - _Cell_ (2020): Chemprop was used to predict antibiotic activity against _E. coli_, leading to the discovery of [Halicin](https://en.wikipedia.org/wiki/Halicin), a novel antibiotic candidate. Model checkpoints are availabile on [Zenodo](https://doi.org/10.5281/zenodo.6527882).
-- [Discovery of a structural class of antibiotics with explainable deep learning](https://www.nature.com/articles/s41586-023-06887-8) - _Nature_ (2023): Identified a structural class of antibiotics selective against methicillin-resistant _S. aureus_ (MRSA) and vancomycin-resistant enterococci using ensembles of Chemprop models, and explained results using Chemprop's interpret method.
-- [ADMET-AI: A machine learning ADMET platform for evaluation of large-scale chemical libraries](https://academic.oup.com/bioinformatics/advance-article/doi/10.1093/bioinformatics/btae416/7698030?utm_source=authortollfreelink&utm_campaign=bioinformatics&utm_medium=email&guestAccessKey=f4fca1d2-49ec-4b10-b476-5aea3bf37045): Chemprop was trained on 41 absorption, distribution, metabolism, excretion, and toxicity (ADMET) datasets from the [Therapeutics Data Commons](https://tdcommons.ai). The Chemprop models in ADMET-AI are available both as a web server at [admet.ai.greenstonebio.com](https://admet.ai.greenstonebio.com) and as a Python package at [github.com/swansonk14/admet_ai](https://github.com/swansonk14/admet_ai).
-- A more extensive list of successful Chemprop applications is given in our [2023 paper](https://doi.org/10.1021/acs.jcim.3c01250)
+### `out/`
+Feature selection and preprocessing outputs for tabular models, organized by target property. Contains the preprocessing artifacts described above.
 
-## Version 1.x
+### `results/`
+Model evaluation results organized by model type:
 
-For users who have not yet made the switch to Chemprop v2.0, please reference the following resources.
+**Structure:**
+- `results/{ModelName}/{dataset}{config}_results_{target}.csv`
+- Each CSV contains metrics across all splits for a specific target
+- Columns: `target`, `split`, `MAE`, `R2`, `RMSE` (for regression)
 
-### v1 Documentation
+**Model directories:**
+- `DMPNN/` - D-MPNN (Directed Message Passing Neural Network) results
+- `AttentiveFP/` - AttentiveFP graph neural network results
+- `tabular/` - Tabular baseline results (Linear, RF, XGB combined)
 
-- Documentation of Chemprop v1 is available [here](https://chemprop.readthedocs.io/en/v1.7.1/). Note that the content of this site is several versions behind the final v1 release (v1.7.1) and does not cover the full scope of features available in chemprop v1.
-- The v1 [README](https://github.com/chemprop/chemprop/blob/v1.7.1/README.md) is the best source for documentation on more recently-added features.
-- Please also see descriptions of all the possible command line arguments in the v1 [`args.py`](https://github.com/chemprop/chemprop/blob/v1.7.1/chemprop/args.py) file.
+**Filename suffixes:**
+- `__desc` - Dataset-specific descriptors included
+- `__rdkit` - RDKit 2D descriptors included
+- `__batch_norm` - Batch normalization enabled
+- `__size{N}` - Training set subsampled to N samples (e.g., `__size500`)
 
-### v1 Tutorials and Examples
+### `predictions/`
+Saved predictions (y_true, y_pred) for each experiment when `--save_predictions` flag is used. Organized by model and configuration for learning curve analysis and error analysis.
 
-- [Benchmark scripts](https://github.com/chemprop/chemprop_benchmark) - scripts from our 2023 paper, providing examples of many features using Chemprop v1.6.1
-- [ACS Fall 2023 Workshop](https://github.com/chemprop/chemprop-workshop-acs-fall2023) - presentation, interactive demo, exercises on Google Colab with solution key
-- [Google Colab notebook](https://colab.research.google.com/github/chemprop/chemprop/blob/v1.7.1/colab_demo.ipynb) - several examples, intended to be run in Google Colab rather than as a Jupyter notebook on your local machine
-- [nanoHUB tool](https://nanohub.org/resources/chempropdemo/) - a notebook of examples similar to the Colab notebook above, doesn't require any installation
-  - [YouTube video](https://www.youtube.com/watch?v=TeOl5E8Wo2M) - lecture accompanying nanoHUB tool
-- These [slides](https://docs.google.com/presentation/d/14pbd9LTXzfPSJHyXYkfLxnK8Q80LhVnjImg8a3WqCRM/edit?usp=sharing) provide a Chemprop tutorial and highlight additions as of April 28th, 2020
+### `plots/`
+Generated visualizations and figures:
 
-### v1 Known Issues
+**Subdirectories:**
+- `multi_model/` - Multi-model comparison learning curves
+  - Learning curves comparing all models across training set sizes
+  - Separate plots per target and metric (MAE, R², RMSE)
+  - `model_comparison_summary.csv` - Best model performance table
+- Individual model learning curve plots (generated by `plot_opv_learning_curves.py`)
 
-We have discontinued support for v1 since v2 has been released, but we still appreciate v1 bug reports and will tag them as [`v1-wontfix`](https://github.com/chemprop/chemprop/issues?q=label%3Av1-wontfix+) so the community can find them easily.
+### `requirements/`
+Python package dependencies organized by purpose:
+- `requirements.txt` - Core dependencies
+- `requirements-dev.txt` - Development tools
+- `requirements-docs.txt` - Documentation generation
+- Additional requirement files for specific environments
+
+## Configuration Files
+
+### `train_config.yaml`
+Central configuration file for training experiments:
+- **Global settings:** Random seed, replicates, epochs, patience
+- **Dataset-specific descriptors:** Feature columns to use per dataset
+- **Dataset ignore columns:** Columns to exclude from training
+- **Model-specific settings:** SMILES column names, model-specific ignore columns
+- **Path configuration:** Data, checkpoint, results, and output directories
+
+### `experiments.yaml`
+Batch experiment configuration for shell script generation (used by `generate_training_script.sh`)
+
+### `evaluation_config.yaml`
+Configuration for batch model evaluation scripts
+
+## Key Python Scripts (Root Level)
+
+### `plot_multi_model_learning_curves.py`
+Generates comprehensive multi-model comparison plots:
+- Loads results from all models (DMPNN, AttentiveFP, tabular baselines)
+- Creates learning curves showing performance vs. training set size
+- Produces comparison tables identifying best models per target/metric
+- Handles multiple model variants (e.g., with/without descriptors)
+
+### `plot_opv_learning_curves.py`
+Generates learning curves for individual models or datasets:
+- Plots performance metrics across different training sizes
+- Supports filtering by model variant and target
+- Creates publication-ready figures with error bars
+
+### `make_wdmpnn_input.py`
+Preprocesses SMILES strings for weighted D-MPNN (wDMPNN):
+- Converts standard SMILES to wDMPNN input format
+- Handles polymer-specific molecular representations
+- Required for training wDMPNN models
+
+## Workflow Overview
+
+1. **Data Preparation:** Place datasets in `data/` directory
+2. **Configuration:** Set up `train_config.yaml` with dataset-specific settings
+3. **Training:** Run training scripts from `scripts/python/` or submit batch jobs via `scripts/shell/`
+4. **Preprocessing:** Artifacts automatically saved to `preprocessing/` or `out/`
+5. **Checkpoints:** Model checkpoints saved to `checkpoints/` (if enabled)
+6. **Results:** Evaluation metrics saved to `results/{ModelName}/`
+7. **Visualization:** Generate plots using `plot_multi_model_learning_curves.py`
+
+## Notes
+
+- All paths support train_size suffixes (`__size{N}`) to prevent conflicts between experiments with different training set sizes
+- Preprocessing is cached and reused when compatible (same features, splits, and configuration)
+- Cross-validation and holdout validation are automatically selected based on dataset size
+- The project uses PBS job submission scripts for HPC environments but can be adapted for other schedulers
