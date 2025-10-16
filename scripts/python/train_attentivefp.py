@@ -244,6 +244,20 @@ def main():
     ap.add_argument('--model_name', type=str, default="AttentiveFP")
     
     args = ap.parse_args()
+    
+    # Validate train_size argument
+    if args.train_size is not None:
+        if args.train_size.lower() == "full":
+            # "full" is a valid option, no further validation needed
+            pass
+        else:
+            try:
+                train_size_int = int(args.train_size)
+                if train_size_int <= 0:
+                    ap.error("--train_size must be a positive integer or 'full' (e.g., 500, 5000, full)")
+            except ValueError:
+                ap.error("--train_size must be a valid integer or 'full' (e.g., 500, 5000, full)")
+    
     device = torch.device(args.device)
 
     # ===== setup (same as your D-MPNN script) =====
@@ -354,6 +368,30 @@ def main():
 
         # Generate data splits
         train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+        
+        # Apply train_size subsampling if specified
+        if args.train_size is not None and args.train_size.lower() != "full":
+            target_train_size = int(args.train_size)
+            logger.info(f"Subsampling training data to {target_train_size} samples")
+            
+            for i in range(len(train_indices)):
+                original_train_size = len(train_indices[i])
+                new_train_size = min(target_train_size, original_train_size)
+                
+                if new_train_size < original_train_size:
+                    # Use per-split RNG for reproducible but distinct subsampling
+                    rng = np.random.default_rng(SEED + i)  # stable, split-specific
+                    subsampled_indices = rng.choice(
+                        train_indices[i], 
+                        size=new_train_size, 
+                        replace=False
+                    )
+                    train_indices[i] = subsampled_indices
+                    logger.info(f"Split {i}: Training set reduced from {original_train_size} to {new_train_size} samples")
+                else:
+                    logger.info(f"Split {i}: Training set size ({original_train_size}) is already <= target size ({target_train_size}), keeping all samples")
+        elif args.train_size is not None and args.train_size.lower() == "full":
+            logger.info("Using full training set (no subsampling)")
 
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
             # per-split bookkeeping (mirrors your naming)
