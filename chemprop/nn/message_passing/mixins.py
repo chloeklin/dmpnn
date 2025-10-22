@@ -63,6 +63,104 @@ class _WeightedBondMessagePassingMixin:
         return H_v
 
 
+class _DiffPoolMixin:
+    def build_A_from_bmg(bmg) -> torch.Tensor:
+        """Symmetric adjacency (binary) from directed edge_index."""
+        N = len(bmg.V)
+        A = bmg.V.new_zeros((N, N))
+        src, dst = bmg.edge_index
+        A[src, dst] = 1.0
+        A[dst, src] = 1.0
+        return A
+
+    def final_fixed_pool(X, batch, use_mean=True):
+        """One-hot pool to 1 node/graph (i.e., global readout)."""
+        G = int(batch.max().item()) + 1
+        S_last = F.one_hot(batch, num_classes=G).to(X.dtype)    # (N, G)
+        H_sum = S_last.T @ X                                    # (G, d)
+        if use_mean:
+            counts = S_last.sum(0, keepdim=True).T              # (G,1)
+            return H_sum / counts.clamp_min(1.0)
+        return H_sum
+
+    def diffpool_losses(A, S, lambda_lp: float, lambda_ent: float):
+        """Link-prediction + entropy regularizers."""
+        lp = lambda_lp * (A - S @ S.T).pow(2).sum().sqrt()
+        S_safe = S.clamp_min(1e-8)
+        ent = lambda_ent * (-(S_safe * S_safe.log()).sum(dim=1).mean())
+        return lp, ent
+    
+    def coarsen_to_molgraph_soft(
+        Z: torch.Tensor,             # (n, d_z) node embeddings
+        A: torch.Tensor,             # (n, n)   symmetric adjacency
+        E_dir: torch.Tensor,         # (e, d_e) directed edge feats aligned to edge_index
+        edge_index: torch.Tensor,    # (2, e)   directed COO
+        S: torch.Tensor,             # (n, c)   soft assignments
+        eps: float = 1e-8,
+        drop_self_loops: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Returns tensors for a *coarsened* MolGraph:
+          V': (c, d_z), E': (2m, d_e), edge_index': (2, 2m), rev_edge_index': (2m,)
+        """
+        # 1) cluster/node features
+        Vp = S.T @ Z                      # (c, d_z)
+
+        # 2) coarse adjacency weights
+        Ap = S.T @ A @ S                  # (c, c)
+        if drop_self_loops:
+            Ap.fill_diagonal_(0)
+
+        # 3) cluster edge list
+        p_idx, q_idx = (Ap > 0).nonzero(as_tuple=True)
+        if p_idx.numel() == 0:
+            # empty edge set
+            edge_index_p = Z.new_empty(2, 0, dtype=torch.long)
+            E_p = Z.new_empty(0, E_dir.size(1))
+            rev_p = Z.new_empty(0, dtype=torch.long)
+            return Vp, E_p, edge_index_p, rev_p
+
+        # 4) aggregate original directed bond features to cluster edges (weighted avg by S[u,p]*S[v,q])
+        e_src, e_dst = edge_index[0], edge_index[1]  # (e,)
+        Su = S[e_src]                                 # (e, c)
+        Sv = S[e_dst]                                 # (e, c)
+
+        c, d_e = S.size(1), E_dir.size(1)
+        E_acc = Z.new_zeros((c, c, d_e))
+        W_acc = Z.new_zeros((c, c))
+
+        # NOTE: clear & correct baseline; optimize later with top-k or sparse ops if needed.
+        for i in range(edge_index.size(1)):
+            w_p = Su[i]                     # (c,)
+            w_q = Sv[i]                     # (c,)
+            pw = (w_p > 0).nonzero().squeeze(1)
+            qw = (w_q > 0).nonzero().squeeze(1)
+            if pw.numel() == 0 or qw.numel() == 0:
+                continue
+            ei = E_dir[i]                   # (d_e,)
+            for p in pw:
+                wp = w_p[p]
+                row = E_acc[p]
+                row_w = W_acc[p]
+                for q in qw:
+                    w = wp * w_q[q]
+                    row[q] += w * ei
+                    row_w[q] += w
+
+        W = W_acc.clamp_min(eps).unsqueeze(-1)
+        Ep_dense = E_acc / W                # (c, c, d_e)
+
+        # 5) directed COO + features; pair reverses
+        Ep = Ep_dense[p_idx, q_idx]         # (m, d_e)
+        edge_pq = torch.stack([p_idx, q_idx], 0)
+        edge_qp = torch.stack([q_idx, p_idx], 0)
+        edge_index_p = torch.cat([edge_pq, edge_qp], dim=1)      # (2, 2m)
+        E_p = torch.cat([Ep, Ep], dim=0)                         # (2m, d_e)
+        rev_p = torch.arange(edge_index_p.size(1), device=Z.device)\
+                     .view(-1, 2)[:, ::-1].reshape(-1)
+        return Vp, E_p, edge_index_p, rev_p
+
+
 
 
 class _BondMessagePassingMixin:
