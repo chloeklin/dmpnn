@@ -196,7 +196,8 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
     def forward(self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None) -> Tensor:
         bmg = self.graph_transform(bmg)
         H_0 = self.initialize(bmg)
-        H = self.tau(H_0)
+        H_0 = self.tau(H_0)
+        H = H_0
         for _ in range(1, self.depth):
             if self.undirected:
                 H = (H + H[bmg.rev_edge_index]) / 2
