@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """
-Plot Learning Curves for Multiple Models on OPV Dataset
+Plot Learning Curves for Multiple Models Across Multiple Datasets
 
 This script compares learning curves across different models (DMPNN, AttentiveFP, etc.)
-showing how performance metrics vary with training set size.
+and multiple datasets, showing how performance metrics vary with training set size.
 
 Usage:
     python plot_multi_model_learning_curves.py
     
 The script will:
-1. Load results from multiple model directories (DMPNN, AttentiveFP, etc.)
-2. Extract training sizes and performance metrics
-3. Create plots comparing all models for each target-metric combination
-4. Show error bars representing standard deviation across replicates
-5. Save plots as high-quality PNG files
+1. Process each dataset configured in DATASET_CONFIGS
+2. Load results from multiple model directories (DMPNN, AttentiveFP, etc.)
+3. Extract training sizes and performance metrics
+4. Create plots comparing all models for each dataset-target-metric combination
+5. Show error bars representing standard deviation across replicates
+6. Save plots as high-quality PNG files with dataset-specific naming
+
+Configuration:
+- Edit DATASET_CONFIGS to add/remove datasets
+- Edit MODEL_CONFIGS to add/remove models
+- Each dataset can have its own target filter
 """
 
 import pandas as pd
@@ -30,11 +36,32 @@ warnings.filterwarnings('ignore')
 plt.style.use('seaborn-v0_8')
 sns.set_palette("husl")
 
+# Dataset Configuration: Add or remove datasets here
+DATASET_CONFIGS = {
+    'opv_camb3lyp': {
+        'name': 'OPV CAM-B3LYP',
+        'target_filter': [
+            'spectral_overlap',
+            'gap',
+            'homo',
+            'homo_extrapolated',
+            'optical_lumo',
+            'lumo',
+            'delta_optical_lumo',
+            'gap_extrapolated'
+        ]
+    },     
+    'insulator': {
+        'name': 'Insulator',
+        'target_filter': None
+    } 
+}
+
 # Configuration: Add or remove models here
 MODEL_CONFIGS = {
     'DMPNN': {
         'dir': 'results/DMPNN',
-        'pattern': 'opv_camb3lyp*_results.csv',
+        'pattern': '{dataset}*_results.csv',  # {dataset} will be replaced
         'color': '#1f77b4',
         'marker': 'o',
         'linestyle': '-',
@@ -42,7 +69,7 @@ MODEL_CONFIGS = {
     },
     'Tabular-Linear': {
         'dir': 'results/tabular',
-        'pattern': 'opv_camb3lyp_descriptors_rdkit_ab*.csv',
+        'pattern': '{dataset}_descriptors_rdkit_ab*.csv',
         'color': '#ff7f0e',
         'marker': 's',
         'linestyle': '--',
@@ -51,7 +78,7 @@ MODEL_CONFIGS = {
     },
     'Tabular-RF': {
         'dir': 'results/tabular',
-        'pattern': 'opv_camb3lyp_descriptors_rdkit_ab*.csv',
+        'pattern': '{dataset}_descriptors_rdkit_ab*.csv',
         'color': '#2ca02c',
         'marker': '^',
         'linestyle': '-.',
@@ -60,7 +87,7 @@ MODEL_CONFIGS = {
     },
     'Tabular-XGB': {
         'dir': 'results/tabular',
-        'pattern': 'opv_camb3lyp_descriptors_rdkit_ab*.csv',
+        'pattern': '{dataset}_descriptors_rdkit_ab*.csv',
         'color': '#d62728',
         'marker': 'D',
         'linestyle': ':',
@@ -69,7 +96,7 @@ MODEL_CONFIGS = {
     },
     'AttentiveFP': {
         'dir': 'results/AttentiveFP',
-        'pattern': 'opv_camb3lyp*.csv',
+        'pattern': '{dataset}*.csv',
         'color': '#9467bd',
         'marker': 'v',
         'linestyle': '--',
@@ -78,25 +105,13 @@ MODEL_CONFIGS = {
     # Add more models here as needed:
     # 'PAE_TG': {
     #     'dir': 'results/PAE_TG',
-    #     'pattern': 'opv_camb3lyp*_results.csv',
+    #     'pattern': '{dataset}*_results.csv',
     #     'color': '#9467bd',
     #     'marker': 'v',
     #     'linestyle': '--',
     #     'is_tabular': False
     # },
 }
-
-# Target filter: Only plot these targets
-TARGET_FILTER = [
-    'spectral_overlap',
-    'gap',
-    'homo',
-    'homo_extrapolated',
-    'optical_lumo',
-    'lumo',
-    'delta_optical_lumo',
-    'gap_extrapolated'
-]
 
 def extract_train_size_from_filename(filename):
     """Extract training size from filename. Returns 'full' for files without size suffix."""
@@ -117,16 +132,19 @@ def extract_variant_from_filename(filename):
         variants.append('desc')
     return '_'.join(variants) if variants else 'original'
 
-def load_model_results(model_name, model_config):
-    """Load all result files for a specific model."""
+def load_model_results(model_name, model_config, dataset_name, target_filter=None):
+    """Load all result files for a specific model and dataset."""
     results_dir = Path(model_config['dir'])
     
     if not results_dir.exists():
         print(f"⚠️  Warning: Directory {results_dir} not found for {model_name}")
         return {}, set()
     
+    # Replace {dataset} placeholder in pattern
+    pattern = model_config['pattern'].replace('{dataset}', dataset_name)
+    
     # Find all result files matching the pattern
-    result_files = list(results_dir.glob(model_config['pattern']))
+    result_files = list(results_dir.glob(pattern))
     
     print(f"\n{model_name}: Found {len(result_files)} result files")
     
@@ -169,9 +187,9 @@ def load_model_results(model_name, model_config):
             if column_mapping:
                 df = df.rename(columns=column_mapping)
             
-            # Filter to only specified targets
-            if 'target' in df.columns:
-                df = df[df['target'].isin(TARGET_FILTER)].copy()
+            # Filter to only specified targets (if target_filter is provided)
+            if 'target' in df.columns and target_filter is not None:
+                df = df[df['target'].isin(target_filter)].copy()
                 if len(df) == 0:
                     continue
             
@@ -192,17 +210,17 @@ def load_model_results(model_name, model_config):
     
     return results_data, all_targets
 
-def load_all_models():
-    """Load results from all configured models."""
+def load_all_models(dataset_name, target_filter=None):
+    """Load results from all configured models for a specific dataset."""
     all_results = {}  # {model_name: {variant: {train_size: DataFrame}}}
     common_targets = None
     
     print("=" * 70)
-    print("📂 Loading Results from All Models")
+    print(f"📂 Loading Results for Dataset: {dataset_name}")
     print("=" * 70)
     
     for model_name, model_config in MODEL_CONFIGS.items():
-        results_data, targets = load_model_results(model_name, model_config)
+        results_data, targets = load_model_results(model_name, model_config, dataset_name, target_filter)
         
         if results_data:
             all_results[model_name] = results_data
@@ -272,7 +290,7 @@ def calculate_metrics_summary(all_results, common_targets, variant_filter='origi
     
     return summary_data
 
-def create_multi_model_learning_curves(summary_data, common_targets, output_dir='plots/multi_model'):
+def create_multi_model_learning_curves(summary_data, common_targets, dataset_name, dataset_display_name, output_dir='plots/multi_model'):
     """Create learning curve plots comparing multiple models."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -378,14 +396,14 @@ def create_multi_model_learning_curves(summary_data, common_targets, output_dir=
             # Save plot
             target_clean = target.replace('_', '-')
             metric_clean = metric.split('/')[-1]
-            output_file = output_dir / f'opv_{target_clean}_{metric_clean}_multi_model.png'
+            output_file = output_dir / f'{dataset_name}_{target_clean}_{metric_clean}_multi_model.png'
             plt.savefig(output_file, dpi=300, bbox_inches='tight')
             print(f"  ✓ Saved: {output_file.name}")
             plt.close()
     
     print(f"\n✅ Created {len(common_targets) * len(metrics_info)} multi-model learning curve plots!")
 
-def create_comparison_summary(summary_data, common_targets, output_dir='plots/multi_model'):
+def create_comparison_summary(summary_data, common_targets, dataset_name, output_dir='plots/multi_model'):
     """Create a summary table comparing best performance across models."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -435,7 +453,7 @@ def create_comparison_summary(summary_data, common_targets, output_dir='plots/mu
     
     # Create DataFrame and save
     summary_df = pd.DataFrame(summary_rows)
-    output_file = output_dir / 'model_comparison_summary.csv'
+    output_file = output_dir / f'{dataset_name}_model_comparison_summary.csv'
     summary_df.to_csv(output_file, index=False)
     print(f"\n📋 Saved comparison summary: {output_file}")
     print("\nModel Comparison Summary (Best Performance):")
@@ -446,38 +464,48 @@ def main():
     print("🚀 Starting Multi-Model Learning Curve Analysis")
     print("=" * 70)
     
-    # Load results from all models
-    all_results, common_targets = load_all_models()
+    # Process each dataset
+    for dataset_name, dataset_config in DATASET_CONFIGS.items():
+        print(f"\n\n{'='*70}")
+        print(f"📊 Processing Dataset: {dataset_config['name']} ({dataset_name})")
+        print(f"{'='*70}\n")
+        
+        target_filter = dataset_config.get('target_filter')
+        
+        # Load results from all models for this dataset
+        all_results, common_targets = load_all_models(dataset_name, target_filter)
+        
+        if not all_results:
+            print(f"❌ No results found for {dataset_name}!")
+            continue
+        
+        if not common_targets:
+            print("⚠️  Warning: No common targets found. Proceeding with all available targets.")
+            # Use all targets from all models
+            for model_results in all_results.values():
+                for variant_data in model_results.values():
+                    for df in variant_data.values():
+                        if 'target' in df.columns:
+                            common_targets.update(df['target'].unique())
+        
+        print(f"\n📊 Found {len(all_results)} models:")
+        for model_name, model_results in all_results.items():
+            print(f"  - {model_name}: {len(model_results)} variants")
+        
+        # Calculate summary statistics (using 'original' variant for fair comparison)
+        print("\n📊 Calculating summary statistics (using 'original' variant)...")
+        summary_data = calculate_metrics_summary(all_results, common_targets, variant_filter='original')
+        
+        # Create plots
+        create_multi_model_learning_curves(summary_data, common_targets, dataset_name, dataset_config['name'])
+        
+        # Create comparison summary
+        create_comparison_summary(summary_data, common_targets, dataset_name)
     
-    if not all_results:
-        print("❌ No results found!")
-        return
-    
-    if not common_targets:
-        print("⚠️  Warning: No common targets found. Proceeding with all available targets.")
-        # Use all targets from all models
-        for model_results in all_results.values():
-            for variant_data in model_results.values():
-                for df in variant_data.values():
-                    if 'target' in df.columns:
-                        common_targets.update(df['target'].unique())
-    
-    print(f"\n📊 Found {len(all_results)} models:")
-    for model_name, model_results in all_results.items():
-        print(f"  - {model_name}: {len(model_results)} variants")
-    
-    # Calculate summary statistics (using 'original' variant for fair comparison)
-    print("\n📊 Calculating summary statistics (using 'original' variant)...")
-    summary_data = calculate_metrics_summary(all_results, common_targets, variant_filter='original')
-    
-    # Create plots
-    create_multi_model_learning_curves(summary_data, common_targets)
-    
-    # Create comparison summary
-    create_comparison_summary(summary_data, common_targets)
-    
-    print("\n✅ Multi-model analysis complete!")
-    print("Check the 'plots/multi_model/' directory for generated figures and summary table.")
+    print("\n\n" + "="*70)
+    print("✅ Multi-model analysis complete for all datasets!")
+    print("Check the 'plots/multi_model/' directory for generated figures and summary tables.")
+    print("="*70)
 
 if __name__ == "__main__":
     main()
