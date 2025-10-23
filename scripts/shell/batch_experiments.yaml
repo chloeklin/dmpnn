@@ -354,7 +354,7 @@ experiments:
 #     incl_ab: true
 
   # PAE TG experiments
-  - <<: *pae_tg_base
-    model: tabular
-    walltime: "12:00:00"
-    incl_rdkit: true
+  # - <<: *pae_tg_base
+  #   model: tabular
+  #   walltime: "12:00:00"
+  #   incl_rdkit: true
