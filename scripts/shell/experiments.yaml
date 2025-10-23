@@ -1,52 +1,52 @@
 experiments:
   # Polyinfo dataset experiments
-  - dataset: polyinfo
-    model: DMPNN
-    walltime: "0:30:00"
-    incl_rdkit: true
-    task_type: multi
+  # - dataset: polyinfo
+  #   model: DMPNN
+  #   walltime: "0:30:00"
+  #   incl_rdkit: true
+  #   task_type: multi
   
-  - dataset: polyinfo
-    model: DMPNN
-    walltime: "0:30:00"
-    task_type: multi
+  # - dataset: polyinfo
+  #   model: DMPNN
+  #   walltime: "0:30:00"
+  #   task_type: multi
 
-  - dataset: polyinfo
-    model: DMPNN
-    walltime: "0:30:00"
-    incl_rdkit: true
-    batch_norm: true
-    task_type: multi
+  # - dataset: polyinfo
+  #   model: DMPNN
+  #   walltime: "0:30:00"
+  #   incl_rdkit: true
+  #   batch_norm: true
+  #   task_type: multi
   
-  - dataset: polyinfo
-    model: DMPNN
-    walltime: "0:30:00"
-    batch_norm: true
-    task_type: multi
+  # - dataset: polyinfo
+  #   model: DMPNN
+  #   walltime: "0:30:00"
+  #   batch_norm: true
+  #   task_type: multi
 
-  - dataset: polyinfo
-    model: wDMPNN
-    walltime: "10:30:00"
-    incl_rdkit: true
-    task_type: multi
+  # - dataset: polyinfo
+  #   model: wDMPNN
+  #   walltime: "10:30:00"
+  #   incl_rdkit: true
+  #   task_type: multi
   
-  - dataset: polyinfo
-    model: wDMPNN
-    walltime: "10:30:00"
-    task_type: multi
+  # - dataset: polyinfo
+  #   model: wDMPNN
+  #   walltime: "10:30:00"
+  #   task_type: multi
 
-  - dataset: polyinfo
-    model: wDMPNN
-    walltime: "10:30:00"
-    incl_rdkit: true
-    batch_norm: true
-    task_type: multi
+  # - dataset: polyinfo
+  #   model: wDMPNN
+  #   walltime: "10:30:00"
+  #   incl_rdkit: true
+  #   batch_norm: true
+  #   task_type: multi
   
-  - dataset: polyinfo
-    model: wDMPNN
-    walltime: "10:30:00"
-    batch_norm: true
-    task_type: multi
+  # - dataset: polyinfo
+  #   model: wDMPNN
+  #   walltime: "10:30:00"
+  #   batch_norm: true
+  #   task_type: multi
     
   # - dataset: polyinfo
   #   model: tabular
@@ -68,16 +68,16 @@ experiments:
   #   task_type: multi
 
   # Insulator dataset experiments
-  - dataset: insulator
-    model: DMPNN
-    walltime: "0:40:00"
-    task_type: reg
+  # - dataset: insulator
+  #   model: DMPNN
+  #   walltime: "0:40:00"
+  #   task_type: reg
 
-  - dataset: insulator
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "0:40:00"
-    task_type: reg
+  # - dataset: insulator
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "0:40:00"
+  #   task_type: reg
 
   - dataset: insulator
     model: DMPNN
@@ -85,23 +85,23 @@ experiments:
     batch_norm: true
     task_type: reg
 
-  - dataset: insulator
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "0:40:00"
-    batch_norm: true
-    task_type: reg
+  # - dataset: insulator
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "0:40:00"
+  #   batch_norm: true
+  #   task_type: reg
     
-  - dataset: insulator
-    model: wDMPNN
-    walltime: "6:00:00"
-    task_type: reg
+  # - dataset: insulator
+  #   model: wDMPNN
+  #   walltime: "6:00:00"
+  #   task_type: reg
   
-  - dataset: insulator
-    model: wDMPNN
-    incl_rdkit: true
-    walltime: "6:00:00"
-    task_type: reg
+  # - dataset: insulator
+  #   model: wDMPNN
+  #   incl_rdkit: true
+  #   walltime: "6:00:00"
+  #   task_type: reg
 
   - dataset: insulator
     model: wDMPNN
@@ -109,12 +109,12 @@ experiments:
     batch_norm: true
     task_type: reg
   
-  - dataset: insulator
-    model: wDMPNN
-    incl_rdkit: true
-    walltime: "6:00:00"
-    batch_norm: true
-    task_type: reg
+  # - dataset: insulator
+  #   model: wDMPNN
+  #   incl_rdkit: true
+  #   walltime: "6:00:00"
+  #   batch_norm: true
+  #   task_type: reg
     
   # - dataset: insulator
   #   model: tabular
@@ -169,57 +169,57 @@ experiments:
   #   incl_rdkit: true
   #   task_type: reg
 
-  - dataset: htpmd
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
-    task_type: reg
+  # - dataset: htpmd
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   task_type: reg
   
-  - dataset: htpmd
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_rdkit: true
-    task_type: reg
+  # - dataset: htpmd
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_rdkit: true
+  #   task_type: reg
   
-  - dataset: htpmd
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
-    task_type: reg
+  # - dataset: htpmd
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
+  #   task_type: reg
   
-  - dataset: htpmd
-    model: DMPNN
-    walltime: "4:00:00"
-    task_type: reg
+  # - dataset: htpmd
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   task_type: reg
 
-  - dataset: htpmd
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
-    batch_norm: true
-    task_type: reg
+  # - dataset: htpmd
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   batch_norm: true
+  #   task_type: reg
   
-  - dataset: htpmd
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_rdkit: true
-    batch_norm: true
-    task_type: reg
+  # - dataset: htpmd
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_rdkit: true
+  #   batch_norm: true
+  #   task_type: reg
   
-  - dataset: htpmd
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
-    batch_norm: true
-    task_type: reg
+  # - dataset: htpmd
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
+  #   batch_norm: true
+  #   task_type: reg
   
-  - dataset: htpmd
-    model: DMPNN
-    walltime: "4:00:00"
-    batch_norm: true
-    task_type: reg
+  # - dataset: htpmd
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   batch_norm: true
+  #   task_type: reg
 
   # # OPV B3LYP experiments
   # # - dataset: opv_b3lyp
@@ -263,29 +263,29 @@ experiments:
   #   task_type: reg
 
 
-  - dataset: opv_camb3lyp
-    model: DMPNN
-    walltime: "25:00:00"
-    task_type: reg
+  # - dataset: opv_camb3lyp
+  #   model: DMPNN
+  #   walltime: "25:00:00"
+  #   task_type: reg
     
-  - dataset: opv_camb3lyp
-    model: DMPNN
-    walltime: "25:00:00"
-    incl_rdkit: true
-    task_type: reg
+  # - dataset: opv_camb3lyp
+  #   model: DMPNN
+  #   walltime: "25:00:00"
+  #   incl_rdkit: true
+  #   task_type: reg
 
-  - dataset: opv_camb3lyp
-    model: DMPNN
-    walltime: "25:00:00"
-    batch_norm: true
-    task_type: reg
+  # - dataset: opv_camb3lyp
+  #   model: DMPNN
+  #   walltime: "25:00:00"
+  #   batch_norm: true
+  #   task_type: reg
     
-  - dataset: opv_camb3lyp
-    model: DMPNN
-    walltime: "25:00:00"
-    incl_rdkit: true
-    batch_norm: true
-    task_type: reg
+  # - dataset: opv_camb3lyp
+  #   model: DMPNN
+  #   walltime: "25:00:00"
+  #   incl_rdkit: true
+  #   batch_norm: true
+  #   task_type: reg
 
   # - dataset: ea_ip
   #   model: tabular
@@ -300,34 +300,7 @@ experiments:
   #   task_type: reg
   #   polymer_type: copolymer
 
-  - dataset: ea_ip
-    model: wDMPNN
-    walltime: "1:30:00"
-    incl_rdkit: true
-    task_type: reg
-    polymer_type: copolymer
-
-  - dataset: ea_ip
-    model: wDMPNN
-    walltime: "1:30:00"
-    task_type: reg
-    polymer_type: copolymer
-
-  - dataset: combined_homopolymer
-    model: DMPNN
-    walltime: "12:00:00"
-    incl_rdkit: true
-    task_type: reg
-    pretrain_monomer: true
-    save_checkpoint: true
-
-  - dataset: combined_homopolymer
-    model: DMPNN
-    walltime: "12:00:00"
-    task_type: reg
-    pretrain_monomer: true
-    save_checkpoint: true
-
+  # - datas
 
   # - dataset: pae_tg
   #   model: tabular

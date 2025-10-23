@@ -81,6 +81,12 @@ class MeanAggregation(Aggregation):
         )
 
 
+@AggregationRegistry.register("identity")
+class IdentityAggregation(Aggregation):
+    @property
+    def forward(self, H, batch_or_bmg): return H
+
+
 @AggregationRegistry.register("sum")
 class SumAggregation(Aggregation):
     r"""Sum the graph-level representation:
