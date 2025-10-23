@@ -37,12 +37,16 @@ models:
   DMPNN:
     smiles_column: smiles
     ignore_columns: [WDMPNN_Input]
+  
+  DMPNN_DiffPool:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
     
   wDMPNN:
     smiles_column: WDMPNN_Input
     ignore_columns: [smiles]
     
-  periodic:
+  PPG:
     smiles_column: smiles
     ignore_columns: []
 

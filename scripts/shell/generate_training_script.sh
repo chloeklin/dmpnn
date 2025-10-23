@@ -19,7 +19,7 @@
 if [ $# -lt 3 ]; then
     echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type]"
     echo ""
-    echo "Available models: tabular, DMPNN, wDMPNN"
+    echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP"
     echo "Walltime format: HH:MM:SS (e.g., 2:00:00 for 2 hours)"
     echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi, pretrain_monomer, save_checkpoint, save_predictions, export_embeddings"
     echo ""
@@ -45,10 +45,10 @@ TASK_TYPE="reg"
 
 # Validate model type
 case $MODEL in
-    tabular|DMPNN|wDMPNN)
+    tabular|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP)
         ;;
     *)
-        echo "Error: Invalid model '$MODEL'. Available models: tabular, DMPNN, wDMPNN"
+        echo "Error: Invalid model '$MODEL'. Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP"
         exit 1
         ;;
 esac
