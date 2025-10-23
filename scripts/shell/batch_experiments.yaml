@@ -1,0 +1,358 @@
+polyinfo_base: &polyinfo_base
+  dataset: polyinfo
+  task_type: multi
+  export_embeddings: true
+
+insulator_base: &insulator_base
+  dataset: insulator
+  task_type: reg
+  export_embeddings: true
+
+htpmd_base: &htpmd_base
+  dataset: htpmd
+  task_type: reg
+  export_embeddings: true
+
+opv_base: &opv_base
+  dataset: opv_camb3lyp
+  task_type: reg
+  export_embeddings: true
+
+eaip_base: &eaip_base
+  dataset: ea_ip
+  task_type: reg
+  polymer_type: copolymer
+  export_embeddings: true
+
+opv_targets: &opv_targets
+  - optical_lumo
+  - gap
+  - homo
+  - lumo
+  - spectral_overlap
+  - delta_optical_lumo
+  - homo_extrapolated
+  - gap_extrapolated
+
+
+experiments:
+  # Polyinfo dataset experiments
+#   - <<: *polyinfo_base
+#     model: DMPNN
+#     walltime: "0:30:00"
+#     incl_rdkit: true
+  
+#  - <<: *polyinfo_base
+#     model: DMPNN
+#     walltime: "0:30:00"
+
+#   - <<: *polyinfo_base
+#     model: DMPNN
+#     walltime: "0:30:00"
+#     incl_rdkit: true
+#     batch_norm: true
+  
+#   - <<: *polyinfo_base
+#     model: DMPNN
+#     walltime: "0:30:00"
+#     batch_norm: true
+    
+#   - <<: *polyinfo_base
+#     model: wDMPNN
+#     walltime: "10:30:00"
+#     incl_rdkit: true
+
+#   - <<: *polyinfo_base
+#     model: wDMPNN
+#     walltime: "10:30:00"
+
+#   - <<: *polyinfo_base
+#     model: wDMPNN
+#     walltime: "10:30:00"
+#     incl_rdkit: true
+#     batch_norm: true
+  
+#   - <<: *polyinfo_base
+#     model: wDMPNN
+#     walltime: "10:30:00"
+#     batch_norm: true
+    
+#   - <<: *polyinfo_base
+#     model: tabular
+#     walltime: "2:00:00"
+#     incl_ab: true
+#     incl_rdkit: true
+    
+#   - <<: *polyinfo_base
+#     model: tabular
+#     walltime: "1:30:00"
+#     incl_ab: true
+
+#   - <<: *polyinfo_base
+#     model: tabular
+#     walltime: "1:30:00"
+#     incl_rdkit: true
+
+
+
+
+  # Insulator dataset experiments
+#   - <<: *insulator_base
+#     model: DMPNN
+#     walltime: "0:40:00"
+
+#   - <<: *insulator_base
+#     model: DMPNN
+#     incl_rdkit: true
+#     walltime: "0:40:00"
+
+#   - <<: *insulator_base
+#     model: DMPNN
+#     walltime: "0:40:00"
+#     batch_norm: true
+
+#   - <<: *insulator_base
+#     model: DMPNN
+#     incl_rdkit: true
+#     walltime: "0:40:00"
+#     batch_norm: true
+
+  - <<: *insulator_base
+    model: DMPNN_DiffPool
+    walltime: "1:40:00"
+
+  - <<: *insulator_base
+    model: DMPNN_DiffPool
+    incl_rdkit: true
+    walltime: "1:40:00"
+
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "1:40:00"
+  #   batch_norm: true
+
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "1:40:00"
+  #   batch_norm: true
+
+
+#   - <<: *insulator_base
+#     model: wDMPNN
+#     walltime: "6:00:00"
+  
+#   - <<: *insulator_base
+#     model: wDMPNN
+#     incl_rdkit: true
+#     walltime: "6:00:00"
+
+#   - <<: *insulator_base
+#     model: wDMPNN
+#     walltime: "6:00:00"
+#     batch_norm: true
+  
+#   - <<: *insulator_base
+#     model: wDMPNN
+#     incl_rdkit: true
+#     walltime: "6:00:00"
+#     batch_norm: true
+    
+#   - <<: *insulator_base
+#     model: tabular
+#     walltime: "1:30:00"
+#     incl_rdkit: true
+
+#   - <<: *insulator_base
+#     model: tabular
+#     walltime: "0:30:00"
+#     incl_ab: true
+
+#   - <<: *insulator_base
+#     model: tabular
+#     walltime: "0:30:00"
+#     incl_ab: true
+#     incl_rdkit: true
+
+
+
+
+  # HTPMD dataset experiments
+#   - <<: *htpmd_base
+#     model: tabular
+#     walltime: "1:30:00"
+#     incl_ab: true
+    
+#   - <<: *htpmd_base
+#     model: tabular
+#     walltime: "2:00:00"
+#     incl_desc: true
+    
+#   - <<: *htpmd_base
+#     model: tabular
+#     walltime: "2:00:00"
+#     incl_rdkit: true
+    
+#   - <<: *htpmd_base
+#     model: tabular
+#     walltime: "2:00:00"
+#     incl_ab: true
+#     incl_rdkit: true
+    
+#   - <<: *htpmd_base
+#     model: tabular
+#     walltime: "2:00:00"
+#     incl_ab: true
+#     incl_desc: true
+#     incl_rdkit: true
+    
+#   - <<: *htpmd_base
+#     model: DMPNN
+#     walltime: "4:00:00"
+#     incl_desc: true
+    
+#   - <<: *htpmd_base
+#     model: DMPNN
+#     walltime: "4:00:00"
+#     incl_rdkit: true
+    
+#   - <<: *htpmd_base
+#     model: DMPNN
+#     walltime: "4:00:00"
+#     incl_desc: true
+#     incl_rdkit: true
+    
+#   - <<: *htpmd_base
+#     model: DMPNN
+#     walltime: "4:00:00"
+
+#   - <<: *htpmd_base
+#     model: DMPNN
+#     walltime: "4:00:00"
+#     incl_desc: true
+#     batch_norm: true
+    
+#   - <<: *htpmd_base
+#     model: DMPNN
+#     walltime: "4:00:00"
+#     incl_rdkit: true
+#     batch_norm: true
+  
+#   - <<: *htpmd_base
+#     model: DMPNN
+#     walltime: "4:00:00"
+#     incl_desc: true
+#     incl_rdkit: true
+#     batch_norm: true
+    
+#   - <<: *htpmd_base
+#     model: DMPNN
+#     walltime: "4:00:00"
+#     batch_norm: true
+
+
+
+
+
+  # OPV CAM-B3LYP experiments
+#   - <<: *opv_base
+#     model: tabular
+#     walltime: "12:00:00"
+#     incl_ab: true
+    
+#   - <<: *opv_base
+#     model: tabular
+#     walltime: "12:00:00"
+#     incl_rdkit: true
+
+#   - <<: *opv_base
+#     model: tabular
+#     walltime: "12:00:00"
+#     incl_ab: true
+#     incl_rdkit: true
+
+#   - <<: *opv_base
+#     model: DMPNN
+#     walltime: "25:00:00"
+    
+#   - <<: *opv_base
+#     model: DMPNN
+#     walltime: "25:00:00"
+#     incl_rdkit: true
+
+#   - <<: *opv_base
+#     model: DMPNN
+#     walltime: "25:00:00"
+#     batch_norm: true
+    
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "25:00:00"
+  #   incl_rdkit: true
+  #   batch_norm: true
+
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "25:00:00"
+    
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "25:00:00"
+    incl_rdkit: true
+
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "25:00:00"
+  #   batch_norm: true
+    
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "25:00:00"
+  #   incl_rdkit: true
+  #   batch_norm: true
+
+
+
+  # EA IP experiments
+#   - <<: *eaip_base
+#     model: tabular
+#     walltime: "1:30:00"
+#     incl_rdkit: true
+
+#   - <<: *eaip_base
+#     model: tabular
+#     walltime: "1:30:00"
+
+#   - <<: *eaip_base
+#     model: tabular
+#     walltime: "1:30:00"
+#     incl_rdkit: true
+#     incl_ab: true
+
+#   - <<: *eaip_base
+#     model: tabular
+#     walltime: "1:30:00"
+#     incl_ab: true
+
+#   - <<: *eaip_base
+#     model: wDMPNN
+#     walltime: "1:30:00"
+#     incl_rdkit: true
+
+#   - <<: *eaip_base
+#     model: wDMPNN
+#     walltime: "1:30:00"
+
+python3 scripts/python/train_tabular.py --dataset_name ea_ip --incl_rdkit --polymer_type copolymer --incl_ab
+
+  # - datas
+
+  # - dataset: pae_tg
+  #   model: tabular
+  #   walltime: "12:00:00"
+  #   incl_rdkit: true
+  #   task_type: reg
+  #   polymer_type: copolymer
+
+
+

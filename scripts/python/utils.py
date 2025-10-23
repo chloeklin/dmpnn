@@ -687,6 +687,16 @@ def build_model_and_trainer(
     elif args.model_name == "DMPNN":
         mp = nn.BondMessagePassing()
         agg = nn.MeanAggregation()
+    elif args.model_name == "DMPNN_DiffPool":
+        # ---- base D-MPNN used INSIDE the wrapper ----
+        base_mp_cls = nn.BondMessagePassing
+        
+        mp = nn.BondMessagePassingWithDiffPool(
+        base_mp_cls=base_mp_cls,
+        depth=getattr(args, "diffpool_depth", 1)
+        )
+
+        agg = nn.IdentityAggregation()
     else:
         raise ValueError(f"Unsupported model_name: {args.model_name}")
     
@@ -818,14 +828,10 @@ def build_model_and_trainer(
     
     return mpnn, trainer
 
-from typing import Any, List, Optional, Tuple, Union, Dict
-import numpy as np
 
-from typing import Any, List, Optional, Tuple, Union
-import numpy as np
 
-from typing import Any, List, Optional, Tuple, Union
-import numpy as np
+
+
 
 def make_repeated_splits(
     task_type: str,

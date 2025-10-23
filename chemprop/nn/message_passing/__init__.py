@@ -1,4 +1,4 @@
-from .base import AtomMessagePassing, BondMessagePassing, WeightedBondMessagePassing
+from .base import AtomMessagePassing, BondMessagePassing, WeightedBondMessagePassing, BondMessagePassingWithDiffPool
 from .mol_atom_bond import MABAtomMessagePassing, MABBondMessagePassing
 from .multi import MulticomponentMessagePassing
 from .proto import MABMessagePassing, MessagePassing
@@ -12,4 +12,5 @@ __all__ = [
     "MABAtomMessagePassing",
     "MABBondMessagePassing",
     "MulticomponentMessagePassing",
+    "BondMessagePassingWithDiffPool"
 ]

@@ -2,12 +2,13 @@ from abc import abstractmethod
 
 from lightning.pytorch.core.mixins import HyperparametersMixin
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 from chemprop.conf import DEFAULT_ATOM_FDIM, DEFAULT_BOND_FDIM, DEFAULT_HIDDEN_DIM, DEFAULT_POLY_ATOM_FDIM, DEFAULT_POLY_BOND_FDIM
-from chemprop.data import BatchMolGraph, BatchPolymerMolGraph
+from chemprop.data import BatchMolGraph, BatchPolymerMolGraph, MolGraph
 from chemprop.exceptions import InvalidShapeError
-from chemprop.nn.message_passing.mixins import _AtomMessagePassingMixin, _BondMessagePassingMixin, _WeightedBondMessagePassingMixin
+from chemprop.nn.message_passing.mixins import _AtomMessagePassingMixin, _BondMessagePassingMixin, _WeightedBondMessagePassingMixin, _DiffPoolMixin
 from chemprop.nn.message_passing.proto import MessagePassing
 from chemprop.nn.transforms import GraphTransform, ScaleTransform
 from chemprop.nn.utils import Activation, get_activation_function
@@ -310,44 +311,83 @@ class AtomMessagePassing(_AtomMessagePassingMixin, _MessagePassingBase):
         return W_i, W_h, W_o, W_d
 
 
+class PoolHead(nn.Module):
+    """Node -> cluster soft assignment logits."""
+    def __init__(self, d_in: int, c_out: int):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(d_in, d_in),
+            nn.ReLU(),
+            nn.Linear(d_in, c_out),
+        )
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return self.net(X)   # (N, c_out)
+
 class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
     def __init__(
         self,
-        base_mp_cls,                  # class (not instance) of your DMPNN
-        base_mp_kwargs: dict,
+        base_mp_cls,
+        base_mp_kwargs: dict | None = None,
         depth: int = 1,
         ratio: float = 0.25,
         lambda_lp: float = 0.5,
         lambda_ent: float = 1e-3,
         use_mean: bool = True,
+        **extra_kwargs,   # catch any other optional stuff
     ):
+        # --- call parent constructor with same signature ---
+        base_mp_kwargs = {} if base_mp_kwargs is None else dict(base_mp_kwargs)
         super().__init__(
-            d_v=base_mp_kwargs.get("d_v"),
-            d_e=base_mp_kwargs.get("d_e"),
-            d_h=base_mp_kwargs.get("d_h"),
+            d_v=base_mp_kwargs.get("d_v", DEFAULT_ATOM_FDIM),
+            d_e=base_mp_kwargs.get("d_e", DEFAULT_BOND_FDIM),
+            d_h=base_mp_kwargs.get("d_h", DEFAULT_HIDDEN_DIM),
+            bias=base_mp_kwargs.get("bias", False),
             depth=depth,
-            activation="relu"
+            dropout=base_mp_kwargs.get("dropout", 0.0),
+            activation=base_mp_kwargs.get("activation", "relu"),
+            undirected=base_mp_kwargs.get("undirected", False),
+            d_vd=base_mp_kwargs.get("d_vd", None),
+            V_d_transform=base_mp_kwargs.get("V_d_transform", None),
+            graph_transform=base_mp_kwargs.get("graph_transform", None),
         )
-        self.depth = depth
+
+        # --- your own attributes ---
+        self.base_mp_cls = base_mp_cls
+        self.base_mp_kwargs0 = dict(base_mp_kwargs)
+
         self.ratio = ratio
         self.lambda_lp = lambda_lp
         self.lambda_ent = lambda_ent
         self.use_mean = use_mean
 
-        # stack message passing + pool heads
-        self.base_mps = nn.ModuleList([
-            base_mp_cls(**base_mp_kwargs) for _ in range(depth)
-        ])
-        self.pool_heads = nn.ModuleList([
-            PoolHead(base_mp_kwargs["d_h"], base_mp_kwargs["d_h"]) for _ in range(depth)
-        ])
+        # --- initial encoder layer (lazy expansion later) ---
+        self.encoders = nn.ModuleList([base_mp_cls(**self.base_mp_kwargs0)])
 
+        # --- track auxiliary losses ---
         self._aux = {"diffpool_lp": torch.tensor(0.0), "diffpool_ent": torch.tensor(0.0)}
 
     @property
-    def output_dim(self): return self.base_mps[-1].output_dim
+    def output_dim(self): return self.encoders[-1].output_dim
     @property
     def aux_losses(self): return self._aux
+    def setup(self, *args, **kwargs):
+        return nn.Identity(), nn.Identity(), nn.Identity(), None
+    def initialize(self, bmg): raise NotImplementedError
+    def message(self, H_t, bmg): raise NotImplementedError
+
+
+    def _ensure_head(self, level: int, d_in: int, c_out: int, device: torch.device):
+        head = getattr(self, f"_pool_head_{level}", None)
+        if (head is None) or (head[-1].out_features != c_out):
+            head = nn.Sequential(
+                nn.Linear(d_in, d_in),
+                nn.ReLU(),
+                nn.Linear(d_in, c_out)
+            ).to(device)
+            setattr(self, f"_pool_head_{level}", head)
+        return head
+
 
     def forward(self, bmg, V_d=None):
         total_lp = 0.0
@@ -356,69 +396,93 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
         cur_V_d = V_d
 
         for level in range(self.depth):
-            mp = self.base_mps[level]
-            pool_head = self.pool_heads[level]
+            mp = self.encoders[level]
 
-            # ---- run DMPNN ----
-            Z = mp(cur_bmg, cur_V_d)
-            A = self.build_A_from_bmg(cur_bmg)
-            batch = cur_bmg.batch
+            # ---- D-MPNN on current graph ----
+            Z = mp(cur_bmg, cur_V_d)                    # (N, d_z)
+            A = self.build_A_from_bmg(cur_bmg)          # (N, N)
+            batch = cur_bmg.batch                       # (N,)
 
-            # clusters per graph
-            G = int(batch.max()) + 1
+            # ---- per-graph cluster counts ----
+            G = int(batch.max().item()) + 1
             counts = torch.bincount(batch, minlength=G)
             c_per_g = torch.clamp((counts.float() * self.ratio).ceil().long(), min=1)
             C_total = int(c_per_g.sum().item())
-
-            # ---- compute assignments ----
-            raw = pool_head(Z)
-            S_logits = Z.new_full((Z.size(0), C_total), -1e9)
             col_offsets = torch.cumsum(F.pad(c_per_g[:-1], (1, 0), value=0), 0)
+
+            # ---- assignment head (built when C_total known) ----
+            pool_head = self._ensure_head(level, d_in=Z.size(1), c_out=C_total, device=Z.device)
+            raw = pool_head(Z)                           # (N, C_total)
+
+            # ---- block-diagonal masking across graphs ----
+            S_logits = Z.new_full((Z.size(0), C_total), -1e9)
             for g in range(G):
-                mask = batch == g
+                mask = (batch == g)
                 start, end = int(col_offsets[g]), int(col_offsets[g] + c_per_g[g])
                 S_logits[mask, start:end] = raw[mask, start:end]
-            S = S_logits.softmax(dim=1)
+            S = S_logits.softmax(dim=1)                  # (N, C_total)
+
+            # (optional) sanity checks
+            # assert torch.allclose(S.sum(1), torch.ones_like(S.sum(1)), atol=1e-4)
+            # outside blocks are ~-inf -> 0 after softmax
 
             # ---- per-graph coarsening ----
             mgs_next = []
             lp_sum, ent_sum = 0.0, 0.0
+
+            # NOTE: This edge mask is fine to start; can optimize later
             for g in range(G):
                 node_idx = (batch == g).nonzero().squeeze(1)
-                if node_idx.numel() == 0: continue
-                Ag = A[node_idx][:, node_idx]
+                if node_idx.numel() == 0: 
+                    continue
+
+                Ag = A.index_select(0, node_idx).index_select(1, node_idx)
+
                 e_mask = ((cur_bmg.edge_index[0].unsqueeze(1) == node_idx).any(1) &
-                          (cur_bmg.edge_index[1].unsqueeze(1) == node_idx).any(1))
+                            (cur_bmg.edge_index[1].unsqueeze(1) == node_idx).any(1))
                 edge_idx_g = cur_bmg.edge_index[:, e_mask]
-                local = -torch.ones(len(cur_bmg.V), dtype=torch.long, device=Z.device)
+
+                # local reindex
+                local = -torch.ones(cur_bmg.V.size(0), dtype=torch.long, device=Z.device)
                 local[node_idx] = torch.arange(node_idx.numel(), device=Z.device)
                 edge_idx_g = local[edge_idx_g]
                 E_dir_g = cur_bmg.E[e_mask]
 
                 start, end = int(col_offsets[g]), int(col_offsets[g] + c_per_g[g])
-                Sg = S[node_idx, start:end]
+                Sg = S.index_select(0, node_idx)[:, start:end]     # (n_g, c_g)
 
                 lp_g, ent_g = self.diffpool_losses(Ag, Sg, self.lambda_lp, self.lambda_ent)
-                lp_sum += lp_g; ent_sum += ent_g
+                lp_sum += lp_g
+                ent_sum += ent_g
 
                 Vp, Ep, edge_idx_p, rev_edge_idx_p = self.coarsen_to_molgraph_soft(
-                    Z[node_idx], Ag, E_dir_g, edge_idx_g, Sg
+                    Z.index_select(0, node_idx), Ag, E_dir_g, edge_idx_g, Sg
                 )
-                mg_next = MolGraph(V=Vp.cpu().numpy(), E=Ep.cpu().numpy(),
-                                   edge_index=edge_idx_p.cpu().numpy(),
-                                   rev_edge_index=rev_edge_idx_p.cpu().numpy())
+                mg_next = MolGraph(
+                    V=Vp.detach().cpu().numpy(),
+                    E=Ep.detach().cpu().numpy(),
+                    edge_index=edge_idx_p.detach().cpu().numpy(),
+                    rev_edge_index=rev_edge_idx_p.detach().cpu().numpy(),
+                )
                 mgs_next.append(mg_next)
 
             total_lp += lp_sum
             total_ent += ent_sum
 
-            # next graph batch
+            # ---- next graph level or stop ----
             if not mgs_next:
                 break
+
             cur_bmg = BatchMolGraph(mgs_next).to(Z.device)
 
-        # ---- final fixed pooling ----
+            # Prepare next-level encoder if needed (d_v = current Z dim; d_e = coarsened E dim)
+            if level + 1 < self.depth and len(self.encoders) <= level + 1:
+                kwargs_l = dict(self.base_mp_kwargs0)
+                kwargs_l["d_v"] = Z.size(1)           # node feature dim at this level
+                kwargs_l["d_e"] = cur_bmg.E.size(1)   # bond feature dim at this level
+                self.encoders.append(self.base_mp_cls(**kwargs_l))
+
+        # ---- final fixed pooling to (G, d_last) ----
         H_graph = self.final_fixed_pool(cur_bmg.V, cur_bmg.batch, use_mean=self.use_mean)
         self._aux = {"diffpool_lp": total_lp, "diffpool_ent": total_ent}
         return H_graph
-

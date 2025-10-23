@@ -48,6 +48,7 @@ def combine_results(results_dir: str):
     # Process each group of files
     for base_name, file_paths in file_groups.items():
         combined_df = pd.DataFrame()
+        successfully_processed = []
         
         for file_path in file_paths:
             # Extract target name from filename
@@ -70,6 +71,7 @@ def combine_results(results_dir: str):
                 combined_df = pd.concat([combined_df, df], ignore_index=True)
                 
                 print(f"Processed: {file_path.name}")
+                successfully_processed.append(file_path)
                 
             except Exception as e:
                 print(f"Error processing {file_path}: {e}")
@@ -79,6 +81,14 @@ def combine_results(results_dir: str):
             output_path = results_dir / f"{base_name}.csv"
             combined_df.to_csv(output_path, index=False)
             print(f"Saved combined results to: {output_path}")
+            
+            # Delete individual files after successful combination
+            for file_path in successfully_processed:
+                try:
+                    file_path.unlink()
+                    print(f"Deleted: {file_path.name}")
+                except Exception as e:
+                    print(f"Warning: Could not delete {file_path.name}: {e}")
         else:
             print(f"No valid data to combine for {base_name}")
 

@@ -182,7 +182,6 @@ cython_debug/
 *.json
 *.sqlite3
 # Allow train_config.yaml but ignore all other YAML files
-*.yaml
 !train_config.yaml
 !scripts/shell/experiments.yaml
 !scripts/shell/evaluation_config.yaml

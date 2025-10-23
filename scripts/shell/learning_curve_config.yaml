@@ -1,0 +1,108 @@
+# Learning Curve Configuration
+# Defines dataset-specific settings for generating training scripts
+
+datasets:
+  opv_camb3lyp:
+    targets:
+      - optical_lumo
+      - gap
+      - homo
+      - lumo
+      - spectral_overlap
+      - delta_optical_lumo
+      - homo_extrapolated
+      - gap_extrapolated
+    train_sizes:
+      - 250
+      - 500
+      - 1000
+      - 2000
+      - 3500
+      - 5000
+      - 8000
+      - 12000
+    models:
+      - DMPNN
+      - tabular
+      - AttentiveFP
+      - DMPNN_DiffPool
+    script_type: graph  # graph or tabular
+    walltime: "04:00:00"
+    
+  insulator:
+    targets:
+      - bandgap_chain
+    train_sizes:
+      - 128
+      - 256
+      - 512
+      - 768
+      - 1024
+      - 1536
+      - 2048
+      - 2560
+      - 3072
+      - 3367
+    models:
+      - DMPNN
+      - wDMPNN
+      - tabular
+      - AttentiveFP
+      - DMPNN_DiffPool
+    script_type: graph
+    walltime: "04:00:00"
+    
+    
+  # Example tabular dataset configuration
+  # opv_camb3lyp_tabular:
+  #   targets:
+  #     - optical_lumo
+  #     - gap
+  #     - homo
+  #   train_sizes:
+  #     - 250
+  #     - 500
+  #     - 1000
+  #   models:
+  #     - tabular  # Model name is ignored for tabular scripts
+  #   script_type: tabular
+  #   walltime: "02:00:00"
+
+# Global settings (can be overridden per dataset)
+global:
+  # PBS settings
+  queue: gpuvolta
+  project: um09
+  ncpus: 12
+  ngpus: 1
+  mem: 100GB
+  storage: scratch/um09+gdata/dk92
+  jobfs: 100GB
+  
+  # Module settings
+  module_path: /g/data/dk92/apps/Modules/modulefiles
+  python_module: python3/3.12.1
+  cuda_module: cuda/12.0.0
+  venv_path: /home/659/hl4138/dmpnn-venv/bin/activate
+  work_dir: /scratch/um09/hl4138/dmpnn/
+  
+  # Training settings
+  save_predictions: true
+  save_checkpoint: false
+  export_embeddings: true
+  
+  # Variants to generate
+  variants:
+    rdkit: true          # Generate with RDKit descriptors
+    no_rdkit: true       # Generate without RDKit descriptors
+    batch_norm: false    # Generate with batch normalization
+
+# Tabular-specific settings (for datasets with script_type: tabular)
+tabular:
+  script_template: train_tabular.py
+  additional_args: []
+
+# Graph-specific settings (for datasets with script_type: graph)
+graph:
+  script_template: train_graph.py
+  additional_args: []

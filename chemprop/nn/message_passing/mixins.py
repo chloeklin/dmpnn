@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 from chemprop.data import BatchMolGraph, BatchPolymerMolGraph
@@ -64,7 +65,7 @@ class _WeightedBondMessagePassingMixin:
 
 
 class _DiffPoolMixin:
-    def build_A_from_bmg(bmg) -> torch.Tensor:
+    def build_A_from_bmg(self, bmg) -> torch.Tensor:
         """Symmetric adjacency (binary) from directed edge_index."""
         N = len(bmg.V)
         A = bmg.V.new_zeros((N, N))
@@ -73,7 +74,7 @@ class _DiffPoolMixin:
         A[dst, src] = 1.0
         return A
 
-    def final_fixed_pool(X, batch, use_mean=True):
+    def final_fixed_pool(self, X, batch, use_mean=True):
         """One-hot pool to 1 node/graph (i.e., global readout)."""
         G = int(batch.max().item()) + 1
         S_last = F.one_hot(batch, num_classes=G).to(X.dtype)    # (N, G)
@@ -83,7 +84,7 @@ class _DiffPoolMixin:
             return H_sum / counts.clamp_min(1.0)
         return H_sum
 
-    def diffpool_losses(A, S, lambda_lp: float, lambda_ent: float):
+    def diffpool_losses(self, A, S, lambda_lp: float, lambda_ent: float):
         """Link-prediction + entropy regularizers."""
         lp = lambda_lp * (A - S @ S.T).pow(2).sum().sqrt()
         S_safe = S.clamp_min(1e-8)
@@ -91,6 +92,7 @@ class _DiffPoolMixin:
         return lp, ent
     
     def coarsen_to_molgraph_soft(
+        self,
         Z: torch.Tensor,             # (n, d_z) node embeddings
         A: torch.Tensor,             # (n, n)   symmetric adjacency
         E_dir: torch.Tensor,         # (e, d_e) directed edge feats aligned to edge_index

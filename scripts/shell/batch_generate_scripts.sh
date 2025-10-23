@@ -3,7 +3,8 @@
 # Batch Training Script Generator
 # Reads experiment configurations from a YAML file and generates training scripts
 #
-# Usage: ./batch_generate_scripts.sh <config_file.yaml> [--no-submit] [--model MODEL_NAME]
+# Usage: ./batch_generate_scripts.sh [config_file.yaml] [--no-submit] [--model MODEL_NAME]
+# Default config: batch_experiments.yaml
 #
 # YAML Format:
 # experiments:
@@ -26,8 +27,18 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <config_file.yaml> [--no-submit] [--model MODEL_NAME]"
+# Show help if requested
+if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+    echo "Usage: $0 [config_file.yaml] [--no-submit] [--model MODEL_NAME]"
+    echo ""
+    echo "Default config: batch_experiments.yaml"
+    echo ""
+    echo "Examples:"
+    echo "  $0                              # Use default config"
+    echo "  $0 --no-submit                  # Use default, don't submit jobs"
+    echo "  $0 --model DMPNN                # Only generate DMPNN scripts"
+    echo "  $0 custom.yaml                  # Use custom config file"
+    echo "  $0 custom.yaml --no-submit      # Custom config, no submit"
     echo ""
     echo "YAML file format:"
     echo "experiments:"
@@ -49,8 +60,22 @@ if [ $# -lt 1 ]; then
     echo "    batch_norm: true"
     echo "    task_type: reg"
     echo ""
+    echo "  # Optional: Specify targets to generate separate scripts for each"
+    echo "  - dataset: opv_camb3lyp"
+    echo "    model: DMPNN"
+    echo "    walltime: \"4:00:00\""
+    echo "    targets:  # Generates 3 separate scripts"
+    echo "      - optical_lumo"
+    echo "      - gap"
+    echo "      - homo"
+    echo ""
     echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm (true/false)"
     echo "task_type defaults to 'reg' if not specified"
+    echo ""
+    echo "Target specification (optional):"
+    echo "  targets: [list]   Generate separate script for each target"
+    echo "  target: value     Generate script for single target"
+    echo "  (omit both)       Generate one script for all targets in dataset"
     echo ""
     echo "Additional options:"
     echo "  --no-submit       Generate scripts without submitting to queue"
@@ -58,12 +83,14 @@ if [ $# -lt 1 ]; then
     exit 1
 fi
 
-CONFIG_FILE="$1"
+# Default config file
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_CONFIG="${SCRIPT_DIR}/batch_experiments.yaml"
+CONFIG_FILE="$DEFAULT_CONFIG"
 NO_SUBMIT=""
 MODEL_FILTER=""
 
 # Parse command line arguments
-shift  # Remove config file from arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --no-submit)
@@ -74,8 +101,18 @@ while [[ $# -gt 0 ]]; do
             MODEL_FILTER="$2"
             shift 2
             ;;
+        -h|--help)
+            # Help already shown above
+            exit 0
+            ;;
+        *.yaml|*.yml)
+            # Config file specified
+            CONFIG_FILE="$1"
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
+            echo "Use --help for usage information"
             exit 1
             ;;
     esac
@@ -170,26 +207,42 @@ try:
         if train_size:
             args.append(f'train_size={train_size}')
         
-        # Add target if specified
-        target = exp.get('target')
-        if target:
-            args.append(f'target={target}')
+        # Handle targets: can be a list, single value, or omitted
+        targets = exp.get('targets')  # List of targets
+        single_target = exp.get('target')  # Single target
         
-        # Add no-submit flag if specified
-        if '$NO_SUBMIT':
-            args.append('$NO_SUBMIT')
+        # Determine target list
+        target_list = []
+        if targets:  # If 'targets' list is provided
+            target_list = targets if isinstance(targets, list) else [targets]
+        elif single_target:  # If single 'target' is provided
+            target_list = [single_target]
+        else:  # No targets specified - generate one script for all targets
+            target_list = [None]
         
-        print(f"Generating: {' '.join(args[1:])}")
-        
-        # Call the generate_training_script.sh
-        result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-        
-        if result.returncode != 0:
-            print(f"Error generating script for {dataset}-{model}: {result.stderr}")
-        else:
-            print(result.stdout)
-        
-        print()
+        # Generate a script for each target (or one script if no targets specified)
+        for target in target_list:
+            target_args = args.copy()
+            
+            if target:
+                target_args.append(f'target={target}')
+            
+            # Add no-submit flag if specified
+            if '$NO_SUBMIT':
+                target_args.append('$NO_SUBMIT')
+            
+            target_info = f" [target: {target}]" if target else " [all targets]"
+            print(f"Generating: {dataset} {model}{target_info}")
+            
+            # Call the generate_training_script.sh
+            result = subprocess.run(target_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            
+            if result.returncode != 0:
+                print(f"  ❌ Error: {result.stderr}")
+            else:
+                print(f"  ✅ {result.stdout.strip()}")
+            
+            print()
 
 except yaml.YAMLError as e:
     print(f"Error parsing YAML file: {e}")

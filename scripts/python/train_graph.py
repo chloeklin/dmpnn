@@ -26,7 +26,7 @@ parser.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit descriptors')
-parser.add_argument('--model_name', type=str, default="DMPNN", choices=["DMPNN", "wDMPNN", "PPG"],
+parser.add_argument('--model_name', type=str, default="DMPNN", choices=["DMPNN", "wDMPNN", "PPG","DMPNN_DiffPool"],
                     help='Name of the model to use')
 parser.add_argument('--target', type=str, default=None,
                     help='Specific target column to train on (if not specified, trains on all targets)')
@@ -48,6 +48,8 @@ parser.add_argument('--multiclass_targets', type=str, default="polyinfo_Class:21
   help='Comma list NAME:NUM_CLASSES for multiclass tasks, e.g. "phase_label:11,color:3". Others are regression.')
 parser.add_argument('--task_weights', type=str, default="",
   help='Optional comma list of per-task loss weights aligned with target_columns.')
+parser.add_argument('--diffpool_depth', type=int, default=1,
+  help='Depth of the DiffPool layer in the DMPNNWithDiffPool model.')
 
 
 
@@ -278,7 +280,7 @@ if args.pretrain_monomer:
         full_loader = data.build_dataloader(data.MoleculeDataset(all_data, featurizer), num_workers=num_workers, shuffle=False)
         X_full = get_encodings_from_loader(mpnn, full_loader)
         # Save as .npy; map to smiles with df_input[smiles_column]
-        emb_dir = results_dir / "embeddings"; emb_dir.mkdir(parents=True, exist_ok=True)
+        emb_dir = checkpoint_dir / "embeddings"; emb_dir.mkdir(parents=True, exist_ok=True)
         np.save(emb_dir / f"{args.dataset_name}__monomer_encoder.npy", X_full)
         pd.DataFrame({
             "smiles": [dp.smiles for dp in all_data],

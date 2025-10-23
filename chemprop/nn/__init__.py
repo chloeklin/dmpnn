@@ -18,6 +18,7 @@ from .message_passing import (
     MABMessagePassing,
     MessagePassing,
     MulticomponentMessagePassing,
+    BondMessagePassingWithDiffPool,
 )
 from .metrics import (
     MAE,
@@ -118,7 +119,8 @@ __all__ = [
     "MessagePassing",
     "AtomMessagePassing",
     "BondMessagePassing",
-    "WeightedBondMessagePassing"
+    "WeightedBondMessagePassing",
+    "BondMessagePassingWithDiffPool",
     "MABAtomMessagePassing",
     "MABBondMessagePassing",
     "MABMessagePassing",
