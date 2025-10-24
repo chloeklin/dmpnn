@@ -131,7 +131,13 @@ variant_qstattag = "" if variant_label == "original" else "_" + variant_label.re
 
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
 
-featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
+# Choose featurizer based on model type
+small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "AttentiveFP", "PPG"]
+featurizer = (
+    featurizers.SimpleMoleculeMolGraphFeaturizer() 
+    if args.model_name in small_molecule_models 
+    else featurizers.PolymerMolGraphFeaturizer()
+)
 
 # Prepare results list for tabular format (same as train_tabular.py)
 all_results = []

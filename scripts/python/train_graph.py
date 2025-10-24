@@ -326,7 +326,15 @@ logger.info("================================\n")
 
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
 
-featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() if args.model_name == "DMPNN" else featurizers.PolymerMolGraphFeaturizer()
+# Choose featurizer based on model type
+# Small molecule models use SimpleMoleculeMolGraphFeaturizer
+# Polymer models (wDMPNN) use PolymerMolGraphFeaturizer
+small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG"]
+featurizer = (
+    featurizers.SimpleMoleculeMolGraphFeaturizer() 
+    if args.model_name in small_molecule_models 
+    else featurizers.PolymerMolGraphFeaturizer()
+)
       
 
 # Store all results for aggregate saving
