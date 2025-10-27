@@ -159,7 +159,7 @@ class _DiffPoolMixin:
         edge_index_p = torch.cat([edge_pq, edge_qp], dim=1)      # (2, 2m)
         E_p = torch.cat([Ep, Ep], dim=0)                         # (2m, d_e)
         rev_p = torch.arange(edge_index_p.size(1), device=Z.device)\
-                     .view(-1, 2)[:, ::-1].reshape(-1)
+                     .view(-1, 2).flip(dims=[1]).reshape(-1)
         return Vp, E_p, edge_index_p, rev_p
 
 
