@@ -485,10 +485,10 @@ def create_all_data(
     # Create datapoints based on model type
     # Use MoleculeDatapoint for small molecule models (DMPNN, DMPNN_DiffPool, AttentiveFP, PPG)
     # Use PolymerDatapoint for polymer models (wDMPNN)
-    small_molecule_models = ["DMPNN", "DMPNN_DIFFPOOL", "PPG"]
+    small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG"]
     datapoint_class = (
         data.MoleculeDatapoint 
-        if model_name.upper() in small_molecule_models
+        if model_name in small_molecule_models
         else data.PolymerDatapoint
     )
     

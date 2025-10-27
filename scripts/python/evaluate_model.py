@@ -255,7 +255,7 @@ for target in target_columns:
                 dp.x_d = all_data_clean_i[ridx][mask_i]
         
         # Create datasets after cleaning (same as train_graph.py)
-        DS = data.MoleculeDataset if MODEL_NAME == "DMPNN" else data.PolymerDataset
+        DS = data.MoleculeDataset if MODEL_NAME in small_molecule_models else data.PolymerDataset
         train = DS(train_data[i], featurizer)
         val = DS(val_data[i], featurizer)
         test = DS(test_data[i], featurizer)
