@@ -473,7 +473,8 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
             if not mgs_next:
                 break
 
-            cur_bmg = BatchMolGraph(mgs_next).to(Z.device)
+            cur_bmg = BatchMolGraph(mgs_next)
+            cur_bmg.to(Z.device)
 
             # Prepare next-level encoder if needed (d_v = current Z dim; d_e = coarsened E dim)
             if level + 1 < self.depth and len(self.encoders) <= level + 1:
