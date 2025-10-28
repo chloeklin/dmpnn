@@ -120,8 +120,12 @@ if [ "$MODEL" = "tabular" ]; then
     ARGS="--dataset_name $DATASET"
     SCRIPT_NAME="train_tabular.py"
     OUTPUT_PREFIX="tabular"
+elif [ "$MODEL" = "AttentiveFP" ]; then
+    ARGS="--dataset_name $DATASET"
+    SCRIPT_NAME="train_attentivefp.py"
+    OUTPUT_PREFIX="AttentiveFP"
 else
-    # For DMPNN and wDMPNN
+    # For DMPNN, wDMPNN, DMPNN_DiffPool
     ARGS="--dataset_name $DATASET --model_name $MODEL"
     SCRIPT_NAME="train_graph.py"
     OUTPUT_PREFIX="$MODEL"
