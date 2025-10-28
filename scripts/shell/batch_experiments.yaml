@@ -42,7 +42,7 @@ experiments:
     walltime: "0:30:00"
     incl_rdkit: true
   
- - <<: *polyinfo_base
+  - <<: *polyinfo_base
     model: DMPNN
     walltime: "0:30:00"
 
