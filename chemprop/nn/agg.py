@@ -83,8 +83,6 @@ class MeanAggregation(Aggregation):
 
 @AggregationRegistry.register("identity")
 class IdentityAggregation(Aggregation):
-    @property
-    def hparams(self): return {"cls": self.__class__}
     def forward(self, H, batch_or_bmg):
         return H
 
