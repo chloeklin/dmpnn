@@ -330,7 +330,7 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
         base_mp_cls,
         base_mp_kwargs: dict | None = None,
         depth: int = 1,
-        ratio: float = 0.25,
+        ratio: float = 0.5,
         lambda_lp: float = 0.5,
         lambda_ent: float = 1e-3,
         use_mean: bool = True,
