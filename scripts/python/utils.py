@@ -1372,7 +1372,8 @@ def setup_training_environment(args, model_type="graph"):
     
     # Get dataset descriptors from config
     DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
-    descriptor_columns =  []
+    # Set descriptor_columns based on --incl_desc flag
+    descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
     
     return {
         'config': config,

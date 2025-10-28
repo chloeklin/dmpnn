@@ -262,9 +262,7 @@ class MPNN(pl.LightningModule):
         for m in self.metrics[:-1]:
             # m.update(preds, targets, mask, weights, lt_mask, gt_mask)
             m.update(preds_for_metrics, targets_for_metrics, mask_for_metrics, weights_for_metrics, lt_mask, gt_mask)
-            # Skip logging if metric has no alias (shouldn't happen, but safety check)
-            if hasattr(m, 'alias') and m.alias is not None:
-                self.log(f"{label}/{m.alias}", m, batch_size=batch_size)
+            self.log(f"{label}/{m.alias}", m, batch_size=batch_size)
 
     def predict_step(self, batch: BatchType, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
         bmg, V_d, X_d, *_ = batch
