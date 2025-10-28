@@ -429,7 +429,9 @@ class MolAtomBondMPNN(pl.LightningModule):
 
             for m in metrics[:-1]:
                 m.update(preds, targets, mask, weights, lt_mask, gt_mask)
-                self.log(f"{kind}_{label}/{m.alias}", m, batch_size=targets.shape[0])
+                # Skip logging if metric has no alias (shouldn't happen, but safety check)
+                if hasattr(m, 'alias') and m.alias is not None:
+                    self.log(f"{kind}_{label}/{m.alias}", m, batch_size=targets.shape[0])
 
     def predict_step(
         self, batch: MolAtomBondTrainingBatch, batch_idx: int, dataloader_idx: int = 0

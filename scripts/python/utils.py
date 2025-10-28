@@ -690,6 +690,12 @@ def build_model_and_trainer(
     elif args.model_name == "DMPNN":
         mp = nn.BondMessagePassing()
         agg = nn.MeanAggregation()
+    elif args.model_name == "DMPNN_SumPool":
+        mp = nn.BondMessagePassing()
+        agg = nn.SumAggregation()
+    elif args.model_name == "DMPNN_AttnPool":
+        mp = nn.BondMessagePassing()
+        agg = nn.AttentiveAggregation()
     elif args.model_name == "DMPNN_DiffPool":
         # ---- base D-MPNN used INSIDE the wrapper ----
         base_mp_cls = nn.BondMessagePassing

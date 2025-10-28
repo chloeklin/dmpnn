@@ -123,29 +123,49 @@ class NormAggregation(SumAggregation):
         return super().forward(H, batch) / self.norm
 
 
+@AggregationRegistry.register("attn")
 class AttentiveAggregation(Aggregation):
-    def __init__(self, dim: int = 0, *args, output_size: int, **kwargs):
-        super().__init__(dim, *args, **kwargs)
-
-        self.hparams["output_size"] = output_size
-        self.W = nn.Linear(output_size, 1)
+    """
+    Global attention pooling (Li et al., 2016): 
+        e_v = a^T tanh(W h_v)
+        α_v = softmax_v(e_v)  (softmax taken per-graph)
+        h_G = Σ_v α_v h_v
+    """
+    def __init__(self, dim: int = 0, *, output_size: int, hidden_size: int | None = None, bias: bool = True, **kwargs):
+        super().__init__(dim, **kwargs)
+        hs = hidden_size or output_size
+        self.proj = nn.Linear(output_size, hs, bias=bias)   # W
+        self.score = nn.Linear(hs, 1, bias=False)           # a^T
+        self.hparams.update({"output_size": output_size, "hidden_size": hs, "cls": self.__class__})
 
     def forward(self, H: Tensor, batch: Tensor) -> Tensor:
-        dim_size = batch.max().int() + 1
-        attention_logits = self.W(H).exp()
-        Z = torch.zeros(dim_size, 1, dtype=H.dtype, device=H.device).scatter_reduce_(
-            self.dim, batch.unsqueeze(1), attention_logits, reduce="sum", include_self=False
-        )
-        alphas = attention_logits / Z[batch]
-        index_torch = batch.unsqueeze(1).repeat(1, H.shape[1])
-        return torch.zeros(dim_size, H.shape[1], dtype=H.dtype, device=H.device).scatter_reduce_(
-            self.dim, index_torch, alphas * H, reduce="sum", include_self=False
-        )
+        # H: [num_nodes, d], batch: [num_nodes] with graph indices
+        V, d = H.size(0), H.size(1)
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() else 1
 
-@AggregationRegistry.register("identity")
-class IdentityAggregation(Aggregation):
-    def forward(self, H: Tensor, batch: Tensor) -> Tensor:
-        return H  # already graph-level
+        # e = a^T tanh(W H)
+        e = self.score(torch.tanh(self.proj(H))).squeeze(-1)    # [V]
+
+        # per-graph softmax with numerical stability: subtract max per graph
+        # max over nodes in each graph
+        max_per_g = torch.full((num_graphs, 1), float("-inf"), dtype=H.dtype, device=H.device)
+        max_per_g.scatter_reduce_(0, batch.unsqueeze(1), e.unsqueeze(1), reduce="amax", include_self=True)
+        e_shift = e - max_per_g[batch, 0]
+
+        a = torch.exp(e_shift)                                   # unnormalized attention weights [V]
+
+        # denominator: sum over nodes in each graph
+        denom = torch.zeros(num_graphs, 1, dtype=H.dtype, device=H.device)
+        denom.index_add_(0, batch, a.unsqueeze(1))
+        alpha = a / denom[batch, 0].clamp_min(1e-12)             # [V]
+
+        # weighted sum per graph
+        out = torch.zeros(num_graphs, d, dtype=H.dtype, device=H.device)
+        out.index_add_(0, batch, alpha.unsqueeze(1) * H)         # [G, d]
+        return out
+
+
+
 
 @AggregationRegistry.register("weighted_mean")
 class WeightedMeanAggregation(Aggregation):
