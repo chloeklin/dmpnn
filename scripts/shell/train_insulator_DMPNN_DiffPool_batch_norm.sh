@@ -8,7 +8,7 @@
 #PBS -l walltime=1:40:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N DMPNN_DiffPool_insulator_DMPNN_DiffPool_rdkit
+#PBS -N DMPNN_DiffPool_insulator_DMPNN_DiffPool_batch_norm
 
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.0.0
@@ -17,7 +17,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # DMPNN_DiffPool training
-python3 scripts/python/train_graph.py --dataset_name insulator --model_name DMPNN_DiffPool --incl_rdkit --export_embeddings 
+python3 scripts/python/train_graph.py --dataset_name insulator --model_name DMPNN_DiffPool --batch_norm --export_embeddings 
 
 
 ##TODO
