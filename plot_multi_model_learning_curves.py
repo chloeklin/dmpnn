@@ -173,12 +173,6 @@ def load_model_results(model_name, model_config, dataset_name, target_filter=Non
         train_size = extract_train_size_from_filename(filename)
         variant = extract_variant_from_filename(filename)
         
-        # Skip size-specific files when variant is 'original' (we only want full-size original)
-        # This prevents mixing insulator_results.csv with insulator__size512_results.csv
-        if variant == 'original' and train_size != 'full':
-            print(f"  ⊘ Skipping size-specific original: {filename}")
-            continue
-        
         try:
             df = pd.read_csv(file_path)
             

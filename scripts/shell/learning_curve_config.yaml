@@ -2,55 +2,55 @@
 # Defines dataset-specific settings for generating training scripts
 
 datasets:
-  # opv_camb3lyp:
-  #   targets:
-  #     - optical_lumo
-  #     - gap
-  #     - homo
-  #     - lumo
-  #     - spectral_overlap
-  #     - delta_optical_lumo
-  #     - homo_extrapolated
-  #     - gap_extrapolated
-  #   train_sizes:
-  #     - 250
-  #     - 500
-  #     - 1000
-  #     - 2000
-  #     - 3500
-  #     - 5000
-  #     - 8000
-  #     - 12000
-  #   models:
-  #     - DMPNN
-  #     - tabular
-  #     - AttentiveFP
-  #     - DMPNN_DiffPool
-  #   script_type: graph  # graph or tabular
-  #   walltime: "04:00:00"
-    
-  insulator:
+  opv_camb3lyp:
     targets:
-      - bandgap_chain
+      # - optical_lumo
+      - gap
+      - homo
+      - lumo
+      - spectral_overlap
+      - delta_optical_lumo
+      - homo_extrapolated
+      - gap_extrapolated
     train_sizes:
-      - 128
-      - 256
-      - 512
-      - 768
-      - 1024
-      - 1536
-      - 2048
-      - 2560
-      - 3072
-      - 3367
+      - 250
+      - 500
+      - 1000
+      # - 2000
+      # - 3500
+      # - 5000
+      # - 8000
+      # - 12000
     models:
-      # - DMPNN
-      # - wDMPNN
+      - DMPNN
       # - tabular
-      - AttentiveFP
+      # - AttentiveFP
       # - DMPNN_DiffPool
-    script_type: graph
-    walltime: "10:00:00"
+    script_type: graph  # graph or tabular
+    walltime: "04:00:00"
+    
+  # insulator:
+  #   targets:
+  #     - bandgap_chain
+  #   train_sizes:
+  #     - 128
+  #     - 256
+  #     - 512
+  #     - 768
+  #     - 1024
+  #     - 1536
+  #     - 2048
+  #     - 2560
+  #     - 3072
+  #     - 3367
+  #   models:
+  #     # - DMPNN
+  #     # - wDMPNN
+  #     # - tabular
+  #     - AttentiveFP
+  #     # - DMPNN_DiffPool
+  #   script_type: graph
+  #   walltime: "10:00:00"
     
     
   # Example tabular dataset configuration
