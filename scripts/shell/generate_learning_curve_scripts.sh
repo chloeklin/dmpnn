@@ -6,7 +6,7 @@
 set -e
 
 # Default settings
-CONFIG_FILE="scripts/shell/learning_curve_config.yaml"
+CONFIG_FILE="./learning_curve_config.yaml"
 OUTPUT_DIR="./"
 DRY_RUN=false
 SUBMIT_JOBS=false
