@@ -46,11 +46,11 @@ datasets:
     models:
       - DMPNN
       - wDMPNN
-      - tabular
+      # - tabular
       - AttentiveFP
       - DMPNN_DiffPool
     script_type: graph
-    walltime: "04:00:00"
+    walltime: "10:00:00"
     
     
   # Example tabular dataset configuration

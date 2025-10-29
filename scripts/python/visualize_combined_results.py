@@ -96,7 +96,7 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
     if method in ['Graph', 'Baseline']:
         # First pass: collect all CSV files
         csv_files = []
-        for model_name in ['DMPNN', 'wDMPNN', 'PPG']:
+        for model_name in ['DMPNN', 'wDMPNN', 'PPG', 'AttentiveFP']:
             model_dir = results_dir / model_name
             if not model_dir.exists():
                 continue
@@ -106,6 +106,10 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
         
         # Process each CSV file
         for csv_file in csv_files:
+            # Skip files with __size in the name (learning curve experiments)
+            if '__size' in csv_file.name:
+                continue
+                
             try:
                 dataset, features = parse_model_filename(csv_file.name, method)
                 
@@ -178,6 +182,10 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
         tabular_dir = results_dir / 'tabular'
         if tabular_dir.exists():
             for csv_file in tabular_dir.glob("*.csv"):
+                # Skip files with __size in the name (learning curve experiments)
+                if '__size' in csv_file.name:
+                    continue
+                    
                 dataset, features = parse_filename(csv_file.name)
                 
                 df = pd.read_csv(csv_file)
@@ -195,6 +203,10 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
         
         # Also check root directory for backward compatibility
         for csv_file in results_dir.glob("*_tabular*.csv"):
+            # Skip files with __size in the name (learning curve experiments)
+            if '__size' in csv_file.name:
+                continue
+                
             dataset, features = parse_filename(csv_file.name)
             
             df = pd.read_csv(csv_file)
