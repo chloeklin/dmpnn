@@ -17,7 +17,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # AttentiveFP learning curve training for insulator/bandgap_chain, train_size: 512
-python3 scripts/python/train_graph.py \
+python3 scripts/python/train_attentivefp.py \
     --dataset_name insulator \
     --model_name AttentiveFP \
     --target bandgap_chain \
