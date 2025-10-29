@@ -37,14 +37,14 @@ opv_targets: &opv_targets
 
 experiments:
   # Polyinfo dataset experiments
-  - <<: *polyinfo_base
-    model: DMPNN
-    walltime: "0:30:00"
-    incl_rdkit: true
+  # - <<: *polyinfo_base
+  #   model: DMPNN
+  #   walltime: "0:30:00"
+  #   incl_rdkit: true
   
-  - <<: *polyinfo_base
-    model: DMPNN
-    walltime: "0:30:00"
+  # - <<: *polyinfo_base
+  #   model: DMPNN
+  #   walltime: "0:30:00"
 
 #   - <<: *polyinfo_base
 #     model: DMPNN
@@ -62,9 +62,9 @@ experiments:
 #     walltime: "10:30:00"
 #     incl_rdkit: true
 
-  - <<: *polyinfo_base
-    model: wDMPNN
-    walltime: "10:30:00"
+  # - <<: *polyinfo_base
+  #   model: wDMPNN
+  #   walltime: "10:30:00"
 
 #   - <<: *polyinfo_base
 #     model: wDMPNN
@@ -117,41 +117,41 @@ experiments:
 #     walltime: "0:40:00"
 #     batch_norm: true
 
+  # - <<: *insulator_base
+  #   model: AttentiveFP
+  #   incl_rdkit: true
+  #   walltime: "1:40:00"
+
+  # - <<: *insulator_base
+  #   model: AttentiveFP
+  #   walltime: "1:40:00"
+
+
+
   - <<: *insulator_base
-    model: AttentiveFP
+    model: DMPNN_DiffPool
+    walltime: "1:40:00"
+
+  - <<: *insulator_base
+    model: DMPNN_DiffPool
     incl_rdkit: true
     walltime: "1:40:00"
 
   - <<: *insulator_base
-    model: AttentiveFP
+    model: DMPNN_DiffPool
     walltime: "1:40:00"
-
-
-
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "1:40:00"
-
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   walltime: "1:40:00"
-
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "1:40:00"
-  #   batch_norm: true
-
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   walltime: "1:40:00"
-  #   batch_norm: true
-
+    batch_norm: true
 
   - <<: *insulator_base
-    model: wDMPNN
-    walltime: "6:00:00"
+    model: DMPNN_DiffPool
+    incl_rdkit: true
+    walltime: "1:40:00"
+    batch_norm: true
+
+
+  # - <<: *insulator_base
+  #   model: wDMPNN
+  #   walltime: "6:00:00"
   
 #   - <<: *insulator_base
 #     model: wDMPNN
@@ -217,41 +217,41 @@ experiments:
 #     incl_desc: true
 #     incl_rdkit: true
     
-  - <<: *htpmd_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
     
-  - <<: *htpmd_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_rdkit: true
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_rdkit: true
     
-  - <<: *htpmd_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
     
   # - <<: *htpmd_base
   #   model: DMPNN
   #   walltime: "4:00:00"
 
-  - <<: *htpmd_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_desc: true
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   walltime: "4:00:00"
+  #   incl_desc: true
     
-  - <<: *htpmd_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_rdkit: true
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   walltime: "4:00:00"
+  #   incl_rdkit: true
     
-  - <<: *htpmd_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
 
   # - <<: *htpmd_base
   #   model: DMPNN
@@ -312,37 +312,37 @@ experiments:
 #     walltime: "25:00:00"
 #     batch_norm: true
 
-  - <<: *opv_base
-    model: AttentiveFP
-    incl_rdkit: true
+  # - <<: *opv_base
+  #   model: AttentiveFP
+  #   incl_rdkit: true
+  #   walltime: "25:00:00"
+
+    
+  # - <<: *opv_base
+    model: DMPNN_DiffPool
     walltime: "25:00:00"
+    incl_rdkit: true
+    batch_norm: true
 
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "25:00:00"
     
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "25:00:00"
-  #   incl_rdkit: true
-  #   batch_norm: true
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "25:00:00"
+    incl_rdkit: true
 
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "25:00:00"
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "25:00:00"
+    batch_norm: true
     
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "25:00:00"
-  #   incl_rdkit: true
-
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "25:00:00"
-  #   batch_norm: true
-    
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "25:00:00"
-  #   incl_rdkit: true
-  #   batch_norm: true
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "25:00:00"
+    incl_rdkit: true
+    batch_norm: true
 
 
 
