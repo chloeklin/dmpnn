@@ -200,7 +200,13 @@ generate_script() {
     --target ${target} \\
     --train_size ${train_size}${rdkit_flag}${batch_norm_flag}"
     else
-        train_script="scripts/python/train_graph.py"
+        # AttentiveFP uses its own training script
+        if [[ "$model" == "AttentiveFP" ]]; then
+            train_script="scripts/python/train_attentivefp.py"
+        else
+            train_script="scripts/python/train_graph.py"
+        fi
+        
         job_name="${model}_${dataset}_${target}${rdkit_suffix}${batch_norm_suffix}${size_suffix}_lc"
         comment="${model} learning curve training for ${dataset}/${target}, train_size: ${train_size}"
         

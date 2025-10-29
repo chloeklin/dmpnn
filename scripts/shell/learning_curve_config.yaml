@@ -44,11 +44,11 @@ datasets:
       - 3072
       - 3367
     models:
-      - DMPNN
-      - wDMPNN
+      # - DMPNN
+      # - wDMPNN
       # - tabular
       - AttentiveFP
-      - DMPNN_DiffPool
+      # - DMPNN_DiffPool
     script_type: graph
     walltime: "10:00:00"
     
