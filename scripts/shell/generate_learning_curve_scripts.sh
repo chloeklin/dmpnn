@@ -92,12 +92,30 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-# Check if yq is available (for YAML parsing)
-if ! command -v yq &> /dev/null; then
-    echo "Error: 'yq' command not found. Please install yq to parse YAML files."
-    echo "Install with: brew install yq (macOS) or pip install yq (Python)"
+# Check if Python is available (for YAML parsing)
+if ! command -v python3 &> /dev/null; then
+    echo "Error: 'python3' command not found. Please install Python 3."
     exit 1
 fi
+
+# Define yaml parser function (replacement for yq)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+YAML_PARSER="$SCRIPT_DIR/yaml_parser.py"
+
+if [[ ! -f "$YAML_PARSER" ]]; then
+    echo "Error: yaml_parser.py not found at: $YAML_PARSER"
+    exit 1
+fi
+
+# Function to parse YAML (replacement for yq eval)
+yq() {
+    if [[ "$1" == "eval" ]]; then
+        shift
+        python3 "$YAML_PARSER" "$2" "$1"
+    else
+        python3 "$YAML_PARSER" "$@"
+    fi
+}
 
 # Function to generate a PBS script
 generate_script() {
