@@ -23,17 +23,40 @@ def get_value(data, query):
     if query.startswith('.'):
         query = query[1:]
     
-    # Handle special queries
+    # Handle special queries BEFORE splitting
+    # Check for ' | keys' pattern
     if ' | keys' in query:
         # Get keys of a dict
-        path = query.replace(' | keys', '').strip()
+        path = query.split(' | keys')[0].strip()
         parts = path.split('.') if path else []
         current = data
         for part in parts:
             if part:
-                current = current[part]
+                if isinstance(current, dict):
+                    current = current.get(part)
+                    if current is None:
+                        return []
+                else:
+                    return []
         if isinstance(current, dict):
             return list(current.keys())
+        return []
+    
+    # Check for ' | .[]' pattern (iterate over array)
+    if ' | .[]' in query:
+        path = query.split(' | .[]')[0].strip()
+        parts = path.split('.') if path else []
+        current = data
+        for part in parts:
+            if part:
+                if isinstance(current, dict):
+                    current = current.get(part)
+                    if current is None:
+                        return []
+                else:
+                    return []
+        if isinstance(current, list):
+            return current
         return []
     
     # Handle array access with []
@@ -43,7 +66,12 @@ def get_value(data, query):
         current = data
         for part in parts:
             if part:
-                current = current[part]
+                if isinstance(current, dict):
+                    current = current.get(part)
+                    if current is None:
+                        return []
+                else:
+                    return []
         if isinstance(current, list):
             return current
         return []
