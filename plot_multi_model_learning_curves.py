@@ -102,6 +102,22 @@ MODEL_CONFIGS = {
         'linestyle': '--',
         'is_tabular': False
     },
+    'wDMPNN': {
+        'dir': 'results/wDMPNN',
+        'pattern': '{dataset}*_results.csv',
+        'color': '#8c564b',
+        'marker': 'p',
+        'linestyle': '-',
+        'is_tabular': False
+    },
+    'Graphormer': {
+        'dir': 'results/Graphormer',
+        'pattern': '{dataset}*_results.csv',
+        'color': '#e377c2',
+        'marker': 'h',
+        'linestyle': '-',
+        'is_tabular': False
+    },
     # Add more models here as needed:
     # 'PAE_TG': {
     #     'dir': 'results/PAE_TG',

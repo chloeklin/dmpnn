@@ -171,7 +171,15 @@ class MPNN(pl.LightningModule):
         preds = self.predictor.train_step(Z)
         l = self.criterion(preds, targets, mask, weights, lt_mask, gt_mask)
 
-        self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True, on_epoch=True)
+        # Add auxiliary losses from message passing (e.g., DiffPool)
+        if hasattr(self.message_passing, 'aux_losses'):
+            aux = self.message_passing.aux_losses
+            for key, val in aux.items():
+                if isinstance(val, torch.Tensor) and val.numel() == 1:
+                    l = l + val
+                    self.log(f"train_{key}", val, batch_size=batch_size, prog_bar=False, on_epoch=True, on_step=False)
+
+        self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True, on_epoch=True, on_step=False)
 
         return l
 
@@ -194,7 +202,15 @@ class MPNN(pl.LightningModule):
         Z = self.fingerprint(bmg, V_d, X_d)
         preds = self.predictor.train_step(Z)
         self.metrics[-1](preds, targets, mask, weights, lt_mask, gt_mask)
-        self.log("val_loss", self.metrics[-1], batch_size=batch_size, prog_bar=True)
+        
+        # Log auxiliary losses from message passing (e.g., DiffPool) - for monitoring only
+        if hasattr(self.message_passing, 'aux_losses'):
+            aux = self.message_passing.aux_losses
+            for key, val in aux.items():
+                if isinstance(val, torch.Tensor) and val.numel() == 1:
+                    self.log(f"val_{key}", val, batch_size=batch_size, prog_bar=False, on_epoch=True, on_step=False)
+        
+        self.log("val_loss", self.metrics[-1], batch_size=batch_size, prog_bar=True, on_epoch=True, on_step=False)
 
     def test_step(self, batch: BatchType, batch_idx: int = 0):
         self._evaluate_batch(batch, "test")

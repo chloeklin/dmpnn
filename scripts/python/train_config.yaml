@@ -53,6 +53,10 @@ models:
   AttentiveFP:
     smiles_column: smiles
     ignore_columns: [WDMPNN_Input]
+  
+  Graphormer:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
 
 # Paths
 paths:
