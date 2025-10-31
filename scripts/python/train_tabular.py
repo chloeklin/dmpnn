@@ -171,10 +171,10 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         for name, (model, needs_scaler) in model_specs.items():
             # Check if this target-split-model combination already exists
             if (existing_results and 
-                target in existing_results and 
-                i in existing_results[target] and 
-                name in existing_results[target][i]):
-                logger.info(f"Skipping {target} split {i} model {name} (already completed)")
+                target_name in existing_results and 
+                i in existing_results[target_name] and 
+                name in existing_results[target_name][i]):
+                logger.info(f"Skipping {target_name} split {i} model {name} (already completed)")
                 continue
             
             # Apply scaling for models that require it (linear/logistic)

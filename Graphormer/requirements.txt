@@ -1,0 +1,20 @@
+# Graphormer Requirements
+# These packages are needed in addition to the base chemprop requirements
+
+# Core deep learning
+torch>=2.0.0
+dgl>=1.1.0  # Deep Graph Library - REQUIRED for Graphormer layers
+
+# Hugging Face ecosystem
+transformers>=4.30.0  # For AdamW optimizer and learning rate schedulers
+accelerate>=0.20.0    # For distributed training support
+
+# Chemistry
+rdkit>=2023.0.0  # Already in chemprop requirements
+
+# Data processing
+pandas>=2.0.0    # Already in chemprop requirements
+numpy>=1.24.0    # Already in chemprop requirements
+
+# Note: Most other dependencies (scikit-learn, pytorch-lightning, etc.) 
+# are already satisfied by chemprop requirements
