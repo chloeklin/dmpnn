@@ -397,33 +397,33 @@ experiments:
 
 
 # TC dataset experiments
-  - <<: *tc_base
-    model: tabular
-    walltime: "1:30:00"
-    incl_ab: true
+  # - <<: *tc_base
+  #   model: tabular
+  #   walltime: "1:30:00"
+  #   incl_ab: true
     
-  - <<: *tc_base
-    model: tabular
-    walltime: "2:00:00"
-    incl_desc: true
+  # - <<: *tc_base
+  #   model: tabular
+  #   walltime: "2:00:00"
+  #   incl_desc: true
     
-  - <<: *tc_base
-    model: tabular
-    walltime: "2:00:00"
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: tabular
+  #   walltime: "2:00:00"
+  #   incl_rdkit: true
     
-  - <<: *tc_base
-    model: tabular
-    walltime: "2:00:00"
-    incl_ab: true
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: tabular
+  #   walltime: "2:00:00"
+  #   incl_ab: true
+  #   incl_rdkit: true
     
-  - <<: *tc_base
-    model: tabular
-    walltime: "2:00:00"
-    incl_ab: true
-    incl_desc: true
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: tabular
+  #   walltime: "2:00:00"
+  #   incl_ab: true
+  #   incl_desc: true
+  #   incl_rdkit: true
     
   # - <<: *tc_base
   #   model: DMPNN
@@ -491,3 +491,24 @@ experiments:
   #   model: DMPNN
   #   walltime: "4:00:00"
   #   batch_norm: true
+
+##todo...
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+    
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:00:00"
+  #   incl_rdkit: true
+  
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
+    
+  - <<: *tc_base
+    model: DMPNN_DiffPool
+    walltime: "4:00:00"
