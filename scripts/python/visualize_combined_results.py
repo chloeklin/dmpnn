@@ -2,8 +2,10 @@
 """
 Combined Results Visualization Script
 Creates comparison plots between tabular and graph model results.
+Also exports consolidated CSV files with mean and std for all metrics.
 
 Usage: python3 scripts/python/visualize_combined_results.py
+       python3 scripts/python/visualize_combined_results.py --results_dir path/to/results --output_dir path/to/output
 """
 
 import pandas as pd
@@ -285,6 +287,37 @@ def get_metrics_for_task(task_type: str) -> List[str]:
     else:
         return []
 
+def export_consolidated_csv(data: pd.DataFrame, dataset: str, metrics: List[str], output_dir: Path):
+    """Export consolidated CSV with mean and std for each metric across all feature combinations."""
+    
+    # Calculate summary statistics for all metrics
+    agg_dict = {}
+    for metric in metrics:
+        if metric in data.columns:
+            agg_dict[metric] = ['mean', 'std']
+    
+    if not agg_dict:
+        print(f"Warning: No valid metrics found for {dataset}. Skipping CSV export.")
+        return
+    
+    # Group by target, features, model, and method
+    summary = data.groupby(['target', 'features', 'model', 'method']).agg(agg_dict).reset_index()
+    
+    # Flatten multi-level column names
+    summary.columns = ['_'.join(col).strip('_') if col[1] else col[0] 
+                       for col in summary.columns.values]
+    
+    # Sort by target and features for better readability
+    summary = summary.sort_values(['target', 'features', 'method', 'model'])
+    
+    # Save to CSV
+    output_file = output_dir / f'{dataset}_consolidated_results.csv'
+    summary.to_csv(output_file, index=False)
+    
+    print(f"Saved consolidated CSV: {output_file}")
+    
+    return summary
+
 def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, output_dir: Path):
     """Create bar plots comparing both tabular and graph feature combinations for a specific metric."""
     
@@ -453,6 +486,9 @@ def main():
         print(f"Detected task type: {task_type}")
         print(f"Using metrics: {metrics}")
         
+        # Export consolidated CSV
+        export_consolidated_csv(data, dataset, metrics, output_dir)
+        
         # Create comparison plots for each metric
         for metric in metrics:
             if metric in data.columns:
@@ -460,7 +496,7 @@ def main():
             else:
                 print(f"Warning: Metric '{metric}' not found in {dataset} data. Skipping.")
     
-    print(f"\nAll plots saved to: {output_dir}")
+    print(f"\nAll plots and consolidated CSVs saved to: {output_dir}")
 
 if __name__ == "__main__":
     main()

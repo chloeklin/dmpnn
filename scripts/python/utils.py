@@ -684,7 +684,23 @@ def build_model_and_trainer(
         raise ValueError("args must have 'model_name' attribute")
     
     # Create aggregation and model
-    if args.model_name == "wDMPNN":
+    if args.model_name == "PPG":
+        # PPG uses its own architecture - create adapter
+        from chemprop.models import PPGAdapter, create_ppg_args
+        
+        ppg_args = create_ppg_args(args, combined_descriptor_data, n_classes)
+        model = PPGAdapter(
+            ppg_args=ppg_args,
+            output_transform=output_transform,
+            loss_function=loss_fn,
+            metric_list=metric_list
+        )
+        
+        # PPG handles everything internally, skip normal model creation
+        mp = None
+        agg = None
+        
+    elif args.model_name == "wDMPNN":
         mp = nn.WeightedBondMessagePassing()
         agg = nn.WeightedMeanAggregation()        # ✅ no-op for graph-level outputs
     elif args.model_name == "DMPNN":
@@ -710,7 +726,62 @@ def build_model_and_trainer(
     else:
         raise ValueError(f"Unsupported model_name: {args.model_name}")
     
-    # Calculate input dimension for FFN
+    # Early return for PPG - it's already fully configured
+    if args.model_name == "PPG":
+        # Still need to create trainer for PPG
+        checkpoint_path = Path(checkpoint_path)
+        callbacks = []
+        
+        if save_checkpoint:
+            checkpointing = ModelCheckpoint(
+                dirpath=str(checkpoint_path),
+                filename="best-{epoch:03d}-{val_loss:.4f}",
+                monitor="val_loss",
+                mode="min",
+                save_top_k=1,
+                save_last=True,
+                save_weights_only=False,
+                auto_insert_metric_name=False,
+            )
+            callbacks.append(checkpointing)
+        
+        early_stop = EarlyStopping(
+            monitor="val_loss",
+            patience=early_stopping_patience,
+            min_delta=early_stopping_min_delta,
+            mode="min",
+            verbose=True,
+            check_finite=True,
+            check_on_train_epoch_end=False,
+        )
+        callbacks.append(early_stop)
+        
+        lr_monitor = pl.callbacks.LearningRateMonitor(
+            logging_interval='epoch',
+            log_momentum=True
+        )
+        callbacks.append(lr_monitor)
+        
+        logger_config = pl.loggers.CSVLogger(
+            save_dir=str(checkpoint_path.parent),
+            name=checkpoint_path.name,
+            flush_logs_every_n_steps=10
+        )
+        
+        trainer = pl.Trainer(
+            max_epochs=max_epochs,
+            callbacks=callbacks,
+            logger=logger_config,
+            enable_progress_bar=True,
+            enable_model_summary=True,
+            log_every_n_steps=1,
+            accelerator='auto',
+            devices='auto',
+        )
+        
+        return model, trainer
+    
+    # Calculate input dimension for FFN (for non-PPG models)
     descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
     input_dim = mp.output_dim + descriptor_dim
     

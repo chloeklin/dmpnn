@@ -177,7 +177,8 @@ class MPNN(pl.LightningModule):
             for key, val in aux.items():
                 if isinstance(val, torch.Tensor) and val.numel() == 1:
                     l = l + val
-                    self.log(f"train_{key}", val, batch_size=batch_size, prog_bar=False, on_epoch=True, on_step=False)
+                    # Log on step only to avoid CSVLogger header conflicts
+                    self.log(f"train_{key}", val, batch_size=batch_size, prog_bar=False, on_epoch=False, on_step=True, logger=True)
 
         self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True, on_epoch=True, on_step=False)
 
@@ -208,7 +209,8 @@ class MPNN(pl.LightningModule):
             aux = self.message_passing.aux_losses
             for key, val in aux.items():
                 if isinstance(val, torch.Tensor) and val.numel() == 1:
-                    self.log(f"val_{key}", val, batch_size=batch_size, prog_bar=False, on_epoch=True, on_step=False)
+                    # Log on step only to avoid CSVLogger header conflicts
+                    self.log(f"val_{key}", val, batch_size=batch_size, prog_bar=False, on_epoch=False, on_step=True, logger=True)
         
         self.log("val_loss", self.metrics[-1], batch_size=batch_size, prog_bar=True, on_epoch=True, on_step=False)
 
