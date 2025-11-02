@@ -130,6 +130,14 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                         'test/r2': 'r2', 
                         'test/rmse': 'rmse'
                     })
+                elif 'MAE' in df.columns:
+                    # Handle uppercase columns (e.g., from AttentiveFP)
+                    df = df.rename(columns={
+                        'MAE': 'mae',
+                        'R2': 'r2',
+                        'RMSE': 'rmse',
+                        'MSE': 'mse'
+                    })
                 elif 'test/multiclass-accuracy' in df.columns:
                     df = df.rename(columns={
                         'test/multiclass-accuracy': 'acc', 
@@ -326,9 +334,11 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
         'Graph_DMPNN': '#d62728',
         'Graph_wDMPNN': '#9467bd', 
         'Graph_PPG': '#8c564b',
+        'Graph_AttentiveFP': '#e377c2',
         'Baseline_DMPNN': '#17becf',
         'Baseline_wDMPNN': '#bcbd22',
-        'Baseline_PPG': '#e377c2'
+        'Baseline_PPG': '#7f7f7f',
+        'Baseline_AttentiveFP': '#bcbd22'
     }
     
     for i, target in enumerate(targets):

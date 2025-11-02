@@ -10,9 +10,8 @@
 #PBS -l jobfs=100GB
 #PBS -N graphormer-train
 
-module use /g/data/dk92/apps/Modules/modulefiles
-module load python3/3.12.1 cuda/12.9.0
-source /home/659/hl4138/dmpnn-venv/bin/activate
+module load python3/3.12.1
+source /scratch/um09/hl4138/graphormer-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
 # Dataset paths

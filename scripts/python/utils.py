@@ -1373,6 +1373,34 @@ def setup_training_environment(args, model_type="graph"):
     
     # Get dataset descriptors from config
     DATASET_DESCRIPTORS = config.get('DATASET_DESCRIPTORS', {}).get(args.dataset_name, [])
+    
+    # Auto-detect descriptors if not explicitly listed in config
+    if not DATASET_DESCRIPTORS and args.incl_desc:
+        import pandas as pd
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Read CSV to detect columns
+        df_temp = pd.read_csv(input_path)
+        
+        # Define columns to exclude from auto-detection
+        exclude_from_descriptors = set([
+            smiles_column,
+            'smilesA', 'smilesB', 'smiles_A', 'smiles_B',
+            'fracA', 'fracB', 'frac_A', 'frac_B',
+            *ignore_columns
+        ])
+        
+        # Auto-detect: all columns after "TC" are descriptors
+        if 'TC' in df_temp.columns:
+            tc_idx = df_temp.columns.tolist().index('TC')
+            auto_descriptors = [col for col in df_temp.columns[tc_idx + 1:] 
+                              if col not in exclude_from_descriptors]
+            DATASET_DESCRIPTORS = auto_descriptors
+            logger.info(f"Auto-detected {len(auto_descriptors)} descriptor columns after 'TC' column for dataset '{args.dataset_name}'")
+        else:
+            logger.warning(f"No 'TC' column found in {args.dataset_name}.csv and no descriptors specified in config")
+    
     # Set descriptor_columns based on --incl_desc flag
     descriptor_columns = DATASET_DESCRIPTORS if args.incl_desc else []
     
