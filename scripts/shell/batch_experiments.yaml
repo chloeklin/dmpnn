@@ -137,16 +137,16 @@ experiments:
     incl_rdkit: true
     walltime: "12:40:00"
 
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "1:40:00"
-  #   batch_norm: true
+  - <<: *insulator_base
+    model: DMPNN_DiffPool
+    walltime: "12:40:00"
+    batch_norm: true
 
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   walltime: "1:40:00"
-  #   batch_norm: true
+  - <<: *insulator_base
+    model: DMPNN_DiffPool
+    incl_rdkit: true
+    walltime: "12:40:00"
+    batch_norm: true
 
 
   # - <<: *insulator_base
@@ -169,15 +169,15 @@ experiments:
 #     walltime: "6:00:00"
 #     batch_norm: true
     
-#   - <<: *insulator_base
-#     model: tabular
-#     walltime: "1:30:00"
-#     incl_rdkit: true
+  # - <<: *insulator_base
+  #   model: tabular
+  #   walltime: "1:30:00"
+  #   incl_rdkit: true
 
-#   - <<: *insulator_base
-#     model: tabular
-#     walltime: "0:30:00"
-#     incl_ab: true
+  # - <<: *insulator_base
+  #   model: tabular
+  #   walltime: "0:30:00"
+  #   incl_ab: true
 
   # - <<: *insulator_base
   #   model: tabular
@@ -282,15 +282,15 @@ experiments:
 
 
   # OPV CAM-B3LYP experiments
-#   - <<: *opv_base
-#     model: tabular
-#     walltime: "12:00:00"
-#     incl_ab: true
+  # - <<: *opv_base
+  #   model: tabular
+  #   walltime: "12:00:00"
+  #   incl_ab: true
     
-#   - <<: *opv_base
-#     model: tabular
-#     walltime: "12:00:00"
-#     incl_rdkit: true
+  # - <<: *opv_base
+  #   model: tabular
+  #   walltime: "12:00:00"
+  #   incl_rdkit: true
 
   # - <<: *opv_base
   #   model: tabular
@@ -318,11 +318,11 @@ experiments:
   #   walltime: "25:00:00"
 
     
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "25:00:00"
-  #   incl_rdkit: true
-  #   batch_norm: true
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "25:00:00"
+    incl_rdkit: true
+    batch_norm: true
 
   - <<: *opv_base
     model: DMPNN_DiffPool
@@ -333,10 +333,10 @@ experiments:
     walltime: "25:00:00"
     incl_rdkit: true
 
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "25:00:00"
-  #   batch_norm: true
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "25:00:00"
+    batch_norm: true
     
 
 
