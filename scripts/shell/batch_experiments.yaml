@@ -1,33 +1,27 @@
 polyinfo_base: &polyinfo_base
   dataset: polyinfo
   task_type: multi
-  export_embeddings: true
 
 insulator_base: &insulator_base
   dataset: insulator
   task_type: reg
-  export_embeddings: true
 
 htpmd_base: &htpmd_base
   dataset: htpmd
   task_type: reg
-  export_embeddings: true
 
 tc_base: &tc_base
   dataset: tc
   task_type: reg
-  export_embeddings: true
 
 opv_base: &opv_base
   dataset: opv_camb3lyp
   task_type: reg
-  export_embeddings: true
 
 eaip_base: &eaip_base
   dataset: ea_ip
   task_type: reg
   polymer_type: copolymer
-  export_embeddings: true
 
 opv_targets: &opv_targets
   - optical_lumo
@@ -136,22 +130,26 @@ experiments:
   - <<: *insulator_base
     model: DMPNN_DiffPool
     walltime: "12:40:00"
+    export_embeddings: true
 
   - <<: *insulator_base
     model: DMPNN_DiffPool
     incl_rdkit: true
     walltime: "12:40:00"
+    export_embeddings: true
 
   - <<: *insulator_base
     model: DMPNN_DiffPool
     walltime: "12:40:00"
     batch_norm: true
+    export_embeddings: true
 
   - <<: *insulator_base
     model: DMPNN_DiffPool
     incl_rdkit: true
     walltime: "12:40:00"
     batch_norm: true
+    export_embeddings: true
 
 
   # - <<: *insulator_base
@@ -328,20 +326,24 @@ experiments:
     walltime: "25:00:00"
     incl_rdkit: true
     batch_norm: true
+    export_embeddings: true
 
   - <<: *opv_base
     model: DMPNN_DiffPool
     walltime: "25:00:00"
+    export_embeddings: true
     
   - <<: *opv_base
     model: DMPNN_DiffPool
     walltime: "25:00:00"
     incl_rdkit: true
+    export_embeddings: true
 
   - <<: *opv_base
     model: DMPNN_DiffPool
     walltime: "25:00:00"
     batch_norm: true
+    export_embeddings: true
     
 
 
@@ -427,37 +429,44 @@ experiments:
     model: DMPNN
     walltime: "4:00:00"
     incl_desc: true
+    export_embeddings: true
     
   - <<: *tc_base
     model: DMPNN
     walltime: "4:00:00"
     incl_rdkit: true
+    export_embeddings: true
     
   - <<: *tc_base
     model: DMPNN
     walltime: "4:00:00"
     incl_desc: true
     incl_rdkit: true
+    export_embeddings: true
     
   - <<: *tc_base
     model: DMPNN
     walltime: "4:00:00"
+    export_embeddings: true
 
   - <<: *tc_base
     model: AttentiveFP
     walltime: "4:00:00"
     incl_desc: true
+    export_embeddings: true
     
   - <<: *tc_base
     model: AttentiveFP
     walltime: "4:00:00"
     incl_rdkit: true
+    export_embeddings: true
     
   - <<: *tc_base
     model: AttentiveFP
     walltime: "4:00:00"
     incl_desc: true
     incl_rdkit: true
+    export_embeddings: true
 
   # - <<: *tc_base
   #   model: DMPNN
