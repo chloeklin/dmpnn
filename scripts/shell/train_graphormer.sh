@@ -10,7 +10,7 @@
 #PBS -l jobfs=100GB
 #PBS -N graphormer-train
 
-module load python3/3.12.1
+module load python3/3.12.1 gcc/12.2.0
 source /scratch/um09/hl4138/graphormer-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
