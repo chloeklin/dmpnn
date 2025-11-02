@@ -775,8 +775,12 @@ def build_model_and_trainer(
             enable_progress_bar=True,
             enable_model_summary=True,
             log_every_n_steps=1,
-            accelerator='auto',
-            devices='auto',
+            accelerator='gpu',
+            devices=1,
+            precision="16-mixed",      # fp16 AMP on V100
+            deterministic=False,       # let cuDNN choose fast kernels
+            benchmark=True,            # cudnn.benchmark
+            default_root_dir=str(checkpoint_path),
         )
         
         return model, trainer

@@ -66,13 +66,23 @@ class _WeightedBondMessagePassingMixin:
 
 class _DiffPoolMixin:
     def build_A_from_bmg(self, bmg) -> torch.Tensor:
-        """Symmetric adjacency (binary) from directed edge_index."""
-        N = len(bmg.V)
-        A = bmg.V.new_zeros((N, N))
+        # COO sparse adjacency (undirected)
+        N = bmg.V.size(0)
         src, dst = bmg.edge_index
-        A[src, dst] = 1.0
-        A[dst, src] = 1.0
-        return A
+        idx = torch.cat([torch.stack([src, dst], 0),
+                        torch.stack([dst, src], 0)], dim=1)   # (2, 2E)
+        val = torch.ones(idx.size(1), device=src.device, dtype=bmg.V.dtype)
+        return torch.sparse_coo_tensor(idx, val, (N, N))
+
+
+    def row_topk_softmax(self, logits: torch.Tensor, k: int = 3) -> torch.Tensor:
+        """Top-k cluster probabilities per node (atom/row)."""
+        k = min(k, logits.size(1))
+        vals, idx = logits.topk(k, dim=1)
+        out = logits.new_full(logits.shape, float('-inf'))
+        out.scatter_(1, idx, vals)
+        return out.softmax(dim=1)  # zeros elsewhere
+
 
     def final_fixed_pool(self, X, batch, use_mean=True):
         """One-hot pool to 1 node/graph (i.e., global readout)."""
@@ -90,77 +100,98 @@ class _DiffPoolMixin:
         S_safe = S.clamp_min(1e-8)
         ent = lambda_ent * (-(S_safe * S_safe.log()).sum(dim=1).mean())
         return lp, ent
-    
+
+
     def coarsen_to_molgraph_soft(
         self,
         Z: torch.Tensor,             # (n, d_z) node embeddings
-        A: torch.Tensor,             # (n, n)   symmetric adjacency
-        E_dir: torch.Tensor,         # (e, d_e) directed edge feats aligned to edge_index
-        edge_index: torch.Tensor,    # (2, e)   directed COO
-        S: torch.Tensor,             # (n, c)   soft assignments
+        A: torch.Tensor,             # (n, n) possibly dense or sparse; ignored if edge_index given
+        E_dir: torch.Tensor,         # (e, d_e) original edge feats (not used in fast path)
+        edge_index: torch.Tensor,    # (2, e) directed COO
+        S: torch.Tensor,             # (n, c) soft assignments (row-top-k already applied)
         eps: float = 1e-8,
         drop_self_loops: bool = True,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Returns tensors for a *coarsened* MolGraph:
-          V': (c, d_z), E': (2m, d_e), edge_index': (2, 2m), rev_edge_index': (2m,)
+        Fast DiffPool coarsening:
+        V' = S^T Z
+        A' = S^T A S   (A built sparse/undirected from edge_index)
+        Edge list from A' > 0; edge features = projection of A'[p,q] (1D -> d_e)
         """
-        # 1) cluster/node features
-        Vp = S.T @ Z                      # (c, d_z)
+        import torch.nn as nn
+        device, dtype = Z.device, Z.dtype
+        n = Z.size(0)
 
-        # 2) coarse adjacency weights
-        Ap = S.T @ A @ S                  # (c, c)
+        # --- sparse, undirected A from edge_index (ignore dense A to avoid N×N)
+        src, dst = edge_index
+        idx = torch.cat([torch.stack([src, dst], 0),
+                        torch.stack([dst, src], 0)], dim=1)
+        val = torch.ones(idx.size(1), device=device, dtype=dtype)
+        A_sp = torch.sparse_coo_tensor(idx, val, (n, n))
+
+        # --- core pooled adjacency & features
+        AS = torch.sparse.mm(A_sp, S)          # (n, c)
+        Ap = S.transpose(0, 1) @ AS            # (c, c)
         if drop_self_loops:
             Ap.fill_diagonal_(0)
+        Vp = S.transpose(0, 1) @ Z             # (c, d_z)
 
-        # 3) cluster edge list
-        p_idx, q_idx = (Ap > 0).nonzero(as_tuple=True)
-        if p_idx.numel() == 0:
-            # empty edge set
+        # --- edges from Ap > 0
+        p, q = (Ap > 0).nonzero(as_tuple=True)
+        if p.numel() == 0:
             edge_index_p = Z.new_empty(2, 0, dtype=torch.long)
-            E_p = Z.new_empty(0, E_dir.size(1))
+            # choose edge feat dim: if E_dir exists, match its second dim; else 1
+            d_e = E_dir.size(1) if (E_dir is not None and E_dir.numel() > 0) else 1
+            E_p = Z.new_empty(0, d_e)
             rev_p = Z.new_empty(0, dtype=torch.long)
             return Vp, E_p, edge_index_p, rev_p
 
-        # 4) aggregate original directed bond features to cluster edges (weighted avg by S[u,p]*S[v,q])
-        e_src, e_dst = edge_index[0], edge_index[1]  # (e,)
-        Su = S[e_src]                                 # (e, c)
-        Sv = S[e_dst]                                 # (e, c)
+        edge_pq = torch.stack([p, q], 0)
+        edge_qp = torch.stack([q, p], 0)
+        edge_index_p = torch.cat([edge_pq, edge_qp], dim=1)  # (2, 2m)
 
-        c, d_e = S.size(1), E_dir.size(1)
-        E_acc = Z.new_zeros((c, c, d_e))
-        W_acc = Z.new_zeros((c, c))
+        # --- edge weights from Ap; project to desired d_e (keeps API compatible)
+        w = Ap[p, q].unsqueeze(1)                             # (m, 1)
+        target_d_e = E_dir.size(1) if (E_dir is not None and E_dir.numel() > 0) else 1
+        if target_d_e == 1:
+            E_half = w
+        else:
+            # lazy-create a projection the first time we need >1D edge features
+            if getattr(self, "_edge_proj", None) is None or self._edge_proj.out_features != target_d_e:
+                self._edge_proj = nn.Linear(1, target_d_e).to(device)
+            E_half = self._edge_proj(w)                       # (m, d_e)
+        E_p = torch.cat([E_half, E_half], dim=0)              # (2m, d_e)
 
-        # NOTE: clear & correct baseline; optimize later with top-k or sparse ops if needed.
-        for i in range(edge_index.size(1)):
-            w_p = Su[i]                     # (c,)
-            w_q = Sv[i]                     # (c,)
-            pw = (w_p > 0).nonzero().squeeze(1)
-            qw = (w_q > 0).nonzero().squeeze(1)
-            if pw.numel() == 0 or qw.numel() == 0:
-                continue
-            ei = E_dir[i]                   # (d_e,)
-            for p in pw:
-                wp = w_p[p]
-                row = E_acc[p]
-                row_w = W_acc[p]
-                for q in qw:
-                    w = wp * w_q[q]
-                    row[q] += w * ei
-                    row_w[q] += w
-
-        W = W_acc.clamp_min(eps).unsqueeze(-1)
-        Ep_dense = E_acc / W                # (c, c, d_e)
-
-        # 5) directed COO + features; pair reverses
-        Ep = Ep_dense[p_idx, q_idx]         # (m, d_e)
-        edge_pq = torch.stack([p_idx, q_idx], 0)
-        edge_qp = torch.stack([q_idx, p_idx], 0)
-        edge_index_p = torch.cat([edge_pq, edge_qp], dim=1)      # (2, 2m)
-        E_p = torch.cat([Ep, Ep], dim=0)                         # (2m, d_e)
-        rev_p = torch.arange(edge_index_p.size(1), device=Z.device)\
-                     .view(-1, 2).flip(dims=[1]).reshape(-1)
+        rev_p = torch.arange(edge_index_p.size(1), device=device)\
+                    .view(-1, 2).flip(1).reshape(-1)
         return Vp, E_p, edge_index_p, rev_p
+
+
+    
+    def _ap_to_edges(self, Ap: torch.Tensor):
+        p, q = (Ap > 0).nonzero(as_tuple=True)
+        if p.numel() == 0:
+            edge_index_p = Ap.new_empty(2, 0, dtype=torch.long)
+            E_p = Ap.new_empty(0, 1)
+            rev_p = Ap.new_empty(0, dtype=torch.long)
+            return edge_index_p, E_p, rev_p
+        edge_pq = torch.stack([p, q], 0)
+        edge_qp = torch.stack([q, p], 0)
+        edge_index_p = torch.cat([edge_pq, edge_qp], dim=1)  # (2, 2m)
+        w = Ap[p, q].unsqueeze(1)                            # (m, 1)
+        E_p = torch.cat([w, w], dim=0)                       # (2m, 1)
+        rev_p = torch.arange(edge_index_p.size(1), device=Ap.device)\
+                    .view(-1, 2).flip(1).reshape(-1)
+        return edge_index_p, E_p, rev_p
+    
+    def _build_A_from_edge_index(self, edge_index: torch.Tensor, N: int, device, dtype):
+        src, dst = edge_index
+        idx = torch.cat([torch.stack([src, dst], 0),
+                        torch.stack([dst, src], 0)], dim=1)
+        val = torch.ones(idx.size(1), device=device, dtype=dtype)
+        return torch.sparse_coo_tensor(idx, val, (N, N))
+
+
 
 
 

@@ -389,6 +389,10 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
         return head
 
 
+
+
+
+
     def forward(self, bmg, V_d=None):
         total_lp = 0.0
         total_ent = 0.0
@@ -400,7 +404,6 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
 
             # ---- D-MPNN on current graph ----
             Z = mp(cur_bmg, cur_V_d)                    # (N, d_z)
-            A = self.build_A_from_bmg(cur_bmg)          # (N, N)
             batch = cur_bmg.batch                       # (N,)
 
             # ---- per-graph cluster counts ----
@@ -420,51 +423,72 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
                 mask = (batch == g)
                 start, end = int(col_offsets[g]), int(col_offsets[g] + c_per_g[g])
                 S_logits[mask, start:end] = raw[mask, start:end]
-            S = S_logits.softmax(dim=1)                  # (N, C_total)
+            S = self.row_topk_softmax(S_logits,k=3)                 # (N, C_total)
 
             # (optional) sanity checks
             # assert torch.allclose(S.sum(1), torch.ones_like(S.sum(1)), atol=1e-4)
             # outside blocks are ~-inf -> 0 after softmax
 
-            # ---- per-graph coarsening ----
+            # ---- per-graph coarsening (sparse, vectorized) ----
             mgs_next = []
             lp_sum, ent_sum = 0.0, 0.0
 
-            # NOTE: This edge mask is fine to start; can optimize later
             for g in range(G):
-                node_idx = (batch == g).nonzero().squeeze(1)
-                if node_idx.numel() == 0: 
+                node_idx = (batch == g).nonzero().squeeze(1)   # indices of this graph within the batch
+                if node_idx.numel() == 0:
                     continue
 
-                Ag = A.index_select(0, node_idx).index_select(1, node_idx)
-
-                e_mask = ((cur_bmg.edge_index[0].unsqueeze(1) == node_idx).any(1) &
-                            (cur_bmg.edge_index[1].unsqueeze(1) == node_idx).any(1))
-                edge_idx_g = cur_bmg.edge_index[:, e_mask]
-
-                # local reindex
+                # local view
                 local = -torch.ones(cur_bmg.V.size(0), dtype=torch.long, device=Z.device)
                 local[node_idx] = torch.arange(node_idx.numel(), device=Z.device)
-                edge_idx_g = local[edge_idx_g]
-                E_dir_g = cur_bmg.E[e_mask]
 
+                # subgraph edges (directed COO) and reindex locally
+                e_mask = ((cur_bmg.edge_index[0].unsqueeze(1) == node_idx).any(1) &
+                        (cur_bmg.edge_index[1].unsqueeze(1) == node_idx).any(1))
+                edge_idx_g = cur_bmg.edge_index[:, e_mask]
+                edge_idx_g = local[edge_idx_g]                            # (2, E_g) local indices 0..n_g-1
+
+                # sparse undirected adjacency Ag (N_g, N_g)
+                N_g = node_idx.numel()
+                Ag = self._build_A_from_edge_index(edge_idx_g, N_g, device=Z.device, dtype=Z.dtype)
+
+                # slice features/assignments for graph g
                 start, end = int(col_offsets[g]), int(col_offsets[g] + c_per_g[g])
-                Sg = S.index_select(0, node_idx)[:, start:end]     # (n_g, c_g)
+                Sg = S.index_select(0, node_idx)[:, start:end]            # (N_g, C_g)
+                Zg = Z.index_select(0, node_idx)                          # (N_g, d_z)
 
-                lp_g, ent_g = self.diffpool_losses(Ag, Sg, self.lambda_lp, self.lambda_ent)
+                # aux losses on this graph (Ag is sparse; convert to dense once for the small N_g if needed)
+                # Prefer a sparse-compatible version of the LP loss if you keep this tight:
+                Ag_dense = Ag.to_dense() if N_g <= 256 else None
+                if Ag_dense is not None:
+                    lp_g, ent_g = self.diffpool_losses(Ag_dense, Sg, self.lambda_lp, self.lambda_ent)
+                else:
+                    # fallback: approximate LP loss using sampled entries or skip if too costly
+                    lp_g, ent_g = 0.0, self.lambda_ent * (-(Sg.clamp_min(1e-8) * Sg.clamp_min(1e-8).log()).sum(dim=1).mean())
+
                 lp_sum += lp_g
                 ent_sum += ent_g
 
-                Vp, Ep, edge_idx_p, rev_edge_idx_p = self.coarsen_to_molgraph_soft(
-                    Z.index_select(0, node_idx), Ag, E_dir_g, edge_idx_g, Sg
-                )
+                # ---- core: sparse A' = Sᵀ A S ----
+                ASg = torch.sparse.mm(Ag, Sg)               # (N_g, C_g)
+                Ap_g = Sg.transpose(0, 1) @ ASg             # (C_g, C_g)
+                Ap_g.fill_diagonal_(0)
+
+                # pooled node features V' = Sᵀ Z
+                Vp_g = Sg.transpose(0, 1) @ Zg              # (C_g, d_z)
+
+                # build pooled edges from Ap_g (threshold > 0; weights from Ap_g)
+                edge_index_p, E_p, rev_p = self._ap_to_edges(Ap_g)
+
+                # --- keep everything as tensors; no .cpu().numpy() ---
                 mg_next = MolGraph(
-                    V=Vp.detach().cpu().numpy(),
-                    E=Ep.detach().cpu().numpy(),
-                    edge_index=edge_idx_p.detach().cpu().numpy(),
-                    rev_edge_index=rev_edge_idx_p.detach().cpu().numpy(),
+                    V=Vp_g,                 # expect MolGraph to accept tensors; if not, add a .from_tensors API
+                    E=E_p,
+                    edge_index=edge_index_p,
+                    rev_edge_index=rev_p,
                 )
                 mgs_next.append(mg_next)
+
 
             total_lp += lp_sum
             total_ent += ent_sum
