@@ -127,29 +127,29 @@ experiments:
 
 
 
-  - <<: *insulator_base
-    model: DMPNN_DiffPool
-    walltime: "12:40:00"
-    export_embeddings: true
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "12:40:00"
+  #   export_embeddings: true
 
-  - <<: *insulator_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    walltime: "12:40:00"
-    export_embeddings: true
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "12:40:00"
+  #   export_embeddings: true
 
-  - <<: *insulator_base
-    model: DMPNN_DiffPool
-    walltime: "12:40:00"
-    batch_norm: true
-    export_embeddings: true
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "12:40:00"
+  #   batch_norm: true
+  #   export_embeddings: true
 
-  - <<: *insulator_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    walltime: "12:40:00"
-    batch_norm: true
-    export_embeddings: true
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "12:40:00"
+  #   batch_norm: true
+  #   export_embeddings: true
 
 
   # - <<: *insulator_base
@@ -321,29 +321,29 @@ experiments:
   #   walltime: "25:00:00"
 
     
-  - <<: *opv_base
-    model: DMPNN_DiffPool
-    walltime: "25:00:00"
-    incl_rdkit: true
-    batch_norm: true
-    export_embeddings: true
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "25:00:00"
+  #   incl_rdkit: true
+  #   batch_norm: true
+  #   export_embeddings: true
 
-  - <<: *opv_base
-    model: DMPNN_DiffPool
-    walltime: "25:00:00"
-    export_embeddings: true
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "25:00:00"
+  #   export_embeddings: true
     
-  - <<: *opv_base
-    model: DMPNN_DiffPool
-    walltime: "25:00:00"
-    incl_rdkit: true
-    export_embeddings: true
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "25:00:00"
+  #   incl_rdkit: true
+  #   export_embeddings: true
 
-  - <<: *opv_base
-    model: DMPNN_DiffPool
-    walltime: "25:00:00"
-    batch_norm: true
-    export_embeddings: true
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "25:00:00"
+  #   batch_norm: true
+  #   export_embeddings: true
     
 
 
@@ -425,86 +425,48 @@ experiments:
     incl_desc: true
     incl_rdkit: true
     
-<<<<<<< HEAD
   # - <<: *tc_base
   #   model: DMPNN
   #   walltime: "4:00:00"
   #   incl_desc: true
+  #   export_embeddings: true
     
   # - <<: *tc_base
   #   model: DMPNN
   #   walltime: "4:00:00"
   #   incl_rdkit: true
+  #   export_embeddings: true
     
   # - <<: *tc_base
   #   model: DMPNN
   #   walltime: "4:00:00"
   #   incl_desc: true
   #   incl_rdkit: true
+  #   export_embeddings: true
     
   # - <<: *tc_base
   #   model: DMPNN
   #   walltime: "4:00:00"
+  #   export_embeddings: true
 
   # - <<: *tc_base
   #   model: AttentiveFP
   #   walltime: "4:00:00"
   #   incl_desc: true
+  #   export_embeddings: true
     
   # - <<: *tc_base
   #   model: AttentiveFP
   #   walltime: "4:00:00"
   #   incl_rdkit: true
+  #   export_embeddings: true
     
   # - <<: *tc_base
   #   model: AttentiveFP
   #   walltime: "4:00:00"
   #   incl_desc: true
   #   incl_rdkit: true
-=======
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
-    export_embeddings: true
-    
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_rdkit: true
-    export_embeddings: true
-    
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
-    export_embeddings: true
-    
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "4:00:00"
-    export_embeddings: true
-
-  - <<: *tc_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_desc: true
-    export_embeddings: true
-    
-  - <<: *tc_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_rdkit: true
-    export_embeddings: true
-    
-  - <<: *tc_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
-    export_embeddings: true
->>>>>>> f6cb92eeeadded8718128193c95ec8809b50a8ab
+  #   export_embeddings: true
 
   # - <<: *tc_base
   #   model: DMPNN

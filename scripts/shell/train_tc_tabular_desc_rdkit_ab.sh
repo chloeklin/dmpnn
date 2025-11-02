@@ -17,7 +17,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # tabular training
-python3 scripts/python/train_tabular.py --dataset_name tc --incl_desc --incl_rdkit --incl_ab --export_embeddings 
+python3 scripts/python/train_tabular.py --dataset_name tc --incl_desc --incl_rdkit --incl_ab 
 
 
 ##TODO
