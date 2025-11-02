@@ -177,7 +177,8 @@ class MPNN(pl.LightningModule):
             for key, val in aux.items():
                 if isinstance(val, torch.Tensor) and val.numel() == 1:
                     l = l + val
-                    # Note: Not logging auxiliary losses to avoid CSVLogger conflicts
+                    # Not logging auxiliary losses separately to avoid CSVLogger header conflicts
+                    # They are still included in the total train_loss
 
         self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True, on_epoch=True, on_step=False)
 
@@ -203,8 +204,8 @@ class MPNN(pl.LightningModule):
         preds = self.predictor.train_step(Z)
         self.metrics[-1](preds, targets, mask, weights, lt_mask, gt_mask)
         
-        # Note: Not logging auxiliary losses from DiffPool to avoid CSVLogger conflicts
-        # The losses are still added to the total loss during training
+        # Not logging auxiliary losses separately to avoid CSVLogger header conflicts
+        # They are still included in the total loss during training
         
         self.log("val_loss", self.metrics[-1], batch_size=batch_size, prog_bar=True, on_epoch=True, on_step=False)
 
