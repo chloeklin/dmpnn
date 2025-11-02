@@ -423,41 +423,41 @@ experiments:
     incl_desc: true
     incl_rdkit: true
     
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
     
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_rdkit: true
     
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
     
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "4:00:00"
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   walltime: "4:00:00"
 
-  - <<: *tc_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_desc: true
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   walltime: "4:00:00"
+  #   incl_desc: true
     
-  - <<: *tc_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   walltime: "4:00:00"
+  #   incl_rdkit: true
     
-  - <<: *tc_base
-    model: AttentiveFP
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
 
   # - <<: *tc_base
   #   model: DMPNN

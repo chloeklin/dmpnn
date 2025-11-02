@@ -37,10 +37,9 @@ from accelerate import Accelerator
 from datasets import CustomMolDataset
 from torch.utils.data import DataLoader, Subset
 from model import Graphormer
-from transformers.optimization import (
-    AdamW,
-    get_linear_schedule_with_warmup,
-)
+from torch.optim import AdamW
+from transformers import get_linear_schedule_with_warmup
+
 
 # Import splitting and metric utilities from your existing codebase
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts', 'python'))
