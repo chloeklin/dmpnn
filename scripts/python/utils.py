@@ -702,7 +702,8 @@ def build_model_and_trainer(
         
         mp = nn.BondMessagePassingWithDiffPool(
         base_mp_cls=base_mp_cls,
-        depth=getattr(args, "diffpool_depth", 1)
+        depth=getattr(args, "diffpool_depth", 1),
+        ratio=getattr(args, "diffpool_ratio", 0.5)
         )
 
         agg = nn.IdentityAggregation()

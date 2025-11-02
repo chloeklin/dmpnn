@@ -50,6 +50,10 @@ parser.add_argument('--task_weights', type=str, default="",
   help='Optional comma list of per-task loss weights aligned with target_columns.')
 parser.add_argument('--diffpool_depth', type=int, default=1,
   help='Depth of the DiffPool layer in the DMPNNWithDiffPool model.')
+parser.add_argument('--batch_size', type=int, default=16,
+  help='Batch size for training (reduce for DiffPool to improve speed)')
+parser.add_argument('--diffpool_ratio', type=float, default=0.25,
+  help='Pooling ratio for DiffPool (lower = fewer clusters = faster)')
 
 
 
@@ -269,15 +273,15 @@ if args.pretrain_monomer:
     )
 
     # Train one model (no per-target loop)
-    trainer.fit(mpnn, data.build_dataloader(train, num_workers=num_workers),
-                      data.build_dataloader(val,   num_workers=num_workers, shuffle=False))
-    _ = trainer.test(dataloaders=data.build_dataloader(test, num_workers=num_workers, shuffle=False))
+    trainer.fit(mpnn, data.build_dataloader(train, batch_size=args.batch_size, num_workers=num_workers),
+                      data.build_dataloader(val, batch_size=args.batch_size, num_workers=num_workers, shuffle=False))
+    _ = trainer.test(dataloaders=data.build_dataloader(test, batch_size=args.batch_size, num_workers=num_workers, shuffle=False))
 
     # Optionally export embeddings for all monomers now
     if args.export_embeddings:
         mpnn.eval()
         # Re-embed ALL datapoints (train+val+test order) for convenience
-        full_loader = data.build_dataloader(data.MoleculeDataset(all_data, featurizer), num_workers=num_workers, shuffle=False)
+        full_loader = data.build_dataloader(data.MoleculeDataset(all_data, featurizer), batch_size=args.batch_size, num_workers=num_workers, shuffle=False)
         X_full = get_encodings_from_loader(mpnn, full_loader)
         # Save as .npy; map to smiles with df_input[smiles_column]
         emb_dir = checkpoint_dir / "embeddings"; emb_dir.mkdir(parents=True, exist_ok=True)
@@ -671,9 +675,9 @@ for target in target_columns:
             descriptor_scaler = None
         
         # Create dataloaders
-        train_loader = data.build_dataloader(train, num_workers=num_workers)
-        val_loader = data.build_dataloader(val, num_workers=num_workers, shuffle=False)
-        test_loader = data.build_dataloader(test, num_workers=num_workers, shuffle=False)
+        train_loader = data.build_dataloader(train, batch_size=args.batch_size, num_workers=num_workers)
+        val_loader = data.build_dataloader(val, batch_size=args.batch_size, num_workers=num_workers, shuffle=False)
+        test_loader = data.build_dataloader(test, batch_size=args.batch_size, num_workers=num_workers, shuffle=False)
         
         # Clean up incompatible checkpoints if preprocessing changed
         # Only delete checkpoints if descriptors are used and preprocessing actually changed
