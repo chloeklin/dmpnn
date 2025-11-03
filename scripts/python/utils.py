@@ -692,6 +692,16 @@ def build_model_and_trainer(
             else None
         )
     
+    # Define loss function for PPG
+    if args.task_type == 'reg':
+        loss_fn = nn.MSELoss()
+    elif args.task_type == 'binary':
+        loss_fn = nn.BCEWithLogitsLoss()
+    elif args.task_type == 'multi':
+        loss_fn = nn.CrossEntropyLoss()
+    else:
+        loss_fn = nn.MSELoss()  # Default to MSE
+    
     # Create aggregation and model
     if args.model_name == "PPG":
         # PPG uses its own architecture - create adapter
