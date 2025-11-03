@@ -129,27 +129,27 @@ experiments:
 
   # - <<: *insulator_base
   #   model: DMPNN_DiffPool
-  #   walltime: "12:40:00"
-  #   export_embeddings: true
+  #   walltime: "6:40:00"
+  #   # export_embeddings: true
 
   # - <<: *insulator_base
   #   model: DMPNN_DiffPool
   #   incl_rdkit: true
-  #   walltime: "12:40:00"
-  #   export_embeddings: true
+  #   walltime: "6:40:00"
+  #   # export_embeddings: true
 
   # - <<: *insulator_base
   #   model: DMPNN_DiffPool
-  #   walltime: "12:40:00"
+  #   walltime: "6:40:00"
   #   batch_norm: true
-  #   export_embeddings: true
+  #   # export_embeddings: true
 
   # - <<: *insulator_base
   #   model: DMPNN_DiffPool
   #   incl_rdkit: true
-  #   walltime: "12:40:00"
+  #   walltime: "6:40:00"
   #   batch_norm: true
-  #   export_embeddings: true
+  #   # export_embeddings: true
 
 
   # - <<: *insulator_base
@@ -520,21 +520,21 @@ experiments:
   
 
 ##todo...
-  - <<: *tc_base
-    model: DMPNN_DiffPool
-    walltime: "1:00:00"
-    incl_desc: true
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "1:00:00"
+  #   incl_desc: true
     
-  - <<: *tc_base
-    model: DMPNN_DiffPool
-    walltime: "1:00:00"
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "1:00:00"
+  #   incl_rdkit: true
   
-  - <<: *tc_base
-    model: DMPNN_DiffPool
-    walltime: "1:00:00"
-    incl_desc: true
-    incl_rdkit: true
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "1:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
     
   # - <<: *tc_base
   #   model: DMPNN_DiffPool
@@ -557,6 +557,6 @@ experiments:
   #   incl_desc: true
   #   incl_rdkit: true
     
-  # - <<: *tc_base
-  #   model: PPG
-  #   walltime: "1:00:00"
+  - <<: *tc_base
+    model: PPG
+    walltime: "1:00:00"
