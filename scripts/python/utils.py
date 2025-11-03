@@ -683,6 +683,15 @@ def build_model_and_trainer(
     if not hasattr(args, 'model_name'):
         raise ValueError("args must have 'model_name' attribute")
     
+    # Calculate output_transform for PPG (needed early)
+    output_transform = None
+    if args.task_type == 'reg':
+        output_transform = (
+            nn.UnscaleTransform.from_standard_scaler(scaler) 
+            if scaler is not None 
+            else None
+        )
+    
     # Create aggregation and model
     if args.model_name == "PPG":
         # PPG uses its own architecture - create adapter
@@ -788,15 +797,6 @@ def build_model_and_trainer(
     # Calculate input dimension for FFN (for non-PPG models)
     descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
     input_dim = mp.output_dim + descriptor_dim
-    
-    # Predictions are unscaled to original units before metrics via output_transform
-    output_transform = None
-    if args.task_type == 'reg':
-        output_transform = (
-            nn.UnscaleTransform.from_standard_scaler(scaler) 
-            if scaler is not None 
-            else None
-        )
     
     # Create Feed-Forward Network based on task type
     if args.task_type == 'reg':
