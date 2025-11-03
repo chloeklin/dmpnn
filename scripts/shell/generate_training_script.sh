@@ -11,6 +11,10 @@
 #   ./generate_training_script.sh insulator DMPNN 2:00:00
 #   ./generate_training_script.sh insulator tabular 1:30:00 incl_rdkit incl_ab
 #   ./generate_training_script.sh htpmd wDMPNN 4:00:00 incl_rdkit incl_desc
+#   ./generate_training_script.sh insulator PPG 2:00:00 incl_rdkit incl_ab
+#   ./generate_training_script.sh insulator PPG 2:00:00 incl_rdkit incl_desc
+#   ./generate_training_script.sh insulator PPG 2:00:00 incl_ab incl_desc incl_rdkit
+#   ./generate_training_script.sh insulator PPG 2:00:00 --no-submit  # Create script only, don't submit
 #   ./generate_training_script.sh polyinfo DMPNN 3:00:00 incl_rdkit incl_desc multi
 #   ./generate_training_script.sh insulator tabular 2:00:00 incl_ab incl_desc incl_rdkit
 #   ./generate_training_script.sh insulator DMPNN 2:00:00 --no-submit  # Create script only, don't submit
@@ -19,7 +23,7 @@
 if [ $# -lt 3 ]; then
     echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type]"
     echo ""
-    echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP"
+    echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG"
     echo "Walltime format: HH:MM:SS (e.g., 2:00:00 for 2 hours)"
     echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi, pretrain_monomer, save_checkpoint, save_predictions, export_embeddings"
     echo ""
@@ -47,10 +51,10 @@ TASK_TYPE="reg"
 
 # Validate model type
 case $MODEL in
-    tabular|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP)
+    tabular|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG)
         ;;
     *)
-        echo "Error: Invalid model '$MODEL'. Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP"
+        echo "Error: Invalid model '$MODEL'. Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG"
         exit 1
         ;;
 esac
@@ -127,7 +131,7 @@ elif [ "$MODEL" = "AttentiveFP" ]; then
     SCRIPT_NAME="train_attentivefp.py"
     OUTPUT_PREFIX="AttentiveFP"
 else
-    # For DMPNN, wDMPNN, DMPNN_DiffPool
+    # For DMPNN, wDMPNN, DMPNN_DiffPool, PPG
     ARGS="--dataset_name $DATASET --model_name $MODEL"
     SCRIPT_NAME="train_graph.py"
     OUTPUT_PREFIX="$MODEL"
