@@ -763,25 +763,52 @@ def preprocess_descriptor_data(descriptor_block: np.ndarray, train_idx: List[int
     desc_val_selected = pd.DataFrame(desc_val, columns=const_kept_names)[keep_names].values
     desc_te_selected = pd.DataFrame(desc_te, columns=const_kept_names)[keep_names].values
 
-    # Create correlation mask
-    corr_mask = np.isin(const_kept_names, keep_names)
+    # 4) Remove exact-zero variance features that may have been created by imputation
+    # This can happen when imputation makes a feature constant
+    desc_tr_final_df = pd.DataFrame(desc_tr_selected, columns=keep_names)
+    final_variances = desc_tr_final_df.var()
     
+    # Keep features with variance > 0 (exact zero variance removal)
+    # Note: We keep low-variance features as they might be meaningful
+    final_keep_mask = final_variances > 0.0
+    final_keep_names = [name for name, keep in zip(keep_names, final_keep_mask) if keep]
+    zero_var_after_impute = [name for name, keep in zip(keep_names, final_keep_mask) if not keep]
+    
+    # Count low-variance features being kept
+    low_variance_count = np.sum((final_variances > 0.0) & (final_variances < 1e-10))
+    
+    if zero_var_after_impute:
+        logger.info(f"Removed {len(zero_var_after_impute)} exact-zero-variance features after imputation: {zero_var_after_impute}")
+    
+    if low_variance_count > 0:
+        logger.info(f"Keeping {low_variance_count} low-variance features after imputation (variance between 0 and 1e-10)")
+    
+    # Apply final selection
+    desc_tr_final = desc_tr_final_df[final_keep_names].values
+    desc_val_final = pd.DataFrame(desc_val_selected, columns=keep_names)[final_keep_names].values
+    desc_te_final = pd.DataFrame(desc_te_selected, columns=keep_names)[final_keep_names].values
+    
+    # Update correlation mask to reflect final selection
+    final_corr_mask = np.isin(const_kept_names, final_keep_names)
+
     # Create preprocessing metadata
     preprocessing_metadata = {
         "n_desc_before_any_selection": len(orig_desc_names),
         "n_desc_after_constant_removal": len(const_kept_names),
         "n_desc_after_corr_removal": len(keep_names),
+        "n_desc_after_final_zero_var_removal": len(final_keep_names),
         "constant_features_removed": constant_features,
         "correlated_features_removed": sorted(list(to_drop)),
-        "selected_features": keep_names,
+        "zero_var_after_impute_removed": zero_var_after_impute,
+        "selected_features": final_keep_names,
         "imputation_strategy": "median",
         "correlation_threshold": 0.90,
         "orig_desc_names": orig_desc_names,
         "const_kept_names": const_kept_names
     }
     
-    return (desc_tr_selected, desc_val_selected, desc_te_selected, keep_names, 
-            preprocessing_metadata, imputer, constant_mask, corr_mask)
+    return (desc_tr_final, desc_val_final, desc_te_final, final_keep_names, 
+            preprocessing_metadata, imputer, constant_mask, final_corr_mask)
 
 
 def save_preprocessing_objects(out_dir: Path, split_idx: int, preprocessing_metadata: Dict[str, Any],

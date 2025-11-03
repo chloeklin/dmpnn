@@ -140,32 +140,74 @@ def plot_feature_variance_histogram(features: np.ndarray, feature_names: List[st
     # Calculate variances
     variances = np.var(features, axis=0)
     
+    # Categorize features
+    exact_zero_mask = variances == 0.0
+    low_variance_mask = (variances > 0.0) & (variances < 1e-10)
+    normal_variance_mask = variances >= 1e-10
+    
+    exact_zero_count = np.sum(exact_zero_mask)
+    low_variance_count = np.sum(low_variance_mask)
+    normal_variance_count = np.sum(normal_variance_mask)
+    
+    # For histogram, show only features with meaningful variance
+    meaningful_variances = variances[normal_variance_mask]
+    
     # Create plot
-    plt.figure(figsize=(10, 6))
-    plt.hist(variances, bins=50, alpha=0.7, edgecolor='black', color='steelblue')
+    plt.figure(figsize=(12, 6))
     
-    # Add statistics
-    mean_var = np.mean(variances)
-    median_var = np.median(variances)
-    zero_var_count = np.sum(variances < 1e-10)
+    if len(meaningful_variances) > 0:
+        plt.hist(meaningful_variances, bins=50, alpha=0.7, edgecolor='black', color='steelblue')
+        
+        # Add statistics
+        mean_var = np.mean(meaningful_variances)
+        median_var = np.median(meaningful_variances)
+        
+        plt.axvline(mean_var, color='red', linestyle='--', alpha=0.8, label=f'Mean: {mean_var:.2e}')
+        plt.axvline(median_var, color='orange', linestyle='--', alpha=0.8, label=f'Median: {median_var:.2e}')
+        plt.legend()
+    else:
+        plt.text(0.5, 0.5, 'No features with meaningful variance', 
+                horizontalalignment='center', verticalalignment='center',
+                transform=plt.gca().transAxes, fontsize=14)
+        plt.xlim(0, 1)
+        plt.ylim(0, 1)
     
-    plt.axvline(mean_var, color='red', linestyle='--', alpha=0.8, label=f'Mean: {mean_var:.2e}')
-    plt.axvline(median_var, color='orange', linestyle='--', alpha=0.8, label=f'Median: {median_var:.2e}')
-    
-    plt.title(f'{dataset_name.upper()} - {target_name}\nFeature Variance Distribution (After Preprocessing)', 
+    plt.title(f'{dataset_name.upper()} - {target_name}\nFeature Variance Distribution (Smart Filtering)', 
              fontsize=14, fontweight='bold')
     plt.xlabel('Feature Variance', fontsize=12)
     plt.ylabel('Number of Features', fontsize=12)
-    plt.legend()
     plt.grid(True, alpha=0.3)
     
     # Format axes
-    plt.ticklabel_format(style='scientific', axis='x', scilimits=(0,0))
+    if len(meaningful_variances) > 0:
+        plt.ticklabel_format(style='scientific', axis='x', scilimits=(0,0))
     
-    # Add text statistics
-    stats_text = f'Total features: {len(variances)}\nZero variance: {zero_var_count}\nMean: {mean_var:.2e}\nMedian: {median_var:.2e}'
+    # Add comprehensive statistics
+    stats_text = f'Total features: {len(variances)}\n'
+    stats_text += f'Exact zero variance: {exact_zero_count}\n'
+    stats_text += f'Low variance (<1e-10): {low_variance_count}\n'
+    stats_text += f'Meaningful variance (≥1e-10): {normal_variance_count}'
+    
+    if len(meaningful_variances) > 0:
+        stats_text += f'\nMean: {mean_var:.2e}\nMedian: {median_var:.2e}'
+    
+    # Break down by feature type
+    ab_indices = [i for i, name in enumerate(feature_names) if name.startswith('AB_')]
+    desc_indices = [i for i, name in enumerate(feature_names) if not name.startswith('AB_')]
+    
+    ab_exact_zero = sum(1 for i in ab_indices if exact_zero_mask[i])
+    ab_low_variance = sum(1 for i in ab_indices if low_variance_mask[i])
+    ab_normal = sum(1 for i in ab_indices if normal_variance_mask[i])
+    
+    desc_exact_zero = sum(1 for i in desc_indices if exact_zero_mask[i])
+    desc_low_variance = sum(1 for i in desc_indices if low_variance_mask[i])
+    desc_normal = sum(1 for i in desc_indices if normal_variance_mask[i])
+    
+    stats_text += f'\n\nAB features: {ab_exact_zero} zero, {ab_low_variance} low, {ab_normal} normal'
+    stats_text += f'\nDescriptors: {desc_exact_zero} zero, {desc_low_variance} low, {desc_normal} normal'
+    
     plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
-             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=10)
     
     # Save plot
     output_path = Path("/Users/u6788552/Desktop/experiments/dmpnn") / output_dir
@@ -444,16 +486,68 @@ def analyze_dataset_features(dataset_name: str, config: Dict[str, Any], output_d
         print("No features found!")
         return []
     
-    print(f"Final feature matrix shape: {features_combined.shape}")
+    # FINAL STEP: Smart zero-variance filtering
+    # Remove exact-zero variance features but keep low-variance AB features
+    print("Performing smart zero-variance filtering on combined features...")
+    final_variances = np.var(features_combined, axis=0)
     
-    # 1. Feature family summary
-    print("1. Creating feature family summary...")
-    feature_summary = analyze_feature_families(
-        ab_block[train_idx] if ab_block is not None else None,
-        desc_tr_selected,
-        None,  # No separate RDKit block
-        final_feat_names
-    )
+    # Separate AB and descriptor features
+    ab_indices = [i for i, name in enumerate(final_feat_names) if name.startswith('AB_')]
+    desc_indices = [i for i, name in enumerate(final_feat_names) if not name.startswith('AB_')]
+    
+    # Remove exact-zero variance features (variance == 0.0)
+    exact_zero_mask = final_variances == 0.0
+    
+    # For descriptors: remove exact-zero variance (same as before)
+    # For AB features: remove only exact-zero variance, keep low-variance
+    final_keep_mask = ~exact_zero_mask
+    
+    # Log what's being removed
+    final_zero_var_removed = [name for name, keep in zip(final_feat_names, final_keep_mask) if not keep]
+    
+    if final_zero_var_removed:
+        print(f"Removing {len(final_zero_var_removed)} exact-zero variance features:")
+        ab_zero_var = [name for name in final_zero_var_removed if name.startswith('AB_')]
+        desc_zero_var = [name for name in final_zero_var_removed if not name.startswith('AB_')]
+        if ab_zero_var:
+            print(f"  AB features: {len(ab_zero_var)} (exact zero variance)")
+        if desc_zero_var:
+            print(f"  Descriptor features: {len(desc_zero_var)} (exact zero variance)")
+    
+    # Count low-variance features that are being kept
+    low_variance_mask = (final_variances > 0.0) & (final_variances < 1e-10)
+    low_variance_count = np.sum(low_variance_mask)
+    ab_low_variance = sum(1 for i in ab_indices if low_variance_mask[i])
+    desc_low_variance = sum(1 for i in desc_indices if low_variance_mask[i])
+    
+    if low_variance_count > 0:
+        print(f"Keeping {low_variance_count} low-variance features:")
+        if ab_low_variance > 0:
+            print(f"  AB features: {ab_low_variance} (low but non-zero variance)")
+        if desc_low_variance > 0:
+            print(f"  Descriptor features: {desc_low_variance} (low but non-zero variance)")
+    
+    # Apply final filtering
+    features_combined = features_combined[:, final_keep_mask]
+    final_feat_names = [name for name, keep in zip(final_feat_names, final_keep_mask) if keep]
+    
+    print(f"Final feature matrix shape after smart filtering: {features_combined.shape}")
+    
+    # Update feature family summary to reflect final removal
+    ab_count = len([name for name in final_feat_names if name.startswith('AB_')])
+    desc_count = len([name for name in final_feat_names if not name.startswith('AB_')])
+    
+    # Recreate feature family summary with corrected counts
+    feature_summary = pd.DataFrame({
+        'Feature_Family': ['AB_Block', 'Descriptors', 'Total'],
+        'Feature_Count': [ab_count, desc_count, len(final_feat_names)],
+        'Percentage': [ab_count/len(final_feat_names)*100, desc_count/len(final_feat_names)*100, 100.0],
+        'Description': [
+            'Polymer composition features (fractions, counts)',
+            'Pre-computed molecular descriptors', 
+            'All features combined'
+        ]
+    })
     
     # Save feature summary
     output_path = Path("/Users/u6788552/Desktop/experiments/dmpnn") / output_dir
