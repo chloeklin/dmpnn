@@ -251,13 +251,19 @@ def create_ppg_args(
         ppg_args.dataset_type = 'regression'
     elif args.task_type == 'binary':
         ppg_args.dataset_type = 'classification'
-    elif args.task_type == 'multi':
+    elif n_classes is not None and n_classes > 2:
         ppg_args.dataset_type = 'multiclass'
         ppg_args.multiclass_num_classes = n_classes
     else:
         ppg_args.dataset_type = 'regression'
     
-    ppg_args.num_tasks = 1
+    # Note: num_tasks might be read-only in PPG's TrainArgs
+    # Try to set it, but handle the case where it's not writable
+    try:
+        ppg_args.num_tasks = 1
+    except AttributeError as e:
+        # If num_tasks is read-only, skip it (PPG will infer from data)
+        print(f"Warning: Could not set num_tasks (read-only property): {e}")
     
     # Device configuration
     if hasattr(args, 'device'):
