@@ -277,33 +277,86 @@ def create_ppg_args(
     
     # Features configuration
     if combined_descriptor_data is not None:
-        ppg_args.use_input_features = True
-        ppg_args.features_size = combined_descriptor_data.shape[1]
+        try:
+            ppg_args.use_input_features = True
+        except AttributeError as e:
+            print(f"Warning: Could not set use_input_features (read-only property): {e}")
+        try:
+            ppg_args.features_size = combined_descriptor_data.shape[1]
+        except AttributeError as e:
+            print(f"Warning: Could not set features_size (read-only property): {e}")
     else:
-        ppg_args.use_input_features = False
-        ppg_args.features_size = 0
+        try:
+            ppg_args.use_input_features = False
+        except AttributeError as e:
+            print(f"Warning: Could not set use_input_features (read-only property): {e}")
+        try:
+            ppg_args.features_size = 0
+        except AttributeError as e:
+            print(f"Warning: Could not set features_size (read-only property): {e}")
     
-    ppg_args.features_only = False
-    ppg_args.atom_messages = False
-    ppg_args.undirected = False
-    ppg_args.number_of_molecules = 1
+    # Set additional properties with try-catch for read-only properties
+    additional_props = {
+        'features_only': False,
+        'atom_messages': False,
+        'undirected': False,
+        'number_of_molecules': 1
+    }
+    
+    for prop_name, prop_value in additional_props.items():
+        try:
+            setattr(ppg_args, prop_name, prop_value)
+        except AttributeError as e:
+            print(f"Warning: Could not set {prop_name} (read-only property): {e}")
     
     # Training configuration
-    ppg_args.init_lr = 1e-4
-    ppg_args.max_lr = 1e-3
-    ppg_args.final_lr = 1e-4
+    training_props = {
+        'init_lr': 1e-4,
+        'max_lr': 1e-3,
+        'final_lr': 1e-4
+    }
+    
+    for prop_name, prop_value in training_props.items():
+        try:
+            setattr(ppg_args, prop_name, prop_value)
+        except AttributeError as e:
+            print(f"Warning: Could not set {prop_name} (read-only property): {e}")
     
     # Atom descriptors
-    ppg_args.atom_descriptors = None
-    ppg_args.overwrite_default_atom_features = False
-    ppg_args.overwrite_default_bond_features = False
+    atom_props = {
+        'atom_descriptors': None,
+        'overwrite_default_atom_features': False,
+        'overwrite_default_bond_features': False
+    }
+    
+    for prop_name, prop_value in atom_props.items():
+        try:
+            setattr(ppg_args, prop_name, prop_value)
+        except AttributeError as e:
+            print(f"Warning: Could not set {prop_name} (read-only property): {e}")
     
     # Checkpoint/freezing
-    ppg_args.checkpoint_frzn = None
-    ppg_args.freeze_first_only = False
-    ppg_args.frzn_ffn_layers = 0
+    checkpoint_props = {
+        'checkpoint_frzn': None,
+        'freeze_first_only': False
+    }
     
-    # MPN sharing
-    ppg_args.mpn_shared = False
+    for prop_name, prop_value in checkpoint_props.items():
+        try:
+            setattr(ppg_args, prop_name, prop_value)
+        except AttributeError as e:
+            print(f"Warning: Could not set {prop_name} (read-only property): {e}")
+    
+    # Final properties
+    final_props = {
+        'frzn_ffn_layers': 0,
+        'mpn_shared': False
+    }
+    
+    for prop_name, prop_value in final_props.items():
+        try:
+            setattr(ppg_args, prop_name, prop_value)
+        except AttributeError as e:
+            print(f"Warning: Could not set {prop_name} (read-only property): {e}")
     
     return ppg_args
