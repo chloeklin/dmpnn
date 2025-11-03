@@ -107,7 +107,7 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
     if method in ['Graph', 'Baseline']:
         # First pass: collect all CSV files
         csv_files = []
-        for model_name in ['DMPNN', 'wDMPNN', 'PPG', 'AttentiveFP']:
+        for model_name in ['DMPNN', 'wDMPNN', 'DMPNN_DiffPool', 'PPG', 'AttentiveFP']:
             model_dir = results_dir / model_name
             if not model_dir.exists():
                 continue
