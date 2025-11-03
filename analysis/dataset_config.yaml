@@ -1,0 +1,94 @@
+# Dataset configuration for target value analysis
+# Specify datasets and their target columns for histogram analysis
+
+datasets:
+  # Thermal conductivity dataset
+  tc:
+    file_path: "data/tc.csv"
+    targets:
+      - "TC"  # Thermal conductivity
+    description: "Thermal conductivity dataset"
+    
+  # HTPMD (High Throughput Molecular Dynamics) dataset  
+  htpmd:
+    file_path: "data/htpmd.csv"
+    targets:
+      - "Conductivity"
+      - "TFSI Diffusivity" 
+      - "Li Diffusivity"
+      - "Poly Diffusivity"
+      - "Transference Number"
+    description: "High throughput polymer molecular dynamics dataset"
+    
+  # Insulator dataset
+  insulator:
+    file_path: "data/insulator.csv"
+    targets:
+      - "bandgap_chain"  # Band gap
+    description: "Polymer insulator dataset"
+    
+  # CAM-B3LYP OPV dataset
+  cam_b3lyp:
+    file_path: "data/opv_camb3lyp.csv"
+    targets:
+      - "optical_lumo"
+      - "gap"
+      - "homo" 
+      - "lumo"
+      - "spectral_overlap"
+      - "delta_optical_lumo"
+      - "homo_extrapolated"
+      - "gap_extrapolated"
+    description: "Organic photovoltaic dataset with CAM-B3LYP calculations"
+
+  polyinfo:
+    file_path: "data/polyinfo.csv"
+    targets:
+      - "Class"
+    description: "Polymer class dataset"
+    
+  # Additional datasets can be added here
+  # example_dataset:
+  #   file_path: "data/example.csv"
+  #   targets:
+  #     - "target1"
+  #     - "target2"
+  #   description: "Example dataset description"
+
+# Global analysis settings
+settings:
+  # Plot settings
+  plot:
+    # Maximum number of subplots per row
+    max_cols_per_row: 3
+    
+    # Number of bins for histograms (will be adjusted based on data size)
+    default_bins: 50
+    
+    # Figure size per subplot (width, height) in inches
+    subplot_size: [5, 4]
+    
+    # DPI for saved figures
+    dpi: 300
+    
+    # Whether to create individual plots for each target
+    create_individual_plots: true
+    
+    # Whether to add mean and median lines to individual plots
+    show_statistics: true
+  
+  # Data filtering settings
+  filter:
+    # Minimum number of unique values required for a column to be considered a target
+    min_unique_values: 2
+    
+    # Maximum coefficient of variation before flagging as high variance
+    max_cv_threshold: 10.0
+  
+  # Summary table settings
+  summary:
+    # Whether to create summary statistics table
+    create_summary: true
+    
+    # File format for summary table
+    format: "csv"

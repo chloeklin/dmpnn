@@ -1,13 +1,21 @@
 from abc import ABC, abstractmethod
 import logging
 import math
-from typing import Self
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.optimize import fmin
 from scipy.special import expit, logit, softmax
 from sklearn.isotonic import IsotonicRegression
 import torch
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
+else:
+    try:
+        from typing import Self
+    except ImportError:
+        from typing_extensions import Self
 from torch import Tensor
 
 from chemprop.utils.registry import ClassRegistry

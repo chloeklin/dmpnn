@@ -40,6 +40,8 @@ parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit 2D descriptors')
 parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
                     help='Name of the model to use')
+parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
+                    help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
 parser.add_argument('--target', type=str, default=None,
                     help='Specific target to evaluate (if not provided, evaluates all targets)')
 parser.add_argument('--batch_norm', action='store_true',

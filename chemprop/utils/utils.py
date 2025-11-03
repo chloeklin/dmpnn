@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from enum import StrEnum
 import os
+from enum import Enum
 from typing import Iterable, Iterator
 
 import numpy as np
 import psutil
 from rdkit import Chem
+
+
+class StrEnum(str, Enum):
+    """Python 3.10 compatible StrEnum implementation"""
+    pass
 
 
 class EnumMapping(StrEnum):

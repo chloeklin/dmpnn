@@ -182,7 +182,7 @@ def run_evaluation(dataset: str, model: str, has_desc: bool, has_rdkit: bool,
         return True
     
     cmd = [
-        'python3', 'scripts/python/evaluate_model.py',
+        sys.executable, 'scripts/python/evaluate_model.py',
         '--dataset_name', dataset,
         '--model_name', model,
         '--task_type', 'multi' if dataset == 'polyinfo' else 'reg'

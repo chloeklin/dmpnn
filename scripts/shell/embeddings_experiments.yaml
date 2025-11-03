@@ -1,0 +1,274 @@
+# Embeddings-Only Experiment Configuration
+# This config file defines experiments for training models and extracting embeddings only
+# (no evaluation step)
+#
+# Note: The scripts automatically deduplicate identical dataset-target-model combinations
+# so you can safely include multiple experiments with the same targets
+
+# YAML anchors for reusable configurations
+polyinfo_base: &polyinfo_base
+  dataset: polyinfo
+  task_type: multi
+
+insulator_base: &insulator_base
+  dataset: insulator
+  task_type: reg
+
+htpmd_base: &htpmd_base
+  dataset: htpmd
+  task_type: reg
+
+tc_base: &tc_base
+  dataset: tc
+  task_type: reg
+
+opv_base: &opv_base
+  dataset: opv_camb3lyp
+  task_type: reg
+
+eaip_base: &eaip_base
+  dataset: ea_ip
+  task_type: reg
+  polymer_type: copolymer
+
+opv_targets: &opv_targets
+  - optical_lumo
+  - gap
+  - homo
+  - lumo
+  - spectral_overlap
+  - delta_optical_lumo
+  - homo_extrapolated
+  - gap_extrapolated
+
+experiments:
+  # Insulator dataset with different model variants
+  # These will generate embeddings for bandgap_chain and bandgap_mol targets
+  - <<: *insulator_base
+    model: DMPNN
+    walltime: "2:00:00"
+  
+  - <<: *insulator_base
+    model: DMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+
+  - <<: *insulator_base
+    model: DMPNN_DiffPool
+    walltime: "2:00:00"
+  
+  - <<: *insulator_base
+    model: DMPNN_DiffPool
+    walltime: "2:00:00"
+    incl_rdkit: true
+
+  - <<: *insulator_base
+    model: wDMPNN
+    walltime: "2:00:00"
+  
+  - <<: *insulator_base
+    model: wDMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+  
+  - <<: *insulator_base
+    model: AttentiveFP
+    walltime: "2:00:00"
+  
+  - <<: *insulator_base
+    model: AttentiveFP
+    walltime: "2:00:00"
+    incl_rdkit: true
+  
+  # OPV dataset experiments - same model variants as insulator
+  - <<: *opv_base
+    model: DMPNN
+    walltime: "3:00:00"
+    targets: *opv_targets
+  
+  - <<: *opv_base
+    model: DMPNN
+    walltime: "3:00:00"
+    incl_rdkit: true
+    targets: *opv_targets
+
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "3:00:00"
+    targets: *opv_targets
+  
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "3:00:00"
+    incl_rdkit: true
+    targets: *opv_targets
+
+  - <<: *opv_base
+    model: wDMPNN
+    walltime: "3:00:00"
+    targets: *opv_targets
+  
+  - <<: *opv_base
+    model: wDMPNN
+    walltime: "3:00:00"
+    incl_rdkit: true
+    targets: *opv_targets
+  
+  - <<: *opv_base
+    model: AttentiveFP
+    walltime: "3:00:00"
+    targets: *opv_targets
+  
+  - <<: *opv_base
+    model: AttentiveFP
+    walltime: "3:00:00"
+    incl_rdkit: true
+    targets: *opv_targets
+  
+  # HTPMD dataset experiments - same model variants
+  - <<: *htpmd_base
+    model: DMPNN
+    walltime: "4:00:00"
+  
+  - <<: *htpmd_base
+    model: DMPNN
+    walltime: "4:00:00"
+    incl_rdkit: true
+
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    walltime: "4:00:00"
+  
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    walltime: "4:00:00"
+    incl_rdkit: true
+
+  - <<: *htpmd_base
+    model: wDMPNN
+    walltime: "4:00:00"
+  
+  - <<: *htpmd_base
+    model: wDMPNN
+    walltime: "4:00:00"
+    incl_rdkit: true
+  
+  - <<: *htpmd_base
+    model: AttentiveFP
+    walltime: "4:00:00"
+  
+  - <<: *htpmd_base
+    model: AttentiveFP
+    walltime: "4:00:00"
+    incl_rdkit: true
+  
+  # PolyInfo dataset experiments - same model variants (multi-task)
+  - <<: *polyinfo_base
+    model: DMPNN
+    walltime: "2:00:00"
+  
+  - <<: *polyinfo_base
+    model: DMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+
+  - <<: *polyinfo_base
+    model: DMPNN_DiffPool
+    walltime: "2:00:00"
+  
+  - <<: *polyinfo_base
+    model: DMPNN_DiffPool
+    walltime: "2:00:00"
+    incl_rdkit: true
+
+  - <<: *polyinfo_base
+    model: wDMPNN
+    walltime: "2:00:00"
+  
+  - <<: *polyinfo_base
+    model: wDMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+  
+  - <<: *polyinfo_base
+    model: AttentiveFP
+    walltime: "2:00:00"
+  
+  - <<: *polyinfo_base
+    model: AttentiveFP
+    walltime: "2:00:00"
+    incl_rdkit: true
+  
+  # TC dataset experiments - same model variants
+  - <<: *tc_base
+    model: DMPNN
+    walltime: "2:00:00"
+  
+  - <<: *tc_base
+    model: DMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+
+  - <<: *tc_base
+    model: DMPNN_DiffPool
+    walltime: "2:00:00"
+  
+  - <<: *tc_base
+    model: DMPNN_DiffPool
+    walltime: "2:00:00"
+    incl_rdkit: true
+
+  - <<: *tc_base
+    model: wDMPNN
+    walltime: "2:00:00"
+  
+  - <<: *tc_base
+    model: wDMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+  
+  - <<: *tc_base
+    model: AttentiveFP
+    walltime: "2:00:00"
+  
+  - <<: *tc_base
+    model: AttentiveFP
+    walltime: "2:00:00"
+    incl_rdkit: true
+  
+  # EA_IP dataset experiments - same model variants (copolymer)
+  - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:00:00"
+  
+  - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+
+  - <<: *eaip_base
+    model: DMPNN_DiffPool
+    walltime: "2:00:00"
+  
+  - <<: *eaip_base
+    model: DMPNN_DiffPool
+    walltime: "2:00:00"
+    incl_rdkit: true
+
+  - <<: *eaip_base
+    model: wDMPNN
+    walltime: "2:00:00"
+  
+  - <<: *eaip_base
+    model: wDMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+  
+  - <<: *eaip_base
+    model: AttentiveFP
+    walltime: "2:00:00"
+  
+  - <<: *eaip_base
+    model: AttentiveFP
+    walltime: "2:00:00"
+    incl_rdkit: true

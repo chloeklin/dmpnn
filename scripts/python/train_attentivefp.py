@@ -26,6 +26,7 @@ from utils import (
     build_experiment_paths,
     save_aggregate_results,
     save_predictions,
+    get_encodings_from_loader,
 )
 from tabular_utils import eval_binary, eval_multi
 
@@ -256,7 +257,8 @@ def main():
     ap.add_argument('--lr', type=float, default=1e-3)
     ap.add_argument('--epochs', type=int, default=300)
     ap.add_argument('--patience', type=int, default=30)
-    ap.add_argument('--export_embeddings', action='store_true')
+    ap.add_argument('--export_embeddings', action='store_true',
+                    help='Export GNN embeddings/encodings for train/val/test sets after training')
     ap.add_argument('--save_predictions', action='store_true')
     ap.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
     ap.add_argument('--model_name', type=str, default="AttentiveFP")
@@ -612,9 +614,13 @@ def main():
 
             # optional embedding export (pooled graph reps)
             if args.export_embeddings:
+                logger.info(f"Exporting embeddings for split {i}, target {target}")
+                
+                # Create embeddings directory with target/model/size specificity (same as train_graph.py)
                 emb_dir = (results_dir / "embeddings")
                 emb_dir.mkdir(parents=True, exist_ok=True)
-                # Some PyG versions don’t expose .gnn on AttentiveFP; avoid crashing.
+                
+                # Some PyG versions don't expose .gnn on AttentiveFP; avoid crashing.
                 if not hasattr(model.core, "gnn"):
                     logger.warning("Embeddings export skipped: this AttentiveFP version does not expose `.gnn`.")
                 else:
@@ -622,11 +628,50 @@ def main():
                         def __init__(self, core): super().__init__(); self.core = core
                         def forward(self, x, edge_index, edge_attr, batch):
                             return self.core.gnn(x, edge_index, edge_attr, batch)  # [B, hidden]
+                    
                     rep = RepExtractor(model.core).to(device).eval()
-
-                if hasattr(model.core, "gnn"):
+                    
+                    def dump(loader, df_data, split_name):
+                        """Extract and save embeddings using the same format as train_graph.py"""
+                        embeddings = []
+                        with torch.no_grad():
+                            for batch in loader:
+                                batch = batch.to(device)
+                                emb = rep(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                                embeddings.append(emb.cpu().numpy())
+                        
+                        X = np.vstack(embeddings)
+                        
+                        # Apply same filtering as train_graph.py and evaluate_model.py
+                        eps = 1e-8
+                        if split_name == "train":
+                            std_train = X.std(axis=0)
+                            keep = std_train > eps
+                            # Save feature mask for reproducibility
+                            embedding_prefix = f"{args.dataset_name}__{target}{desc_suf}{rdkit_suf}{bn_suffix}{size_suf}"
+                            np.save(emb_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy", keep)
+                            logger.info(f"Split {i}: Kept {int(keep.sum())} / {len(keep)} embedding dimensions")
+                        else:
+                            # Use the feature mask from train split
+                            embedding_prefix = f"{args.dataset_name}__{target}{desc_suf}{rdkit_suf}{bn_suffix}{size_suf}"
+                            feature_mask_file = emb_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy"
+                            if feature_mask_file.exists():
+                                keep = np.load(feature_mask_file)
+                            else:
+                                # Fallback: keep all features if mask not found
+                                keep = np.ones(X.shape[1], dtype=bool)
+                                logger.warning(f"Feature mask not found for split {i}, keeping all features")
+                        
+                        # Apply filtering
+                        X_filtered = X[:, keep]
+                        
+                        # Save embeddings with consistent naming
+                        np.save(emb_dir / f"{embedding_prefix}__X_{split_name}_split_{i}.npy", X_filtered)
+                        logger.info(f"Split {i}: Saved {split_name} embeddings: {X_filtered.shape}")
+                    
+                    # Extract embeddings for train/val/test
                     dump(train_loader, df_tr, "train")
-                    dump(val_loader,   df_va, "val")
+                    dump(val_loader,   df_va, "val") 
                     dump(test_loader,  df_te, "test")
     # aggregate + save like your script
     results_df = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
