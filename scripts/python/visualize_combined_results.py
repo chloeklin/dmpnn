@@ -14,6 +14,15 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List
 import argparse
+import sys
+
+# Import combine_target_results function
+try:
+    from combine_target_results import combine_results
+except ImportError:
+    print("Error: Could not import combine_results from combine_target_results.py")
+    print("Make sure combine_target_results.py is in the same directory.")
+    sys.exit(1)
 
 def parse_filename(filename: str) -> tuple:
     """Parse CSV filename to extract dataset and feature information."""
@@ -486,6 +495,15 @@ def main():
     else:
         output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # First, combine target-specific results into single files
+    print("Combining target-specific result files...")
+    try:
+        combine_results(str(results_dir))
+        print("✅ Target-specific results combined successfully!")
+    except Exception as e:
+        print(f"Warning: Could not combine target results: {e}")
+        print("Continuing with existing combined files...")
     
     print("Loading combined results...")
     results = load_combined_results(results_dir)
