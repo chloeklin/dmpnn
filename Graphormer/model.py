@@ -107,11 +107,12 @@ class Graphormer(nn.Module):
             self.num_heads,
             device=dist.device,
         )
-        # Cast tensors to float for encoders
-        dist = dist.float()
-        path_data = path_data.float()
-        path_encoding = self.path_encoder(dist, path_data)
-        spatial_encoding = self.spatial_encoder(dist)
+        # Cast tensors to appropriate types for encoders
+        dist_float = dist.float()  # For path_encoder (needs float)
+        dist_int = dist.long()      # For spatial_encoder (needs int indices)
+        path_data = path_data.float()  # For path_encoder (needs float)
+        path_encoding = self.path_encoder(dist_float, path_data)
+        spatial_encoding = self.spatial_encoder(dist_int)
         attn_bias[:, 1:, 1:, :] = path_encoding + spatial_encoding
 
         # spatial encoding of the virtual node
