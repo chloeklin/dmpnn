@@ -154,7 +154,9 @@ class PPGAdapter(LightningModule):
             raise ValueError(f"Unexpected batch format with {len(batch)} elements")
         
         # PPG expects BatchMolGraph directly
-        preds = self(bmg, V_d)
+        # PPG expects the original batch format, not unpacked
+        # Pass the original batch to maintain compatibility
+        preds = self(batch)
         
         # Apply masks if present
         if lt_mask is not None:
@@ -193,7 +195,9 @@ class PPGAdapter(LightningModule):
         else:
             raise ValueError(f"Unexpected batch format with {len(batch)} elements")
         
-        preds = self(bmg, V_d)
+        # PPG expects the original batch format, not unpacked
+        # Pass the original batch to maintain compatibility
+        preds = self(batch)
         
         # Apply output transform if present
         if self.output_transform:
@@ -215,7 +219,9 @@ class PPGAdapter(LightningModule):
         """Lightning test step."""
         bmg, V_d, targets, weights, lt_mask, gt_mask = batch
         
-        preds = self(bmg, V_d)
+        # PPG expects the original batch format, not unpacked
+        # Pass the original batch to maintain compatibility
+        preds = self(batch)
         
         # Apply output transform
         if self.output_transform:
@@ -233,7 +239,9 @@ class PPGAdapter(LightningModule):
         """Lightning predict step."""
         bmg, V_d, targets, *_ = batch
         
-        preds = self(bmg, V_d)
+        # PPG expects the original batch format, not unpacked
+        # Pass the original batch to maintain compatibility
+        preds = self(batch)
         
         # Apply output transform
         if self.output_transform:
