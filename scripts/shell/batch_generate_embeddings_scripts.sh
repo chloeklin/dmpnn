@@ -4,7 +4,7 @@
 # Reads experiment configurations from a YAML file and generates training scripts that stop after embedding extraction
 #
 # Usage: ./batch_generate_embeddings_scripts.sh [config_file.yaml] [--no-submit] [--model MODEL_NAME]
-# Default config: batch_experiments.yaml
+# Default config: embeddings_experiments.yaml
 #
 # YAML Format:
 # experiments:
@@ -31,7 +31,7 @@ fi
 if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
     echo "Usage: $0 [config_file.yaml] [--no-submit] [--model MODEL_NAME]"
     echo ""
-    echo "Default config: batch_experiments.yaml"
+    echo "Default config: embeddings_experiments.yaml"
     echo ""
     echo "Examples:"
     echo "  $0                              # Use default config"
@@ -68,7 +68,7 @@ fi
 
 # Default config file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_CONFIG="${SCRIPT_DIR}/batch_experiments.yaml"
+DEFAULT_CONFIG="${SCRIPT_DIR}/embeddings_experiments.yaml"
 CONFIG_FILE="$DEFAULT_CONFIG"
 NO_SUBMIT=""
 MODEL_FILTER=""
@@ -164,8 +164,8 @@ try:
         else:  # No targets specified - use all targets (one script)
             target_list = [None]
         
-        # Build arguments (without target-specific args)
-        args = ['./generate_embeddings_script.sh', dataset, model, walltime]
+        # Build arguments
+        args = ['./scripts/shell/generate_embeddings_script.sh', dataset, model, walltime]
         
         # Add optional flags
         if exp.get('incl_rdkit', False):

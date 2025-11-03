@@ -18,7 +18,7 @@ The embeddings-only workflow allows you to:
 Generates PBS job scripts for HPC clusters that run training until embedding extraction, then stop.
 
 ```bash
-# Usage examples
+# Usage examples (default config is embeddings_experiments.yaml)
 ./scripts/shell/batch_generate_embeddings_scripts.sh                                    # Use default config
 ./scripts/shell/batch_generate_embeddings_scripts.sh --no-submit                        # Generate without submitting
 ./scripts/shell/batch_generate_embeddings_scripts.sh --model DMPNN                      # Filter by model

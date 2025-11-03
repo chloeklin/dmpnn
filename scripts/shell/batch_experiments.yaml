@@ -36,61 +36,45 @@ opv_targets: &opv_targets
 
 experiments:
   # Polyinfo dataset experiments
-  # - <<: *polyinfo_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   incl_rdkit: true
+  - <<: *polyinfo_base
+    model: DMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
   
-  # - <<: *polyinfo_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
+  - <<: *polyinfo_base
+    model: DMPNN
+    walltime: "2:00:00"
 
-#   - <<: *polyinfo_base
-#     model: DMPNN
-#     walltime: "0:30:00"
-#     incl_rdkit: true
-#     batch_norm: true
+  - <<: *polyinfo_base
+    model: DMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+    batch_norm: true
   
-#   - <<: *polyinfo_base
-#     model: DMPNN
-#     walltime: "0:30:00"
-#     batch_norm: true
+  - <<: *polyinfo_base
+    model: DMPNN
+    walltime: "2:00:00"
+    batch_norm: true
     
-#   - <<: *polyinfo_base
-#     model: wDMPNN
-#     walltime: "10:30:00"
-#     incl_rdkit: true
+  - <<: *polyinfo_base
+    model: wDMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
 
-  # - <<: *polyinfo_base
-  #   model: wDMPNN
-  #   walltime: "10:30:00"
+  - <<: *polyinfo_base
+    model: wDMPNN
+    walltime: "2:00:00"
 
-#   - <<: *polyinfo_base
-#     model: wDMPNN
-#     walltime: "10:30:00"
-#     incl_rdkit: true
-#     batch_norm: true
+  - <<: *polyinfo_base
+    model: wDMPNN
+    walltime: "2:00:00"
+    incl_rdkit: true
+    batch_norm: true
   
-#   - <<: *polyinfo_base
-#     model: wDMPNN
-#     walltime: "10:30:00"
-#     batch_norm: true
-    
-#   - <<: *polyinfo_base
-#     model: tabular
-#     walltime: "2:00:00"
-#     incl_ab: true
-#     incl_rdkit: true
-    
-#   - <<: *polyinfo_base
-#     model: tabular
-#     walltime: "1:30:00"
-#     incl_ab: true
-
-#   - <<: *polyinfo_base
-#     model: tabular
-#     walltime: "1:30:00"
-#     incl_rdkit: true
+  - <<: *polyinfo_base
+    model: wDMPNN
+    walltime: "2:00:00"
+    batch_norm: true
 
   - <<: *polyinfo_base
     model: DMPNN_DiffPool

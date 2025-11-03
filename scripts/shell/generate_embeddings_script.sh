@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script Generator for Embeddings-Only Training Jobs
-# Creates PBS job scripts that run train_graph.py until embedding extraction, then stop
+# Creates PBS job scripts that run train_graph.py or train_attentivefp.py until embedding extraction, then stop
 # Takes dataset name, model type, and optional flags
 #
 # Usage:
@@ -10,7 +10,7 @@
 # Examples:
 #   ./generate_embeddings_script.sh insulator DMPNN 2:00:00
 #   ./generate_embeddings_script.sh htpmd wDMPNN 4:00:00 incl_rdkit incl_desc
-#   ./generate_embeddings_script.sh polyinfo DMPNN 3:00:00 incl_rdkit incl_desc multi
+#   ./generate_embeddings_script.sh polyinfo AttentiveFP 3:00:00 incl_rdkit multi
 
 # Check if dataset name, model, and walltime are provided
 if [ $# -lt 3 ]; then
@@ -171,7 +171,11 @@ echo "Batch Norm: ${BATCH_NORM:-'No'}"
 echo "========================================"
 
 # Run training with embeddings export, then stop
-python3 scripts/python/train_graph.py $ARGS
+if [[ "$MODEL" == "AttentiveFP" ]]; then
+    python3 scripts/python/train_attentivefp.py $ARGS
+else
+    python3 scripts/python/train_graph.py $ARGS
+fi
 
 echo "=== Embeddings Extraction Complete ==="
 echo "Embeddings saved to results/embeddings/"
