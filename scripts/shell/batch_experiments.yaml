@@ -92,6 +92,24 @@ experiments:
 #     walltime: "1:30:00"
 #     incl_rdkit: true
 
+  - <<: *polyinfo_base
+    model: DMPNN_DiffPool
+    walltime: "5:30:00"
+    incl_rdkit: true
+      
+  - <<: *polyinfo_base
+    model: DMPNN_DiffPool
+    walltime: "5:30:00"
+    
+  - <<: *polyinfo_base
+    model: AttentiveFP
+    walltime: "5:30:00"
+    incl_rdkit: true
+      
+  - <<: *polyinfo_base
+    model: AttentiveFP
+    walltime: "5:30:00"
+
 
 
 
@@ -557,6 +575,6 @@ experiments:
   #   incl_desc: true
   #   incl_rdkit: true
     
-  - <<: *tc_base
-    model: PPG
-    walltime: "1:00:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   walltime: "1:00:00"
