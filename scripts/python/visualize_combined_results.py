@@ -498,11 +498,27 @@ def main():
     
     # First, combine target-specific results into single files
     print("Combining target-specific result files...")
+    
+    # List of model directories to process
+    model_dirs = ['DMPNN', 'wDMPNN', 'DMPNN_DiffPool', 'PPG', 'AttentiveFP']
+    
+    # Combine results in each model subdirectory first
+    for model_name in model_dirs:
+        model_dir = results_dir / model_name
+        if model_dir.exists():
+            print(f"  Processing {model_name} results...")
+            try:
+                combine_results(str(model_dir))
+                print(f"  ✅ {model_name} results combined successfully!")
+            except Exception as e:
+                print(f"  Warning: Could not combine {model_name} results: {e}")
+    
+    # Also combine any results in the main results directory
     try:
         combine_results(str(results_dir))
-        print("✅ Target-specific results combined successfully!")
+        print("✅ Main directory results combined successfully!")
     except Exception as e:
-        print(f"Warning: Could not combine target results: {e}")
+        print(f"Warning: Could not combine main directory results: {e}")
         print("Continuing with existing combined files...")
     
     print("Loading combined results...")
