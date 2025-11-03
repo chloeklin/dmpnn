@@ -129,9 +129,34 @@ class CustomMolDataset(Dataset):
 
             # store
             graphs.append(g)
-            labels.append(th.tensor(row[self.target_cols].values, dtype=th.float32))
+            
+            # Convert target values to float32, handling single vs multiple targets
+            if len(self.target_cols) == 1:
+                # Single target column - access directly to avoid object dtype
+                target_value = row[self.target_cols[0]]
+                if pd.isna(target_value):
+                    target_values = np.array([np.nan], dtype=np.float32)
+                else:
+                    target_values = np.array([float(target_value)], dtype=np.float32)
+            else:
+                # Multiple target columns - use original approach with type conversion
+                target_values = row[self.target_cols].values
+                if target_values.dtype == np.object_:
+                    target_values = np.array([float(x) if pd.notna(x) else np.nan for x in target_values], dtype=np.float32)
+                else:
+                    target_values = target_values.astype(np.float32)
+            
+            labels.append(th.tensor(target_values, dtype=th.float32))
+            
             if self.descriptors is not None:
-                globals_list.append(th.tensor(row[self.descriptor_cols].values, dtype=th.float32))
+                # Convert descriptor values to float32, handling object arrays
+                descriptor_values = row[self.descriptor_cols].values
+                if descriptor_values.dtype == np.object_:
+                    descriptor_values = np.array([float(x) if pd.notna(x) else np.nan for x in descriptor_values], dtype=np.float32)
+                else:
+                    descriptor_values = descriptor_values.astype(np.float32)
+                
+                globals_list.append(th.tensor(descriptor_values, dtype=th.float32))
 
         labels = th.stack(labels, dim=0)
         globals_tensor = None
