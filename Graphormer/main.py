@@ -317,7 +317,7 @@ def train_val_pipeline(params):
     split_args = SplitArgs(task_type=params.task_type)
     
     # Get target values for splitting
-    ys = full_ds.targets.numpy()  # shape: (N, num_targets)
+    ys = full_ds.targets.to_numpy()  # shape: (N, num_targets)
     
     # For multi-target, use first target for stratification if classification
     if params.task_type in ['binary', 'multi']:
