@@ -147,6 +147,9 @@ class PPGAdapter(LightningModule):
         elif len(batch) == 6:
             # PPG format: (bmg, V_d, targets, weights, lt_mask, gt_mask)
             bmg, V_d, targets, weights, lt_mask, gt_mask = batch
+        elif len(batch) == 7:
+            # Extended format: (bmg, V_d, targets, weights, lt_mask, gt_mask, atom_descriptors)
+            bmg, V_d, targets, weights, lt_mask, gt_mask, atom_descriptors = batch
         else:
             raise ValueError(f"Unexpected batch format with {len(batch)} elements")
         
@@ -184,6 +187,9 @@ class PPGAdapter(LightningModule):
         elif len(batch) == 6:
             # PPG format: (bmg, V_d, targets, weights, lt_mask, gt_mask)
             bmg, V_d, targets, weights, lt_mask, gt_mask = batch
+        elif len(batch) == 7:
+            # Extended format: (bmg, V_d, targets, weights, lt_mask, gt_mask, atom_descriptors)
+            bmg, V_d, targets, weights, lt_mask, gt_mask, atom_descriptors = batch
         else:
             raise ValueError(f"Unexpected batch format with {len(batch)} elements")
         
