@@ -113,11 +113,18 @@ if [[ -n "$MODEL_FILTER" ]]; then
 fi
 echo "=================================================="
 
+# Export script directory for Python code
+export SCRIPT_DIR="$SCRIPT_DIR"
+
 # Parse YAML and generate scripts using Python
 python3 << EOF
 import yaml
 import subprocess
 import sys
+import os
+
+# Get script directory - use the same directory as this script
+script_dir = '$SCRIPT_DIR'
 
 try:
     with open('$CONFIG_FILE', 'r') as f:
@@ -164,8 +171,8 @@ try:
         else:  # No targets specified - use all targets (one script)
             target_list = [None]
         
-        # Build arguments
-        args = ['./scripts/shell/generate_embeddings_script.sh', dataset, model, walltime]
+        # Build arguments (use script directory relative path)
+        args = [f'{script_dir}/generate_embeddings_script.sh', dataset, model, walltime]
         
         # Add optional flags
         if exp.get('incl_rdkit', False):
