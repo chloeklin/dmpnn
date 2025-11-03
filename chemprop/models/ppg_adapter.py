@@ -267,7 +267,11 @@ def create_ppg_args(
     
     # Device configuration
     if hasattr(args, 'device'):
-        ppg_args.device = args.device
+        # Ensure device is a torch.device object, not a string
+        if isinstance(args.device, str):
+            ppg_args.device = torch.device(args.device)
+        else:
+            ppg_args.device = args.device
     else:
         ppg_args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
