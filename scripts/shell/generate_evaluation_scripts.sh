@@ -23,6 +23,7 @@ DEFAULT_WALLTIME="2:00:00"
 # Parse command line arguments
 FORCE=false
 DRY_RUN=false
+AUTO_SUBMIT=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -34,13 +35,18 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
+        --auto-submit)
+            AUTO_SUBMIT=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --force      Overwrite existing evaluation scripts"
-            echo "  --dry-run    Show what would be generated without creating files"
-            echo "  --help, -h   Show this help message"
+            echo "  --force        Overwrite existing evaluation scripts"
+            echo "  --dry-run      Show what would be generated without creating files"
+            echo "  --auto-submit  Automatically submit generated scripts with qsub"
+            echo "  --help, -h     Show this help message"
             exit 0
             ;;
         *)
@@ -249,6 +255,7 @@ EOF
 
     chmod +x "$script_path"
     echo "✅ Generated: $script_name"
+    echo "$script_path"  # Output script path for tracking
 }
 
 # Main execution
@@ -270,7 +277,8 @@ fi
 
 # Track unique configurations (using a simple list instead of associative array for compatibility)
 CONFIGS_FILE=$(mktemp)
-trap "rm -f $CONFIGS_FILE" EXIT
+SCRIPTS_FILE=$(mktemp)  # Track generated scripts for auto-submission
+trap "rm -f $CONFIGS_FILE $SCRIPTS_FILE" EXIT
 
 # Scan checkpoint directories
 for model_dir in "$CHECKPOINT_DIR"/*; do
@@ -315,8 +323,11 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
         
         echo "$config_key" >> "$CONFIGS_FILE"
         
-        # Generate script for this configuration
-        generate_eval_script "$model" "$dataset" "$has_desc" "$has_rdkit" "$has_batch_norm" "$train_size" "$exp_dir" "$preprocess_path"
+        # Generate script for this configuration and capture the script path
+        script_path=$(generate_eval_script "$model" "$dataset" "$has_desc" "$has_rdkit" "$has_batch_norm" "$train_size" "$exp_dir" "$preprocess_path" | tail -n1)
+        if [ -n "$script_path" ] && [ -f "$script_path" ]; then
+            echo "$script_path" >> "$SCRIPTS_FILE"
+        fi
     done
 done
 
@@ -340,8 +351,45 @@ if [ "$DRY_RUN" = true ]; then
 else
     echo "Scripts generated in: $OUTPUT_DIR"
     echo ""
-    echo "To submit all evaluations:"
-    echo "  for script in $OUTPUT_DIR/eval_*.sh; do qsub \$script; done"
+    
+    # Auto-submit if requested
+    if [ "$AUTO_SUBMIT" = true ]; then
+        if [ -f "$SCRIPTS_FILE" ] && [ -s "$SCRIPTS_FILE" ]; then
+            echo "🚀 Auto-submitting generated scripts..."
+            submitted_count=0
+            
+            while IFS= read -r script_path; do
+                if [ -f "$script_path" ]; then
+                    echo "  Submitting: $(basename "$script_path")"
+                    job_id=$(qsub "$script_path" 2>/dev/null)
+                    if [ -n "$job_id" ]; then
+                        echo "    ✅ Job ID: $job_id"
+                        ((submitted_count++))
+                    else
+                        echo "    ❌ Failed to submit"
+                    fi
+                fi
+            done < "$SCRIPTS_FILE"
+            
+            echo ""
+            echo "📊 SUBMISSION SUMMARY"
+            echo "Total scripts submitted: $submitted_count"
+            echo ""
+            echo "To check job status:"
+            echo "  qstat -u $USER"
+            echo ""
+            echo "To view results:"
+            echo "  ls -la results/"
+        else
+            echo "⚠️  No scripts were generated to submit"
+        fi
+    else
+        echo "To submit all evaluations:"
+        echo "  for script in $OUTPUT_DIR/eval_*.sh; do qsub \$script; done"
+        echo ""
+        echo "Or use auto-submit:"
+        echo "  $0 --auto-submit"
+    fi
 fi
 
 exit 0
