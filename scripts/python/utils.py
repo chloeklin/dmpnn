@@ -694,13 +694,13 @@ def build_model_and_trainer(
     
     # Define loss function for PPG
     if args.task_type == 'reg':
-        loss_fn = nn.MSELoss()
+        loss_fn = nn.MVELoss()  # chemprop.nn uses MVELoss (Mean Absolute Error)
     elif args.task_type == 'binary':
-        loss_fn = nn.BCEWithLogitsLoss()
+        loss_fn = nn.BCELoss()  # chemprop.nn uses BCELoss
     elif args.task_type == 'multi':
         loss_fn = nn.CrossEntropyLoss()
     else:
-        loss_fn = nn.MSELoss()  # Default to MSE
+        loss_fn = nn.MVELoss()  # Default to MVELoss
     
     # Create aggregation and model
     if args.model_name == "PPG":
