@@ -27,6 +27,7 @@ from utils import (
     save_aggregate_results,
     save_predictions,
 )
+from tabular_utils import eval_binary, eval_multi
 
 from joblib import load as joblib_load
 
@@ -152,15 +153,27 @@ def mol_to_pyg_attfp(smiles: str) -> Data:
 # Dataset
 # -----------------------
 class GraphCSV(torch.utils.data.Dataset):
-    def __init__(self, df: pd.DataFrame, smiles_col: str, target_col: str):
+    def __init__(self, df: pd.DataFrame, smiles_col: str, target_col: str, task_type='reg'):
         self.smiles = df[smiles_col].astype(str).tolist()
-        self.y = df[target_col].to_numpy(dtype=np.float32).reshape(-1,1)
+        self.task_type = task_type
+        
+        # Handle targets based on task type
+        if task_type == 'reg':
+            self.y = df[target_col].to_numpy(dtype=np.float32).reshape(-1,1)
+        else:
+            # Classification: use integer targets
+            self.y = df[target_col].astype(int).to_numpy().reshape(-1,1)
+            
         self.graphs = [mol_to_pyg_attfp(s) for s in self.smiles]
         self.target_col = target_col
     def __len__(self): return len(self.graphs)
     def __getitem__(self, i):
         d = self.graphs[i].clone()
-        d.y = torch.tensor(self.y[i], dtype=torch.float)
+        if self.task_type == 'reg':
+            d.y = torch.tensor(self.y[i], dtype=torch.float)
+        else:
+            # Classification: use long tensors for CrossEntropyLoss
+            d.y = torch.tensor(self.y[i], dtype=torch.long)
         return d
 
 # -----------------------
@@ -189,9 +202,14 @@ def eval_loss(model, loader, device, task):
         pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
         if task == "reg":
             loss = F.mse_loss(pred.view(-1,1), batch.y.view(-1,1), reduction='sum')
+        elif task == "binary":
+            # Binary classification: use BCEWithLogitsLoss for stability
+            loss = F.binary_cross_entropy_with_logits(pred.view(-1), batch.y.view(-1), reduction='sum')
+        elif task == "multi":
+            # Multi-class classification: use CrossEntropyLoss
+            loss = F.cross_entropy(pred, batch.y.view(-1).long(), reduction='sum')
         else:
-            # binary/multi not used in your current experiments; keep reg default
-            loss = F.mse_loss(pred.view(-1,1), batch.y.view(-1,1), reduction='sum')
+            raise ValueError(f"Unknown task type: {task}")
         tot += loss.item(); n += batch.num_graphs
     return tot / max(1,n)
 
@@ -232,7 +250,7 @@ def main():
                     help='Include RDKit descriptors')
     ap.add_argument('--train_size', type=str, default=None,
                     help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
-    ap.add_argument('--task_type', type=str, choices=['reg'], default='reg')  # your study uses reg; extend if needed
+    ap.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default='reg')  # support classification
     ap.add_argument('--batch_size', type=int, default=64)
     ap.add_argument('--hidden', type=int, default=300)
     ap.add_argument('--lr', type=float, default=1e-3)
@@ -430,22 +448,37 @@ def main():
             df_tr, df_va, df_te = df_input.iloc[tr].reset_index(drop=True), df_input.iloc[va].reset_index(drop=True), df_input.iloc[te].reset_index(drop=True)
 
             # datasets
-            ds_tr = GraphCSV(df_tr, smiles_column, target)
-            ds_va = GraphCSV(df_va, smiles_column, target)
-            ds_te = GraphCSV(df_te, smiles_column, target)
+            ds_tr = GraphCSV(df_tr, smiles_column, target, task_type=args.task_type)
+            ds_va = GraphCSV(df_va, smiles_column, target, task_type=args.task_type)
+            ds_te = GraphCSV(df_te, smiles_column, target, task_type=args.task_type)
 
-            # scaler (fit on train, apply to train+val; test left raw)
-            scaler = StandardScaler().fit(ds_tr.y)
-            for d, df_part in [(ds_tr, df_tr), (ds_va, df_va)]:
-                d.y = scaler.transform(d.y)
+            # scaler (fit on train, apply to train+val; test left raw) - only for regression
+            if args.task_type == 'reg':
+                scaler = StandardScaler().fit(ds_tr.y)
+                for d, df_part in [(ds_tr, df_tr), (ds_va, df_va)]:
+                    d.y = scaler.transform(d.y)
+            else:
+                scaler = None  # No scaling for classification
 
             train_loader = DataLoader(ds_tr, batch_size=args.batch_size, shuffle=True)
             val_loader   = DataLoader(ds_va, batch_size=args.batch_size, shuffle=False)
             test_loader  = DataLoader(ds_te, batch_size=args.batch_size, shuffle=False)
 
-            # model
+            # model - determine output channels based on task type
+            if args.task_type == 'reg':
+                out_channels = 1
+            elif args.task_type == 'binary':
+                out_channels = 1  # Binary classification uses single logit
+            elif args.task_type == 'multi':
+                n_classes = n_classes_per_target.get(target, None)
+                if n_classes is None:
+                    raise ValueError(f"Number of classes not found for target {target}")
+                out_channels = n_classes
+            else:
+                raise ValueError(f"Unsupported task_type: {args.task_type}")
+            
             core = models.AttentiveFP(
-                in_channels=39, hidden_channels=args.hidden, out_channels=1, edge_dim=10,
+                in_channels=39, hidden_channels=args.hidden, out_channels=out_channels, edge_dim=10,
                 num_layers=2, num_timesteps=2, dropout=0.0
             ).to(device)
             model = EdgeGuard(core, edge_dim=10).to(device)
@@ -465,12 +498,22 @@ def main():
                         batch = batch.to(device)
                         opt.zero_grad()
                         pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                        loss = F.mse_loss(pred.view(-1,1), batch.y.view(-1,1))
+                        
+                        # Use appropriate loss function based on task type
+                        if args.task_type == 'reg':
+                            loss = F.mse_loss(pred.view(-1,1), batch.y.view(-1,1))
+                        elif args.task_type == 'binary':
+                            loss = F.binary_cross_entropy_with_logits(pred.view(-1), batch.y.view(-1))
+                        elif args.task_type == 'multi':
+                            loss = F.cross_entropy(pred, batch.y.view(-1).long())
+                        else:
+                            raise ValueError(f"Unsupported task_type: {args.task_type}")
+                        
                         loss.backward(); opt.step()
                         tr_loss += loss.item()*batch.num_graphs; ntr += batch.num_graphs
                     tr_loss /= max(1,ntr)
 
-                    va_loss = eval_loss(model, val_loader, device, task="reg")
+                    va_loss = eval_loss(model, val_loader, device, task=args.task_type)
                     print(f"[{target}] split {i} | epoch {ep:03d} | train {tr_loss:.6f} | val {va_loss:.6f}")
 
                     if va_loss + 1e-12 < best_val:
@@ -492,20 +535,67 @@ def main():
                 checkpoint = torch.load(checkpoint_file, map_location=device)
                 model.load_state_dict({k: v.to(device) for k, v in checkpoint["state_dict"].items()})
 
-            # test (invert scale)
+            # test evaluation with appropriate metrics
             model.eval()
             y_true, y_pred = [], []
             with torch.no_grad():
                 for batch in test_loader:
                     batch = batch.to(device)
                     pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                    pred = scaler.inverse_transform(pred.view(-1,1).cpu().numpy()).reshape(-1)
-                    y_pred.append(pred)
-                    y_true.append(batch.y.view(-1,1).cpu().numpy().reshape(-1))  # NOTE: test was NOT scaled
+                    
+                    # Handle different prediction formats for different tasks
+                    if args.task_type == 'reg':
+                        # Regression: inverse transform scaling
+                        pred = scaler.inverse_transform(pred.view(-1,1).cpu().numpy()).reshape(-1)
+                        y_pred.append(pred)
+                        y_true.append(batch.y.view(-1,1).cpu().numpy().reshape(-1))  # test was NOT scaled
+                    elif args.task_type == 'binary':
+                        # Binary classification: apply sigmoid to get probabilities
+                        pred_prob = torch.sigmoid(pred.view(-1)).cpu().numpy()
+                        pred_class = (pred_prob >= 0.5).astype(int)
+                        y_pred.append(pred_class)
+                        y_true.append(batch.y.view(-1).cpu().numpy().astype(int))
+                    elif args.task_type == 'multi':
+                        # Multi-class classification: use argmax
+                        pred_class = torch.argmax(pred, dim=1).cpu().numpy()
+                        y_pred.append(pred_class)
+                        y_true.append(batch.y.view(-1).cpu().numpy().astype(int))
+                    else:
+                        raise ValueError(f"Unsupported task_type: {args.task_type}")
+                        
             y_pred = np.concatenate(y_pred); y_true = np.concatenate(y_true)
 
-            # metrics + logging like your pipeline
-            m = compute_reg_metrics(y_true, y_pred)
+            # Compute appropriate metrics
+            if args.task_type == 'reg':
+                m = compute_reg_metrics(y_true, y_pred)
+            elif args.task_type == 'binary':
+                # For binary, we need probabilities for some metrics
+                # Re-compute probabilities for evaluation
+                model.eval()
+                y_probs = []
+                with torch.no_grad():
+                    for batch in test_loader:
+                        batch = batch.to(device)
+                        pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                        pred_prob = torch.sigmoid(pred.view(-1)).cpu().numpy()
+                        y_probs.append(pred_prob)
+                y_probs = np.concatenate(y_probs)
+                m = eval_binary(y_true, y_pred, y_probs)
+            elif args.task_type == 'multi':
+                # For multi-class, we need probabilities for some metrics
+                model.eval()
+                y_proba = []
+                with torch.no_grad():
+                    for batch in test_loader:
+                        batch = batch.to(device)
+                        pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                        pred_proba = torch.softmax(pred, dim=1).cpu().numpy()
+                        y_proba.append(pred_proba)
+                y_proba = np.concatenate(y_proba)
+                m = eval_multi(y_true, y_pred, y_proba)
+            else:
+                raise ValueError(f"Unsupported task_type: {args.task_type}")
+                
             m['split'] = i
             m['target'] = target
             all_results.append(pd.DataFrame([m]))

@@ -153,13 +153,13 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                     df = df.rename(columns={
                         'test/multiclass-accuracy': 'acc', 
                         'test/multiclass-f1': 'f1_macro', 
-                        'test/multiclass-roc': 'logloss'
+                        'test/multiclass-roc': 'roc_auc'
                     })
                 elif 'test/accuracy' in df.columns:
                     df = df.rename(columns={
                         'test/accuracy': 'acc', 
                         'test/f1': 'f1_macro', 
-                        'test/roc_auc': 'logloss'
+                        'test/roc_auc': 'roc_auc'
                     })
                 
                 # Add metadata
@@ -290,7 +290,7 @@ def detect_task_type(data: pd.DataFrame) -> str:
 def get_metrics_for_task(task_type: str) -> List[str]:
     """Get appropriate metrics for task type."""
     if task_type == 'classification':
-        return ['acc', 'f1_macro', 'logloss']
+        return ['acc', 'f1_macro', 'logloss', 'roc_auc']  # Include both metrics
     elif task_type == 'regression':
         return ['mae', 'r2', 'rmse']
     else:

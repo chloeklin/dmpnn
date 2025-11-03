@@ -648,6 +648,20 @@ def eval_multi(y_true, y_pred, y_proba) -> Dict[str, float]:
     }
     if y_proba is not None:
         out["logloss"] = log_loss(y_true, y_proba)
+        # Add ROC-AUC for multi-class using one-vs-rest approach
+        try:
+            from sklearn.preprocessing import label_binarize
+            n_classes = len(np.unique(y_true))
+            if n_classes == 2:
+                # Binary classification
+                out["roc_auc"] = roc_auc_score(y_true, y_proba[:, 1])
+            else:
+                # Multi-class classification
+                y_bin = label_binarize(y_true, classes=list(range(n_classes)))
+                out["roc_auc"] = roc_auc_score(y_bin, y_proba, average="macro", multi_class="ovr")
+        except Exception as e:
+            # Skip ROC-AUC if calculation fails
+            pass
     return out
 
 def summarize(results: List[Dict[str, float]]) -> Dict[str, float]:
