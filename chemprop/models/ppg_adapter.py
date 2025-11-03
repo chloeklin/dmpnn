@@ -130,7 +130,25 @@ class PPGAdapter(LightningModule):
     
     def training_step(self, batch, batch_idx):
         """Lightning training step."""
-        bmg, V_d, targets, weights, lt_mask, gt_mask = batch
+        # Handle standard chemprop batch format
+        if len(batch) == 2:
+            # Standard format: (bmg, targets)
+            bmg, targets = batch
+            V_d = None
+            weights = None
+            lt_mask = None
+            gt_mask = None
+        elif len(batch) == 3:
+            # Format with features: (bmg, V_d, targets)
+            bmg, V_d, targets = batch
+            weights = None
+            lt_mask = None
+            gt_mask = None
+        elif len(batch) == 6:
+            # PPG format: (bmg, V_d, targets, weights, lt_mask, gt_mask)
+            bmg, V_d, targets, weights, lt_mask, gt_mask = batch
+        else:
+            raise ValueError(f"Unexpected batch format with {len(batch)} elements")
         
         # PPG expects BatchMolGraph directly
         preds = self(bmg, V_d)
@@ -149,7 +167,25 @@ class PPGAdapter(LightningModule):
     
     def validation_step(self, batch, batch_idx):
         """Lightning validation step."""
-        bmg, V_d, targets, weights, lt_mask, gt_mask = batch
+        # Handle standard chemprop batch format
+        if len(batch) == 2:
+            # Standard format: (bmg, targets)
+            bmg, targets = batch
+            V_d = None
+            weights = None
+            lt_mask = None
+            gt_mask = None
+        elif len(batch) == 3:
+            # Format with features: (bmg, V_d, targets)
+            bmg, V_d, targets = batch
+            weights = None
+            lt_mask = None
+            gt_mask = None
+        elif len(batch) == 6:
+            # PPG format: (bmg, V_d, targets, weights, lt_mask, gt_mask)
+            bmg, V_d, targets, weights, lt_mask, gt_mask = batch
+        else:
+            raise ValueError(f"Unexpected batch format with {len(batch)} elements")
         
         preds = self(bmg, V_d)
         
