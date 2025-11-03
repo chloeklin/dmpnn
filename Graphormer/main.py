@@ -117,7 +117,19 @@ def train_epoch(model, optimizer, data_loader, lr_scheduler, loss_fn, metrics):
     
     metric_results = {}
     for metric in metrics:
-        metric_results[metric.__class__.__name__] = metric(preds, targets).item()
+        try:
+            # Try standard call (preds, targets)
+            result = metric(preds, targets)
+            metric_results[metric.__class__.__name__] = result.item() if hasattr(result, 'item') else result
+        except TypeError as e:
+            if "mask" in str(e):
+                # If mask is required, create a mask (all valid for now)
+                mask = th.ones_like(targets, dtype=th.bool)
+                result = metric(preds, targets, mask)
+                metric_results[metric.__class__.__name__] = result.item() if hasattr(result, 'item') else result
+            else:
+                # Re-raise if it's a different error
+                raise
 
     return epoch_loss, metric_results
 
@@ -169,7 +181,19 @@ def evaluate_network(model, data_loader, loss_fn, metrics):
         
         metric_results = {}
         for metric in metrics:
-            metric_results[metric.__class__.__name__] = metric(preds, targets).item()
+            try:
+                # Try standard call (preds, targets)
+                result = metric(preds, targets)
+                metric_results[metric.__class__.__name__] = result.item() if hasattr(result, 'item') else result
+            except TypeError as e:
+                if "mask" in str(e):
+                    # If mask is required, create a mask (all valid for now)
+                    mask = th.ones_like(targets, dtype=th.bool)
+                    result = metric(preds, targets, mask)
+                    metric_results[metric.__class__.__name__] = result.item() if hasattr(result, 'item') else result
+                else:
+                    # Re-raise if it's a different error
+                    raise
 
     return epoch_loss, metric_results
 
