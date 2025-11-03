@@ -16,6 +16,7 @@ from torch.utils.data import Dataset
 from dgl import shortest_dist
 from typing import List, Optional, Tuple, Dict, Any, Union
 from featuriser import smiles_to_dgl
+import numpy as np
 
 class CustomMolDataset(Dataset):
     """
