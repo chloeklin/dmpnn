@@ -318,8 +318,16 @@ def export_consolidated_csv(data: pd.DataFrame, dataset: str, metrics: List[str]
     
     return summary
 
+def create_combined_comparison_plots_with_suffix(data: pd.DataFrame, dataset: str, metric: str, output_dir: Path, suffix: str = ''):
+    """Create bar plots comparing both tabular and graph feature combinations for a specific metric."""
+    _create_comparison_plots_internal(data, dataset, metric, output_dir, suffix)
+
 def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, output_dir: Path):
     """Create bar plots comparing both tabular and graph feature combinations for a specific metric."""
+    _create_comparison_plots_internal(data, dataset, metric, output_dir, '')
+
+def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: str, output_dir: Path, suffix: str = ''):
+    """Internal function to create bar plots with optional filename suffix."""
     
     # Get unique targets and feature combinations in desired order
     # Handle mixed data types (strings and NaN) by filtering out NaN values
@@ -432,11 +440,18 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     for i in range(n_targets, len(axes_flat)):
         axes_flat[i].set_visible(False)
     
-    plt.suptitle(f'{dataset} - {metric.upper()} Combined Comparison (Tabular vs Graph)', fontsize=16, y=0.98)
+    # Determine title based on what's included
+    has_tabular = 'Tabular' in data['method'].unique()
+    if suffix == '_graph_only' or not has_tabular:
+        title = f'{dataset} - {metric.upper()} Comparison (Graph Models Only)'
+    else:
+        title = f'{dataset} - {metric.upper()} Combined Comparison (Tabular vs Graph)'
+    
+    plt.suptitle(title, fontsize=16, y=0.98)
     plt.tight_layout()
     
     # Save plot
-    output_file = output_dir / f'{dataset}_{metric}_combined_comparison.png'
+    output_file = output_dir / f'{dataset}_{metric}_combined_comparison{suffix}.png'
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
@@ -448,6 +463,12 @@ def main():
                        help='Directory containing result CSV files (optional, defaults to ../../results)')
     parser.add_argument('--output_dir', type=str, default=None,
                        help='Directory to save plots (optional, defaults to ../../plots/combined)')
+    parser.add_argument('--exclude-tabular', action='store_true',
+                       help='Exclude tabular baseline models from plots (useful when they have very different scales)')
+    parser.add_argument('--exclude-models', type=str, nargs='+', default=[],
+                       help='Exclude specific models from plots (e.g., --exclude-models Linear LogReg)')
+    parser.add_argument('--dataset', type=str, nargs='+', default=[],
+                       help='Only process specific datasets (e.g., --dataset tc insulator)')
     args = parser.parse_args()
     
     # Set up paths relative to script location
@@ -475,6 +496,14 @@ def main():
     
     print(f"Found results for datasets: {list(results.keys())}")
     
+    # Filter datasets if specified
+    if args.dataset:
+        results = {k: v for k, v in results.items() if k in args.dataset}
+        if not results:
+            print(f"No results found for specified datasets: {args.dataset}")
+            return
+        print(f"Processing only: {list(results.keys())}")
+    
     # Process each dataset
     for dataset, data in results.items():
         print(f"\nProcessing {dataset}...")
@@ -486,13 +515,35 @@ def main():
         print(f"Detected task type: {task_type}")
         print(f"Using metrics: {metrics}")
         
-        # Export consolidated CSV
+        # Export consolidated CSV (always include all data)
         export_consolidated_csv(data, dataset, metrics, output_dir)
+        
+        # Check if tabular models exist
+        has_tabular = 'Tabular' in data['method'].unique()
         
         # Create comparison plots for each metric
         for metric in metrics:
             if metric in data.columns:
-                create_combined_comparison_plots(data, dataset, metric, output_dir)
+                # Apply exclusions
+                plot_data = data.copy()
+                
+                # Exclude entire tabular method if flag is set
+                if args.exclude_tabular:
+                    plot_data = plot_data[plot_data['method'] != 'Tabular']
+                
+                # Exclude specific models
+                if args.exclude_models:
+                    plot_data = plot_data[~plot_data['model'].isin(args.exclude_models)]
+                
+                # Create main plot with exclusions applied
+                create_combined_comparison_plots(plot_data, dataset, metric, output_dir)
+                
+                # If tabular exists and not excluded, also create a graph-only plot for better visibility
+                if has_tabular and not args.exclude_tabular and not args.exclude_models:
+                    graph_only_data = data[data['method'] != 'Tabular']
+                    if not graph_only_data.empty:
+                        # Save with different filename
+                        create_combined_comparison_plots_with_suffix(graph_only_data, dataset, metric, output_dir, '_graph_only')
             else:
                 print(f"Warning: Metric '{metric}' not found in {dataset} data. Skipping.")
     

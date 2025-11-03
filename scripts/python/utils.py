@@ -1178,7 +1178,11 @@ def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, 
 
 
 def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i):
-    """Build all paths needed for experiment tracking."""
+    """Build all paths needed for experiment tracking.
+    
+    Note: Preprocessing files are now saved per-dataset (not per-model) since they are
+    identical across DMPNN, wDMPNN, and DMPNN_DiffPool models.
+    """
     desc_suffix = "__desc" if descriptor_columns else ""
     rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
     batch_norm_suffix = "__batch_norm" if getattr(args, 'batch_norm', False) else ""
@@ -1191,11 +1195,12 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     
     base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
     
+    # Checkpoint path is model-specific
     checkpoint_path = checkpoint_dir / base_name
-    model_name = getattr(args, 'model_name', None) or getattr(args, 'model', 'DMPNN')
-    if model_name == "AttentiveFP":
-        model_name = "DMPNN"
-    preprocessing_path = chemprop_dir / "preprocessing" / model_name / base_name
+    
+    # Preprocessing path is now dataset-level (shared across all models)
+    # This saves disk space since preprocessing is identical for DMPNN/wDMPNN/DMPNN_DiffPool
+    preprocessing_path = chemprop_dir / "preprocessing" / base_name
     
     return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix
 
