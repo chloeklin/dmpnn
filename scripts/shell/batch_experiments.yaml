@@ -174,53 +174,53 @@ experiments:
 #     walltime: "6:00:00"
 #     batch_norm: true
     
-  # - <<: *insulator_base
-  #   model: tabular
-  #   walltime: "1:30:00"
-  #   incl_rdkit: true
+  - <<: *insulator_base
+    model: tabular
+    walltime: "1:30:00"
+    incl_rdkit: true
 
-  # - <<: *insulator_base
-  #   model: tabular
-  #   walltime: "0:30:00"
-  #   incl_ab: true
+  - <<: *insulator_base
+    model: tabular
+    walltime: "0:30:00"
+    incl_ab: true
 
-  # - <<: *insulator_base
-  #   model: tabular
-  #   walltime: "0:30:00"
-  #   incl_ab: true
-  #   incl_rdkit: true
+  - <<: *insulator_base
+    model: tabular
+    walltime: "0:30:00"
+    incl_ab: true
+    incl_rdkit: true
 
 
 
 
   # HTPMD dataset experiments
-#   - <<: *htpmd_base
-#     model: tabular
-#     walltime: "1:30:00"
-#     incl_ab: true
+  - <<: *htpmd_base
+    model: tabular
+    walltime: "1:30:00"
+    incl_ab: true
     
-#   - <<: *htpmd_base
-#     model: tabular
-#     walltime: "2:00:00"
-#     incl_desc: true
+  - <<: *htpmd_base
+    model: tabular
+    walltime: "2:00:00"
+    incl_desc: true
     
-#   - <<: *htpmd_base
-#     model: tabular
-#     walltime: "2:00:00"
-#     incl_rdkit: true
+  - <<: *htpmd_base
+    model: tabular
+    walltime: "2:00:00"
+    incl_rdkit: true
     
-#   - <<: *htpmd_base
-#     model: tabular
-#     walltime: "2:00:00"
-#     incl_ab: true
-#     incl_rdkit: true
+  - <<: *htpmd_base
+    model: tabular
+    walltime: "2:00:00"
+    incl_ab: true
+    incl_rdkit: true
     
-#   - <<: *htpmd_base
-#     model: tabular
-#     walltime: "2:00:00"
-#     incl_ab: true
-#     incl_desc: true
-#     incl_rdkit: true
+  - <<: *htpmd_base
+    model: tabular
+    walltime: "2:00:00"
+    incl_ab: true
+    incl_desc: true
+    incl_rdkit: true
     
   # - <<: *htpmd_base
   #   model: DMPNN
@@ -287,21 +287,21 @@ experiments:
 
 
   # OPV CAM-B3LYP experiments
-  # - <<: *opv_base
-  #   model: tabular
-  #   walltime: "12:00:00"
-  #   incl_ab: true
+  - <<: *opv_base
+    model: tabular
+    walltime: "12:00:00"
+    incl_ab: true
     
-  # - <<: *opv_base
-  #   model: tabular
-  #   walltime: "12:00:00"
-  #   incl_rdkit: true
+  - <<: *opv_base
+    model: tabular
+    walltime: "12:00:00"
+    incl_rdkit: true
 
-  # - <<: *opv_base
-  #   model: tabular
-  #   walltime: "12:00:00"
-  #   incl_ab: true
-  #   incl_rdkit: true
+  - <<: *opv_base
+    model: tabular
+    walltime: "12:00:00"
+    incl_ab: true
+    incl_rdkit: true
 
 #   - <<: *opv_base
 #     model: DMPNN
@@ -398,34 +398,35 @@ experiments:
 
 
 
+
 # TC dataset experiments
-  # - <<: *tc_base
-  #   model: tabular
-  #   walltime: "1:30:00"
-  #   incl_ab: true
+  - <<: *tc_base
+    model: tabular
+    walltime: "1:30:00"
+    incl_ab: true
     
-  # - <<: *tc_base
-  #   model: tabular
-  #   walltime: "2:00:00"
-  #   incl_desc: true
+  - <<: *tc_base
+    model: tabular
+    walltime: "2:00:00"
+    incl_desc: true
     
-  # - <<: *tc_base
-  #   model: tabular
-  #   walltime: "2:00:00"
-  #   incl_rdkit: true
+  - <<: *tc_base
+    model: tabular
+    walltime: "2:00:00"
+    incl_rdkit: true
     
-  # - <<: *tc_base
-  #   model: tabular
-  #   walltime: "2:00:00"
-  #   incl_ab: true
-  #   incl_rdkit: true
+  - <<: *tc_base
+    model: tabular
+    walltime: "2:00:00"
+    incl_ab: true
+    incl_rdkit: true
     
-  # - <<: *tc_base
-  #   model: tabular
-  #   walltime: "2:00:00"
-  #   incl_ab: true
-  #   incl_desc: true
-  #   incl_rdkit: true
+  - <<: *tc_base
+    model: tabular
+    walltime: "2:00:00"
+    incl_ab: true
+    incl_desc: true
+    incl_rdkit: true
     
   # - <<: *tc_base
   #   model: DMPNN
