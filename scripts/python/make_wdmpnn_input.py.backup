@@ -18,7 +18,6 @@ Usage:
   python bigsmiles_to_wdmpnn.py input.csv output.csv
 """
 
-import argparse
 import csv
 import re
 import sys
@@ -28,108 +27,6 @@ from typing import List, Tuple, Dict, Optional
 BLOCKS_RE = re.compile(r"\{([^{}]+)\}")                  # top-level {...} (no nesting assumed)
 BOND_TOKEN_RE = re.compile(r"\[(?:>|<|\$)?\]")           # [], [>], [<], [$]
 WHITESPACE_RE = re.compile(r"\s+")
-LABEL_IN_BRACKETS_RE = re.compile(r"\[\*\s*:\s*(\d+)\]")  # only [*:n] to precollect existing labels
-
-def _autolabel_psmiles(psmiles: str, start_label: int = 1) -> Tuple[str, List[int]]:
-    """
-    Auto-number wildcard sites in a PSMILES fragment.
-
-    Recognized wildcard forms:
-      - [*]         -> becomes [*:k]
-      - [*:n]       -> preserved as [*:n]
-      - * (bare)    -> becomes [*:k]
-    Rules:
-      - Left-to-right numbering for unlabeled wildcards.
-      - If any [*:n] already exist, new labels continue from max(existing)+1.
-      - '*' characters that occur inside non-wildcard bracket atoms (e.g. '[CH3*]')
-        are left untouched (not treated as wildcard).
-
-    Returns:
-      labeled_psmiles, sorted_unique_labels
-    """
-    s = (psmiles or "").strip()
-    if not s:
-        raise ValueError("Empty PSMILES fragment for homopolymer.")
-
-    # Pre-collect existing labels from explicit [*:n]
-    existing = [int(x) for x in LABEL_IN_BRACKETS_RE.findall(s)]
-    next_label = max(existing) + 1 if existing else start_label
-    labels_seen: List[int] = []
-    out = []
-    i = 0
-    n = len(s)
-
-    while i < n:
-        ch = s[i]
-        if ch == '[':
-            # find the matching ']'
-            j = s.find(']', i + 1)
-            if j == -1:
-                # no closing ']' -> copy rest and stop
-                out.append(s[i:])
-                break
-
-            inner = s[i+1:j].strip()  # contents inside [ ... ]
-            # Wildcard bracket forms we accept: '*' or '*:n' (nothing else)
-            if inner == '*' or inner.startswith('*:'):
-                # parse label if present
-                lab = None
-                if inner.startswith('*:'):
-                    numpart = inner[2:].strip()
-                    if numpart.isdigit():
-                        lab = int(numpart)
-
-                if lab is None:
-                    lab = next_label
-                    next_label += 1
-
-                out.append(f"[*:{lab}]")
-                labels_seen.append(lab)
-            else:
-                # Not a pure wildcard atom; copy as-is
-                out.append(s[i:j+1])
-
-            i = j + 1
-        elif ch == '*':
-            # Bare wildcard atom outside brackets -> label it
-            lab = next_label
-            next_label += 1
-            out.append(f"[*:{lab}]")
-            labels_seen.append(lab)
-            i += 1
-        else:
-            out.append(ch)
-            i += 1
-
-    unique_labels = sorted(set(labels_seen))
-    if not unique_labels:
-        raise ValueError("No wildcard sites found ('*', '[*]', or '[*:n]').")
-
-    return "".join(out), unique_labels
-
-def homopolymer_psmiles_to_wdmpnn(psmiles: str,
-                                  frac: float = 1.0,
-                                  xn: Optional[str] = None,
-                                  weight: float = 0.25) -> str:
-    """
-    Convert a homopolymer PSMILES (single-monomer fragment with '*' or [*] sites)
-    into a wDMPNN input string by auto-numbering the sites and constructing bonds.
-
-    Output:
-      "<PSMILES_with_labels>|<frac>|<bonds><~Xn?>"
-    """
-    s = (psmiles or "").strip()
-    if not s:
-        raise ValueError("Empty PSMILES fragment for homopolymer.")
-    if "|" in s or "<" in s or "~" in s:
-        raise ValueError("Input appears to already contain fractions/bonds/Xn; pass only the monomer PSMILES.")
-
-    labeled, labels = _autolabel_psmiles(s, start_label=1)
-    bonds = _bonds_block(labels_A=labels, labels_B=[], w=weight)
-    dp = f"~{str(xn).strip()}" if (xn is not None and str(xn).strip() != "") else ""
-    frac_str = f"|{float(frac)}|"
-    return f"{labeled}{frac_str}{bonds}{dp}"
-
 
 def _strip_tokens(s: str) -> str:
     """Remove bonding tokens and whitespace for crude similarity checks."""
@@ -326,8 +223,7 @@ def _to_float(x, field):
     except Exception:
         raise ValueError(f"Invalid number in {field}: {x}")
 
-def process_row_copolymer(row: Dict[str, str]) -> Dict[str, str]:
-    """Process a row for copolymer (requires BigSMILES, fracA, fracB)."""
+def process_row(row: Dict[str, str]) -> Dict[str, str]:
     big = (row.get("BigSMILES") or "").strip()
     if not big:
         raise ValueError("Missing BigSMILES")
@@ -343,99 +239,78 @@ def process_row_copolymer(row: Dict[str, str]) -> Dict[str, str]:
     return out
 
 
-def process_row_homopolymer(row: Dict[str, str]) -> Dict[str, str]:
-    """Process a row for homopolymer (requires PSMILES or smiles column)."""
-    # Try both column names
-    smiles = (row.get("psmiles") or row.get("PSMILES") or
-              row.get("smiles") or row.get("SMILES") or "").strip()
-    if not smiles:
-        raise ValueError("Missing psmiles/PSMILES or smiles/SMILES column")
 
-    # Get fraction (default to 1.0 if not provided)
-    frac_str = row.get("frac") or row.get("fraction") or "1.0"
-    frac = _to_float(frac_str, "frac")
+def homopolymer_psmiles_to_wdmpnn(psmiles: str,
+                                  frac: float = 1.0,
+                                  xn: Optional[str] = None,
+                                  weight: float = 0.25) -> str:
+    """
+    Convert a homopolymer PSMILES (single monomer fragment with [*:n] labels)
+    into a wDMPNN input string.
 
-    # Get degree of polymerization (Xn) — accept either "Xn" or "DoP"
-    xn = row.get("Xn") or row.get("DoP")
+    Args:
+      psmiles: A single-monomer PSMILES fragment, e.g. "[*:1]c1ccc([*:2])cc1"
+               (Do NOT include fractions, bonds, or ~Xn here—this function builds them.)
+      frac: Relative abundance for this (only) monomer. Defaults to 1.0.
+      xn: Optional degree of polymerization; appended as "~Xn" if provided and non-empty.
+      weight: Symmetric weight used for all possible bonds (self and within-monomer).
 
-    # Get weight (optional, default 0.25)
-    weight_str = row.get("weight") or "0.25"
-    try:
-        weight = float(weight_str)
-    except Exception:
-        weight = 0.25
+    Returns:
+      A string like:
+        "<PSMILES>|<frac>|<bonds><~Xn?>"
 
-    # Build the wDMPNN input string
-    wdmpnn = homopolymer_psmiles_to_wdmpnn(smiles, frac, xn, weight)
+    Raises:
+      ValueError: if no labels are found or if the input looks like a full wDMPNN string already.
+    """
+    # Add near other regexes
+    LABEL_RE = re.compile(r"\[\*:(\d+)\]")
+    s = (psmiles or "").strip()
+    if not s:
+        raise ValueError("Empty PSMILES fragment for homopolymer.")
+    # Sanity check: this function expects *just* a PSMILES fragment
+    if "|" in s or "<" in s or "~" in s:
+        raise ValueError("Input appears to already contain fractions/bonds/Xn; pass only the monomer PSMILES.")
 
-    out = dict(row)
-    out["wdmpnn_input"] = wdmpnn
-    return out
+    # Extract unique numeric labels present in the fragment
+    labels = LABEL_RE.findall(s)
+    if not labels:
+        raise ValueError("No [*:n] labels found in PSMILES; cannot determine connection sites.")
+    labels_int = sorted({int(x) for x in labels})
 
+    # For a homopolymer, we include self (n,n) and within-monomer pairs only
+    # Reuse existing _labels_pairs by giving labels_A=labels and labels_B=[]
+    # That yields self + within for labels_A, no 'between' pairs.
+    bonds = _bonds_block(labels_A=labels_int, labels_B=[], w=weight)
 
-
+    dp = f"~{str(xn).strip()}" if (xn is not None and str(xn).strip() != "") else ""
+    frac_str = f"|{float(frac)}|"
+    return f"{s}{frac_str}{bonds}{dp}"
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Convert BigSMILES (copolymer) or PSMILES (homopolymer) to wDMPNN input format',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""\nExamples:
-  # Copolymer mode (requires: BigSMILES, fracA, fracB, optional: smiles_A, smiles_B, Xn)
-  python make_wdmpnn_input.py input.csv output.csv --mode copolymer
-  
-  # Homopolymer mode (requires: PSMILES/psmiles, optional: frac, Xn, weight)
-  python make_wdmpnn_input.py input.csv output.csv --mode homopolymer
-"""
-    )
-    parser.add_argument('input_csv', help='Input CSV file')
-    parser.add_argument('output_csv', help='Output CSV file')
-    parser.add_argument('--mode', choices=['copolymer', 'homopolymer'], default='copolymer',
-                       help='Processing mode: copolymer (default) or homopolymer')
-    
-    args = parser.parse_args()
-    
-    # Select processing function based on mode
-    if args.mode == 'homopolymer':
-        process_func = process_row_homopolymer
-        print(f"Processing in HOMOPOLYMER mode...")
-    else:
-        process_func = process_row_copolymer
-        print(f"Processing in COPOLYMER mode...")
-    
-    # Read input CSV
-    with open(args.input_csv, newline="", encoding="utf-8") as f:
+    if len(sys.argv) != 3:
+        print("Usage: python bigsmiles_to_wdmpnn.py input.csv output.csv")
+        sys.exit(1)
+
+    in_csv, out_csv = sys.argv[1], sys.argv[2]
+    with open(in_csv, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    
-    if not rows:
-        print("Warning: Input CSV is empty")
-        sys.exit(1)
-    
-    print(f"Processing {len(rows)} rows...")
-    
-    # Process rows
+
     out_rows = []
-    errors = 0
-    for idx, r in enumerate(rows, 1):
+    for r in rows:
         try:
-            out_rows.append(process_func(r))
+            out_rows.append(process_row(r))
         except Exception as e:
-            errors += 1
             rr = dict(r)
             rr["wdmpnn_input"] = f"ERROR: {e}"
             out_rows.append(rr)
-            print(f"  Row {idx}: ERROR - {e}")
-    
-    # Write output CSV
-    fieldnames = list(rows[0].keys()) + ["wdmpnn_input"]
-    with open(args.output_csv, "w", newline="", encoding="utf-8") as g:
+
+    fieldnames = list(rows[0].keys()) + ["wdmpnn_input"] if rows else ["wdmpnn_input"]
+    with open(out_csv, "w", newline="", encoding="utf-8") as g:
         w = csv.DictWriter(g, fieldnames=fieldnames)
         w.writeheader()
         w.writerows(out_rows)
-    
-    print(f"\nCompleted: {len(rows) - errors} successful, {errors} errors")
-    print(f"Output written to: {args.output_csv}")
 
 if __name__ == "__main__":
     main()

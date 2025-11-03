@@ -1200,7 +1200,7 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     
     # Preprocessing path is now dataset-level (shared across all models)
     # This saves disk space since preprocessing is identical for DMPNN/wDMPNN/DMPNN_DiffPool
-    preprocessing_path = chemprop_dir / "preprocessing" / base_name
+    preprocessing_path = chemprop_dir / "preprocessing"
     
     return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix
 

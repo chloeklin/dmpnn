@@ -191,14 +191,33 @@ for target in target_columns:
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
-            # Load the metadata file directly
+            # Check if preprocessing files exist
             metadata_path = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
+            scaler_file = preprocessing_path / "descriptor_scaler.pkl"
+            imputer_file = preprocessing_path / "descriptor_imputer.pkl"
+            correlation_mask_file = preprocessing_path / "correlation_mask.npy"
+            
+            preprocessing_files_exist = (
+                metadata_path.exists() and 
+                scaler_file.exists() and
+                imputer_file.exists() and
+                correlation_mask_file.exists()
+            )
+            
+            if preprocessing_files_exist:
+                logger.info(f"✓ Found preprocessing files for split {i} at {preprocessing_path}")
+            else:
+                logger.warning(f"⚠ Preprocessing files incomplete for split {i} at {preprocessing_path}")
+                logger.warning(f"  metadata: {metadata_path.exists()}, scaler: {scaler_file.exists()}, "
+                             f"imputer: {imputer_file.exists()}, mask: {correlation_mask_file.exists()}")
+            
+            # Load the metadata file directly
             if metadata_path.exists():
                 with open(metadata_path, 'r') as f:
                     split_preprocessing_metadata[i] = json.load(f)
                 logger.info(f"Loaded preprocessing metadata for split {i}")
             else:
-                logger.info(f"Warning: No preprocessing metadata found for split {i}")
+                logger.warning(f"No preprocessing metadata found at {metadata_path}")
                 split_preprocessing_metadata[i] = None
         
         # Remove constant features using saved metadata (same as train_graph.py)

@@ -482,11 +482,12 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
 
                 # --- keep everything as tensors; no .cpu().numpy() ---
                 mg_next = MolGraph(
-                    V=Vp_g,                 # expect MolGraph to accept tensors; if not, add a .from_tensors API
-                    E=E_p,
-                    edge_index=edge_index_p,
-                    rev_edge_index=rev_p,
+                    V=Vp_g.detach().cpu().numpy(),      # instead of Vp_g
+                    E=E_p.detach().cpu().numpy(),       # instead of E_p
+                    edge_index=edge_index_p.detach().cpu().numpy(),
+                    rev_edge_index=rev_p.detach().cpu().numpy(),
                 )
+
                 mgs_next.append(mg_next)
 
 
