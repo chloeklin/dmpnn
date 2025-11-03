@@ -13,27 +13,68 @@ import torch
 import torch.nn as nn
 from lightning import LightningModule
 
-# Temporarily add PPG to path to import its chemprop v1.4.0
-ppg_root = Path(__file__).parent.parent.parent / "PPG"
-if str(ppg_root) not in sys.path:
+# Import PPG's chemprop (v1.4.0) using isolated import to avoid circular imports
+PPG_AVAILABLE = False
+PPGMoleculeModel = None
+PPGTrainArgs = None
+PPGBatchMolGraph = None
+
+def _import_ppg_isolated():
+    """Import PPG modules in isolated way to avoid circular imports."""
+    global PPG_AVAILABLE, PPGMoleculeModel, PPGTrainArgs, PPGBatchMolGraph
+    
+    if PPG_AVAILABLE:
+        return True  # Already imported successfully
+    
+    ppg_root = Path(__file__).parent.parent.parent / "PPG"
+    if not ppg_root.exists():
+        print(f"Warning: PPG directory not found at {ppg_root}")
+        return False
+    
+    # Save current sys.modules state for chemprop
+    original_modules = {}
+    chemprop_modules = [k for k in sys.modules.keys() if k.startswith('chemprop')]
+    for module in chemprop_modules:
+        original_modules[module] = sys.modules[module]
+        del sys.modules[module]
+    
+    # Temporarily add PPG to path
+    original_path = sys.path[:]
     sys.path.insert(0, str(ppg_root))
+    
+    try:
+        # Clear any cached chemprop imports
+        for module in list(sys.modules.keys()):
+            if module.startswith('chemprop'):
+                del sys.modules[module]
+        
+        # Now import PPG's chemprop
+        import chemprop.models
+        import chemprop.args
+        import chemprop.features
+        
+        PPGMoleculeModel = chemprop.models.MoleculeModel
+        PPGTrainArgs = chemprop.args.TrainArgs
+        PPGBatchMolGraph = chemprop.features.BatchMolGraph
+        
+        PPG_AVAILABLE = True
+        print("✅ PPG chemprop v1.4.0 imported successfully")
+        return True
+        
+    except Exception as e:
+        print(f"Warning: Could not import PPG's chemprop: {e}")
+        return False
+    
+    finally:
+        # Restore original sys.path
+        sys.path = original_path
+        
+        # Restore original chemprop modules
+        for module, obj in original_modules.items():
+            sys.modules[module] = obj
 
-# Import PPG's chemprop (v1.4.0) - must happen while PPG is in path
-try:
-    from chemprop.models import MoleculeModel as PPGMoleculeModel
-    from chemprop.args import TrainArgs as PPGTrainArgs
-    from chemprop.features import BatchMolGraph as PPGBatchMolGraph
-    PPG_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: Could not import PPG's chemprop: {e}")
-    PPG_AVAILABLE = False
-    PPGMoleculeModel = None
-    PPGTrainArgs = None
-    PPGBatchMolGraph = None
-
-# Remove PPG from path to avoid conflicts with v2.2.0
-if str(ppg_root) in sys.path:
-    sys.path.remove(str(ppg_root))
+# Try to import PPG when module is loaded
+_import_ppg_isolated()
 
 
 class PPGAdapter(LightningModule):
@@ -183,8 +224,14 @@ def create_ppg_args(
     Returns:
         PPG TrainArgs object
     """
+    # Try to import PPG if not already available
     if not PPG_AVAILABLE:
-        raise ImportError("PPG's chemprop v1.4.0 could not be imported.")
+        if not _import_ppg_isolated():
+            raise ImportError("PPG's chemprop v1.4.0 could not be imported.")
+    
+    # Ensure we have PPG modules
+    if PPGMoleculeModel is None or PPGTrainArgs is None:
+        raise ImportError("PPG modules not available after import attempt.")
     
     ppg_args = PPGTrainArgs()
     
