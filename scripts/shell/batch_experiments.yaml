@@ -494,6 +494,54 @@ experiments:
 
 ##todo...
   # - <<: *tc_base
+  #   model: wDMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   # export_embeddings: true
+    
+  # - <<: *tc_base
+  #   model: wDMPNN
+  #   walltime: "4:00:00"
+  #   incl_rdkit: true
+  #   # export_embeddings: true
+    
+  # - <<: *tc_base
+  #   model: wDMPNN
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
+  #   # export_embeddings: true
+    
+  # - <<: *tc_base
+  #   model: wDMPNN
+  #   walltime: "4:00:00"
+  #   # export_embeddings: true
+
+  
+
+##todo...
+  - <<: *tc_base
+    model: DMPNN_DiffPool
+    walltime: "1:00:00"
+    incl_desc: true
+    
+  - <<: *tc_base
+    model: DMPNN_DiffPool
+    walltime: "1:00:00"
+    incl_rdkit: true
+  
+  - <<: *tc_base
+    model: DMPNN_DiffPool
+    walltime: "1:00:00"
+    incl_desc: true
+    incl_rdkit: true
+    
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "1:00:00"
+
+##todo...
+  # - <<: *tc_base
   #   model: DMPNN_DiffPool
   #   walltime: "4:00:00"
   #   incl_desc: true
@@ -509,6 +557,6 @@ experiments:
   #   incl_desc: true
   #   incl_rdkit: true
     
-  - <<: *tc_base
-    model: DMPNN_DiffPool
-    walltime: "4:00:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   walltime: "1:00:00"

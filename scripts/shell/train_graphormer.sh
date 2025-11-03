@@ -5,14 +5,14 @@
 #PBS -l ncpus=12
 #PBS -l ngpus=1
 #PBS -l mem=100GB
-#PBS -l walltime=24:00:00
+#PBS -l walltime=00:10:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
 #PBS -N graphormer-train
 
 module use /g/data/dk92/apps/Modules/modulefiles
-module load python3/3.12.1 cuda/12.9.0
-source /home/659/hl4138/dmpnn-venv/bin/activate
+module load python3/3.12.1 gcc/12.2.0
+source /scratch/um09/hl4138/graphormer-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
 # Dataset paths
