@@ -195,11 +195,11 @@ generate_eval_script() {
     fi
     
     if [ -n "$checkpoint_path" ]; then
-        eval_args="$eval_args --checkpoint_path $checkpoint_path"
+        eval_args="$eval_args --checkpoint_path \"$checkpoint_path\""
     fi
     
     if [ -n "$preprocessing_path" ]; then
-        eval_args="$eval_args --preprocessing_path $preprocessing_path"
+        eval_args="$eval_args --preprocessing_path \"$preprocessing_path\""
     fi
     
     # Build result filename
@@ -368,7 +368,7 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
         
         # Generate script for this configuration and capture the script path
         echo "    🔧 Generating script..."
-        script_path=$(generate_eval_script "$model" "$dataset" "$has_desc" "$has_rdkit" "$has_batch_norm" "$train_size" "$exp_dir" "$preprocess_path" | tail -n1)
+        script_path=$(generate_eval_script "$model" "$dataset" "$has_desc" "$has_rdkit" "$has_batch_norm" "$train_size" "$checkpoint_path" "$preprocess_path" | tail -n1)
         if [ -n "$script_path" ] && [ -f "$script_path" ]; then
             echo "$script_path" >> "$SCRIPTS_FILE"
             echo "    📝 Script generated: $(basename "$script_path")"
