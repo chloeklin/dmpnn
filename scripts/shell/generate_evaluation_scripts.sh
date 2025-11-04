@@ -311,14 +311,31 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
         exp_name=$(basename "$exp_dir")
         exp_count=$((exp_count + 1))
         
-        # Check if checkpoint exists
-        if ! ls "$exp_dir"/best-*.ckpt >/dev/null 2>&1; then
-            echo "  ❌ $exp_name (no checkpoint)"
+        # Check if checkpoint exists (try multiple patterns)
+        checkpoint_found=false
+        checkpoint_path=""
+        
+        # Pattern 1: best-*.ckpt (original expected)
+        if ls "$exp_dir"/best-*.ckpt >/dev/null 2>&1; then
+            checkpoint_found=true
+            checkpoint_path=$(ls "$exp_dir"/best-*.ckpt | head -1)
+        # Pattern 2: logs/checkpoints/epoch=*-step=*.ckpt (your actual pattern)
+        elif ls "$exp_dir"/logs/checkpoints/epoch=*-step=*.ckpt >/dev/null 2>&1; then
+            checkpoint_found=true
+            checkpoint_path=$(ls "$exp_dir"/logs/checkpoints/epoch=*-step=*.ckpt | head -1)
+        # Pattern 3: last.ckpt (fallback)
+        elif ls "$exp_dir"/last.ckpt >/dev/null 2>&1; then
+            checkpoint_found=true
+            checkpoint_path=$(ls "$exp_dir"/last.ckpt | head -1)
+        fi
+        
+        if [ "$checkpoint_found" = false ]; then
+            echo "  ❌ $exp_name (no checkpoint found)"
             continue
         fi
         
         checkpoint_count=$((checkpoint_count + 1))
-        echo "  ✅ $exp_name (has checkpoint)"
+        echo "  ✅ $exp_name (checkpoint: $(basename "$checkpoint_path"))"
         
         # Parse experiment name
         IFS='|' read -r dataset has_desc has_rdkit has_batch_norm train_size <<< "$(parse_experiment_name "$exp_name")"
