@@ -60,7 +60,8 @@ done
 get_walltime() {
     local dataset=$1
     if [ -f "$CONFIG_FILE" ]; then
-        local walltime=$(grep "^  ${dataset}:" "$CONFIG_FILE" | cut -d'"' -f2)
+        # Look for the dataset under the walltime section
+        local walltime=$(grep -A 20 "^walltime:" "$CONFIG_FILE" | grep "^  ${dataset}:" | cut -d'"' -f2)
         if [ -n "$walltime" ]; then
             echo "$walltime"
             return
