@@ -187,6 +187,7 @@ generate_eval_script() {
     # Check if script already exists
     if [ -f "$script_path" ] && [ "$FORCE" = false ]; then
         echo "⏭️  Skipping (exists): $script_name"
+        echo "$script_path"  # Still output the path for tracking
         return
     fi
     
@@ -338,15 +339,19 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
         checkpoint_found=false
         checkpoint_path=""
         
-        # Pattern 1: best-*.ckpt (original expected)
+        # Pattern 1: best-*.ckpt (DMPNN/wDMPNN expected)
         if ls "$exp_dir"/best-*.ckpt >/dev/null 2>&1; then
             checkpoint_found=true
             checkpoint_path=$(ls "$exp_dir"/best-*.ckpt | head -1)
-        # Pattern 2: logs/checkpoints/epoch=*-step=*.ckpt (your actual pattern)
+        # Pattern 2: best.pt (AttentiveFP)
+        elif ls "$exp_dir"/best.pt >/dev/null 2>&1; then
+            checkpoint_found=true
+            checkpoint_path=$(ls "$exp_dir"/best.pt | head -1)
+        # Pattern 3: logs/checkpoints/epoch=*-step=*.ckpt (Lightning checkpoints)
         elif ls "$exp_dir"/logs/checkpoints/epoch=*-step=*.ckpt >/dev/null 2>&1; then
             checkpoint_found=true
             checkpoint_path=$(ls "$exp_dir"/logs/checkpoints/epoch=*-step=*.ckpt | head -1)
-        # Pattern 3: last.ckpt (fallback)
+        # Pattern 4: last.ckpt (fallback)
         elif ls "$exp_dir"/last.ckpt >/dev/null 2>&1; then
             checkpoint_found=true
             checkpoint_path=$(ls "$exp_dir"/last.ckpt | head -1)
@@ -409,12 +414,20 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
         echo "    DEBUG: Function output:"
         echo "$script_output" | sed 's/^/      /'
         
-        # Extract the script path from the last line
-        script_path=$(echo "$script_output" | tail -n1)
+        # Extract the script path from the last line that looks like a path
+        script_path=$(echo "$script_output" | grep -E '^/.*\.sh$' | tail -n1)
+        if [ -z "$script_path" ]; then
+            # If no path found, try the last line
+            script_path=$(echo "$script_output" | tail -n1)
+        fi
         echo "    DEBUG: Extracted script_path: '$script_path'"
-        if [ -n "$script_path" ] && [ -f "$script_path" ]; then
+        
+        # Check if we got a valid script path and file exists
+        if [[ "$script_path" =~ ^/.+\.sh$ ]] && [ -f "$script_path" ]; then
             echo "$script_path" >> "$SCRIPTS_FILE"
-            echo "    📝 Script generated: $(basename "$script_path")"
+            echo "    📝 Script ready: $(basename "$script_path")"
+        elif echo "$script_output" | grep -q "Skipping (exists)"; then
+            echo "    ⏭️  Script already exists, skipping"
         else
             echo "    ❌ Script generation failed"
         fi
