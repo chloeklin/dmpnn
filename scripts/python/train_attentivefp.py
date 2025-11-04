@@ -648,12 +648,12 @@ def main():
                             std_train = X.std(axis=0)
                             keep = std_train > eps
                             # Save feature mask for reproducibility
-                            embedding_prefix = f"{args.dataset_name}__{target}{desc_suf}{rdkit_suf}{bn_suffix}{size_suf}"
+                            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suf}{rdkit_suf}{bn_suffix}{size_suf}"
                             np.save(emb_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy", keep)
                             logger.info(f"Split {i}: Kept {int(keep.sum())} / {len(keep)} embedding dimensions")
                         else:
                             # Use the feature mask from train split
-                            embedding_prefix = f"{args.dataset_name}__{target}{desc_suf}{rdkit_suf}{bn_suffix}{size_suf}"
+                            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suf}{rdkit_suf}{bn_suffix}{size_suf}"
                             feature_mask_file = emb_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy"
                             if feature_mask_file.exists():
                                 keep = np.load(feature_mask_file)

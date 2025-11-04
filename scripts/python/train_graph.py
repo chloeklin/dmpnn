@@ -285,10 +285,10 @@ if args.pretrain_monomer:
         X_full = get_encodings_from_loader(mpnn, full_loader)
         # Save as .npy; map to smiles with df_input[smiles_column]
         emb_dir = checkpoint_dir / "embeddings"; emb_dir.mkdir(parents=True, exist_ok=True)
-        np.save(emb_dir / f"{args.dataset_name}__monomer_encoder.npy", X_full)
+        np.save(emb_dir / f"{args.dataset_name}__{args.model_name}__monomer_encoder.npy", X_full)
         pd.DataFrame({
             "smiles": [dp.smiles for dp in all_data],
-        }).assign(idx=np.arange(len(all_data))).to_csv(emb_dir / f"{args.dataset_name}__monomer_index.csv", index=False)
+        }).assign(idx=np.arange(len(all_data))).to_csv(emb_dir / f"{args.dataset_name}__{args.model_name}__monomer_index.csv", index=False)
 
     # Exit after pretraining (we don’t do per-target loops in this mode)
     save_aggregate_results([], results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
@@ -795,8 +795,8 @@ for target in target_columns:
             embeddings_dir = results_dir / "embeddings"
             embeddings_dir.mkdir(parents=True, exist_ok=True)
             
-            # Build embedding filename prefix with all identifiers
-            embedding_prefix = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
+            # Build embedding filename prefix with all identifiers including model name
+            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
             
             # Save embeddings as numpy arrays with full identifiers
             np.save(embeddings_dir / f"{embedding_prefix}__X_train_split_{i}.npy", X_train)
