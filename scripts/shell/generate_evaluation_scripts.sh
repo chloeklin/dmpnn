@@ -391,7 +391,27 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
         
         # Generate script for this configuration and capture the script path
         echo "    🔧 Generating script..."
-        script_path=$(generate_eval_script "$model" "$dataset" "$has_desc" "$has_rdkit" "$has_batch_norm" "$train_size" "$checkpoint_path" "$preprocess_path" | tail -n1)
+        echo "    DEBUG: Calling generate_eval_script with parameters:"
+        echo "      model='$model'"
+        echo "      dataset='$dataset'"
+        echo "      has_desc='$has_desc'"
+        echo "      has_rdkit='$has_rdkit'"
+        echo "      has_batch_norm='$has_batch_norm'"
+        echo "      train_size='$train_size'"
+        echo "      checkpoint_path='$checkpoint_path'"
+        echo "      preprocess_path='$preprocess_path'"
+        
+        # Call the function and capture both output and errors
+        script_output=$(generate_eval_script "$model" "$dataset" "$has_desc" "$has_rdkit" "$has_batch_norm" "$train_size" "$checkpoint_path" "$preprocess_path" 2>&1)
+        script_exit_code=$?
+        
+        echo "    DEBUG: Function exit code: $script_exit_code"
+        echo "    DEBUG: Function output:"
+        echo "$script_output" | sed 's/^/      /'
+        
+        # Extract the script path from the last line
+        script_path=$(echo "$script_output" | tail -n1)
+        echo "    DEBUG: Extracted script_path: '$script_path'"
         if [ -n "$script_path" ] && [ -f "$script_path" ]; then
             echo "$script_path" >> "$SCRIPTS_FILE"
             echo "    📝 Script generated: $(basename "$script_path")"
