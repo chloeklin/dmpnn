@@ -103,16 +103,6 @@ experiments:
     incl_rdkit: true
     targets: *opv_targets
 
-  - <<: *opv_base
-    model: wDMPNN
-    walltime: "3:00:00"
-    targets: *opv_targets
-  
-  - <<: *opv_base
-    model: wDMPNN
-    walltime: "3:00:00"
-    incl_rdkit: true
-    targets: *opv_targets
   
   - <<: *opv_base
     model: AttentiveFP
@@ -144,14 +134,6 @@ experiments:
     walltime: "4:00:00"
     incl_rdkit: true
 
-  - <<: *htpmd_base
-    model: wDMPNN
-    walltime: "4:00:00"
-  
-  - <<: *htpmd_base
-    model: wDMPNN
-    walltime: "4:00:00"
-    incl_rdkit: true
   
   - <<: *htpmd_base
     model: AttentiveFP
@@ -237,38 +219,3 @@ experiments:
     incl_rdkit: true
   
   # EA_IP dataset experiments - same model variants (copolymer)
-  - <<: *eaip_base
-    model: DMPNN
-    walltime: "2:00:00"
-  
-  - <<: *eaip_base
-    model: DMPNN
-    walltime: "2:00:00"
-    incl_rdkit: true
-
-  - <<: *eaip_base
-    model: DMPNN_DiffPool
-    walltime: "2:00:00"
-  
-  - <<: *eaip_base
-    model: DMPNN_DiffPool
-    walltime: "2:00:00"
-    incl_rdkit: true
-
-  - <<: *eaip_base
-    model: wDMPNN
-    walltime: "2:00:00"
-  
-  - <<: *eaip_base
-    model: wDMPNN
-    walltime: "2:00:00"
-    incl_rdkit: true
-  
-  - <<: *eaip_base
-    model: AttentiveFP
-    walltime: "2:00:00"
-  
-  - <<: *eaip_base
-    model: AttentiveFP
-    walltime: "2:00:00"
-    incl_rdkit: true
