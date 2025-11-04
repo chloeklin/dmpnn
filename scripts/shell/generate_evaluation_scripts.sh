@@ -290,29 +290,43 @@ SCRIPTS_FILE=$(mktemp)  # Track generated scripts for auto-submission
 trap "rm -f $CONFIGS_FILE $SCRIPTS_FILE" EXIT
 
 # Scan checkpoint directories
+echo "📂 Scanning model directories in: $CHECKPOINT_DIR"
+model_count=0
 for model_dir in "$CHECKPOINT_DIR"/*; do
     if [ ! -d "$model_dir" ]; then
         continue
     fi
     
     model=$(basename "$model_dir")
+    model_count=$((model_count + 1))
+    echo "🔍 Found model directory: $model"
     
+    exp_count=0
+    checkpoint_count=0
     for exp_dir in "$model_dir"/*; do
         if [ ! -d "$exp_dir" ]; then
             continue
         fi
         
         exp_name=$(basename "$exp_dir")
+        exp_count=$((exp_count + 1))
         
         # Check if checkpoint exists
         if ! ls "$exp_dir"/best-*.ckpt >/dev/null 2>&1; then
+            echo "  ❌ $exp_name (no checkpoint)"
             continue
         fi
+        
+        checkpoint_count=$((checkpoint_count + 1))
+        echo "  ✅ $exp_name (has checkpoint)"
         
         # Parse experiment name
         IFS='|' read -r dataset has_desc has_rdkit has_batch_norm train_size <<< "$(parse_experiment_name "$exp_name")"
         
+        echo "    Parsed: dataset='$dataset', desc=$has_desc, rdkit=$has_rdkit, batch_norm=$has_batch_norm, size='$train_size'"
+        
         if [ -z "$dataset" ]; then
+            echo "    ❌ Skipping: empty dataset after parsing"
             continue
         fi
         
@@ -324,20 +338,29 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
         
         # Create unique config key
         config_key="${model}|${dataset}|${has_desc}|${has_rdkit}|${has_batch_norm}|${train_size}"
+        echo "    Config key: $config_key"
         
         # Skip if we've already seen this configuration
         if grep -Fxq "$config_key" "$CONFIGS_FILE" 2>/dev/null; then
+            echo "    ⏭️  Skipping: duplicate configuration"
             continue
         fi
         
         echo "$config_key" >> "$CONFIGS_FILE"
+        echo "    ✅ Added new configuration"
         
         # Generate script for this configuration and capture the script path
+        echo "    🔧 Generating script..."
         script_path=$(generate_eval_script "$model" "$dataset" "$has_desc" "$has_rdkit" "$has_batch_norm" "$train_size" "$exp_dir" "$preprocess_path" | tail -n1)
         if [ -n "$script_path" ] && [ -f "$script_path" ]; then
             echo "$script_path" >> "$SCRIPTS_FILE"
+            echo "    📝 Script generated: $(basename "$script_path")"
+        else
+            echo "    ❌ Script generation failed"
         fi
     done
+    
+    echo "  📊 Model $model: $exp_count experiments, $checkpoint_count with checkpoints"
 done
 
 # Summary
