@@ -842,3 +842,44 @@ def save_preprocessing_objects(out_dir: Path, split_idx: int, preprocessing_meta
     with open(out_dir / f"split_{split_idx}.txt", "w") as f:
         f.write("\n".join(selected_desc_names))
 
+
+def load_preprocessing_objects(checkpoint_dir: Path, split_idx: int) -> Optional[Dict[str, Any]]:
+    """Load preprocessing metadata and objects from disk.
+    
+    Args:
+        checkpoint_dir: Directory containing preprocessing objects
+        split_idx: Split index for loading files
+        
+    Returns:
+        Dictionary containing preprocessing metadata and objects, or None if not found
+    """
+    try:
+        # Load metadata
+        metadata_file = checkpoint_dir / f"preprocessing_metadata_split_{split_idx}.json"
+        if not metadata_file.exists():
+            return None
+            
+        with open(metadata_file, 'r') as f:
+            preprocessing_metadata = json.load(f)
+        
+        # Load objects
+        imputer = joblib.load(checkpoint_dir / f"descriptor_imputer_{split_idx}.pkl")
+        constant_mask = np.load(checkpoint_dir / f"constant_mask_{split_idx}.npy")
+        corr_mask = np.load(checkpoint_dir / f"corr_mask_{split_idx}.npy")
+        
+        # Load selected features list
+        with open(checkpoint_dir / f"split_{split_idx}.txt", "r") as f:
+            selected_desc_names = [line.strip() for line in f.readlines()]
+        
+        return {
+            'preprocessing_metadata': preprocessing_metadata,
+            'imputer': imputer,
+            'constant_mask': constant_mask,
+            'corr_mask': corr_mask,
+            'selected_desc_names': selected_desc_names
+        }
+        
+    except Exception as e:
+        print(f"Error loading preprocessing objects: {e}")
+        return None
+

@@ -491,9 +491,28 @@ def main():
     
     # Default output_dir to ../../plots/combined relative to script  
     if args.output_dir is None:
-        output_dir = script_dir.parent.parent / "plots" / "combined"
+        base_output_dir = script_dir.parent.parent / "plots" / "combined"
     else:
-        output_dir = Path(args.output_dir)
+        base_output_dir = Path(args.output_dir)
+    
+    # Create subdirectory based on filtering flags for organization
+    subdirs = []
+    if args.exclude_tabular:
+        subdirs.append("no_tabular")
+    if args.exclude_models:
+        # Create safe directory name from excluded models
+        excluded_str = "_".join(args.exclude_models).replace("/", "_").replace(" ", "_")
+        subdirs.append(f"exclude_{excluded_str}")
+    if args.dataset:
+        # Create directory name for specific datasets
+        datasets_str = "_".join(args.dataset)
+        subdirs.append(f"datasets_{datasets_str}")
+    
+    # Build final output directory with subdirectories
+    if subdirs:
+        output_dir = base_output_dir / "_".join(subdirs)
+    else:
+        output_dir = base_output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # First, combine target-specific results into single files

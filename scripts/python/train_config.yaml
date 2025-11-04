@@ -183,7 +183,7 @@ models:
     
   wDMPNN:
     smiles_column: WDMPNN_Input
-    ignore_columns: [smiles]
+    ignore_columns: [smiles,smiles_A,smiles_B,fracA,fracB]
     
   PPG:
     smiles_column: smiles

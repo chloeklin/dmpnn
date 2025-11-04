@@ -2,55 +2,59 @@
 # Defines dataset-specific settings for generating training scripts
 
 datasets:
-  opv_camb3lyp:
+  # opv_camb3lyp:
+  #   targets:
+  #     # - optical_lumo
+  #     - gap
+  #     - homo
+  #     - lumo
+  #     - spectral_overlap
+  #     - delta_optical_lumo
+  #     - homo_extrapolated
+  #     - gap_extrapolated
+  #   train_sizes:
+  #     - 250
+  #     - 500
+  #     - 1000
+  #     # - 2000
+  #     # - 3500
+  #     # - 5000
+  #     # - 8000
+  #     # - 12000
+  #   models:
+  #     - DMPNN
+  #     # - tabular
+  #     # - AttentiveFP
+  #     # - DMPNN_DiffPool
+  #   walltime: "04:00:00"
+    
+  insulator:
     targets:
-      # - optical_lumo
-      - gap
-      - homo
-      - lumo
-      - spectral_overlap
-      - delta_optical_lumo
-      - homo_extrapolated
-      - gap_extrapolated
+      - bandgap_chain
     train_sizes:
-      - 250
-      - 500
-      - 1000
-      # - 2000
-      # - 3500
-      # - 5000
-      # - 8000
-      # - 12000
+      - 128
+      - 256
+      # - 512
+      # - 768
+      # - 1024
+      # - 1536
+      # - 2048
+      # - 2560
+      # - 3072
+      # - 3367
     models:
-      - DMPNN
-      # - tabular
+      # - DMPNN
+      # - wDMPNN
+      - tabular
       # - AttentiveFP
       # - DMPNN_DiffPool
-    script_type: graph  # graph or tabular
-    walltime: "04:00:00"
-    
-  # insulator:
-  #   targets:
-  #     - bandgap_chain
-  #   train_sizes:
-  #     - 128
-  #     - 256
-  #     - 512
-  #     - 768
-  #     - 1024
-  #     - 1536
-  #     - 2048
-  #     - 2560
-  #     - 3072
-  #     - 3367
-  #   models:
-  #     # - DMPNN
-  #     # - wDMPNN
-  #     # - tabular
-  #     - AttentiveFP
-  #     # - DMPNN_DiffPool
-  #   script_type: graph
-  #   walltime: "10:00:00"
+    # script_type: graph
+    walltime: "01:00:00"
+    # Dataset-specific descriptor settings
+    has_descriptors: false
+    descriptor_variants:
+      use_descriptors: true    # Generate with descriptors
+      no_descriptors: true    # Generate without descriptors
     
     
   # Example tabular dataset configuration
@@ -67,6 +71,11 @@ datasets:
   #     - tabular  # Model name is ignored for tabular scripts
   #   script_type: tabular
   #   walltime: "02:00:00"
+  #   # Dataset-specific descriptor settings
+  #   has_descriptors: false  # OPV dataset doesn't have additional descriptors
+  #   descriptor_variants:
+  #     use_descriptors: false   # Don't generate with descriptors
+  #     no_descriptors: true    # Generate without descriptors only
 
 # Global settings (can be overridden per dataset)
 global:

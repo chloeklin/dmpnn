@@ -145,8 +145,29 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
 
         # Save preprocessing metadata and objects
         if descriptor_block is not None:
+            # Update preprocessing metadata with feature names and AB count
+            preprocessing_metadata['feat_names'] = feat_names
+            preprocessing_metadata['ab_feature_count'] = len(ab_names) if ab_block is not None else 0
+            preprocessing_metadata['use_ab'] = ab_block is not None
+            
             save_preprocessing_objects(out_dir, i, preprocessing_metadata, imputer, 
                                      constant_mask, corr_mask, selected_desc_names)
+        elif ab_block is not None:
+            # AB-only case: create minimal preprocessing metadata
+            ab_metadata = {
+                'feat_names': feat_names,
+                'ab_feature_count': len(ab_names),
+                'use_ab': True,
+                'n_desc_before_any_selection': 0,
+                'n_desc_after_constant_removal': 0,
+                'n_desc_after_corr_removal': 0,
+                'n_desc_after_final_zero_var_removal': 0,
+                'constant_features_removed': [],
+                'correlated_features_removed': [],
+                'zero_var_after_impute_removed': []
+            }
+            save_preprocessing_objects(out_dir, i, ab_metadata, None, 
+                                     np.array([]), np.array([]), [])
 
 
         if X_tr.shape[1] == 0:
@@ -229,6 +250,11 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
             row = {"target": target_name, "split": i, "model": name}
             row.update({k: float(v) for k, v in metrics.items()})
             detailed_rows.append(row)
+            
+            # Save trained model for feature importance analysis
+            model_file = out_dir / f"{name}_split_{i}.pkl"
+            joblib.dump(model, model_file)
+            logger.info(f"Saved trained model: {model_file}")
 
     return detailed_rows
 

@@ -125,8 +125,9 @@ generate_script() {
     local train_size="$4"
     local use_rdkit="$5"
     local use_batch_norm="$6"
-    local walltime="$7"
-    local script_type="$8"
+    local use_desc="$7"
+    local walltime="$8"
+    local script_type="$9"
     
     local rdkit_suffix=""
     local rdkit_flag=""
@@ -144,6 +145,14 @@ generate_script() {
         batch_norm_flag=" --batch_norm"
     fi
     
+    local desc_suffix=""
+    local desc_flag=""
+    
+    if [[ "$use_desc" == "true" ]]; then
+        desc_suffix="_desc"
+        desc_flag=" --incl_desc"
+    fi
+    
     local size_suffix=""
     if [[ "$train_size" != "full" ]]; then
         size_suffix="_size${train_size}"
@@ -151,7 +160,7 @@ generate_script() {
     
     local script_name
     if [[ "$script_type" == "tabular" ]]; then
-        script_name="train_${dataset}_tabular_${target}${rdkit_suffix}${batch_norm_suffix}${size_suffix}_lc.sh"
+        script_name="train_${dataset}_tabular_${target}${desc_suffix}${rdkit_suffix}${batch_norm_suffix}${size_suffix}_lc.sh"
     else
         script_name="train_${dataset}_${model}_${target}${rdkit_suffix}${batch_norm_suffix}${size_suffix}_lc.sh"
     fi
@@ -191,14 +200,14 @@ generate_script() {
     
     if [[ "$script_type" == "tabular" ]]; then
         train_script="scripts/python/train_tabular.py"
-        job_name="tabular_${dataset}_${target}${rdkit_suffix}${batch_norm_suffix}${size_suffix}_lc"
+        job_name="tabular_${dataset}_${target}${desc_suffix}${rdkit_suffix}${batch_norm_suffix}${size_suffix}_lc"
         comment="Tabular learning curve training for ${dataset}/${target}, train_size: ${train_size}"
         
-        # Tabular training doesn't use --model_name or --export_embeddings
+        # Tabular training uses --dataset_name, --target, --train_size, and feature flags
         train_command="python3 ${train_script} \\
     --dataset_name ${dataset} \\
     --target ${target} \\
-    --train_size ${train_size}${rdkit_flag}${batch_norm_flag}"
+    --train_size ${train_size}${desc_flag}${rdkit_flag}${batch_norm_flag}"
     else
         # AttentiveFP uses its own training script
         if [[ "$model" == "AttentiveFP" ]]; then
@@ -272,7 +281,11 @@ all_datasets=$(yq eval '.datasets | keys | .[]' "$CONFIG_FILE")
 if [[ ${#DATASETS[@]} -gt 0 ]]; then
     datasets_to_process=("${DATASETS[@]}")
 else
-    mapfile -t datasets_to_process <<< "$all_datasets"
+    # Read datasets line by line into array (compatible with older bash)
+    datasets_to_process=()
+    while IFS= read -r dataset; do
+        datasets_to_process+=("$dataset")
+    done <<< "$all_datasets"
 fi
 
 generated_count=0
@@ -289,21 +302,65 @@ for dataset in "${datasets_to_process[@]}"; do
     echo "📊 Processing dataset: ${dataset}"
     
     # Read dataset-specific settings
-    mapfile -t targets < <(yq eval ".datasets.${dataset}.targets[]" "$CONFIG_FILE")
-    mapfile -t train_sizes < <(yq eval ".datasets.${dataset}.train_sizes[]" "$CONFIG_FILE")
-    mapfile -t models < <(yq eval ".datasets.${dataset}.models[]" "$CONFIG_FILE")
+    targets=()
+    while IFS= read -r target; do
+        targets+=("$target")
+    done < <(yq eval ".datasets.${dataset}.targets[]" "$CONFIG_FILE")
+    
+    train_sizes=()
+    while IFS= read -r size; do
+        train_sizes+=("$size")
+    done < <(yq eval ".datasets.${dataset}.train_sizes[]" "$CONFIG_FILE")
+    
+    models=()
+    while IFS= read -r model; do
+        models+=("$model")
+    done < <(yq eval ".datasets.${dataset}.models[]" "$CONFIG_FILE")
     walltime=$(yq eval ".datasets.${dataset}.walltime" "$CONFIG_FILE")
-    script_type=$(yq eval ".datasets.${dataset}.script_type" "$CONFIG_FILE")
     
     # Read variant settings
     gen_rdkit=$(yq eval '.global.variants.rdkit' "$CONFIG_FILE")
     gen_no_rdkit=$(yq eval '.global.variants.no_rdkit' "$CONFIG_FILE")
     gen_batch_norm=$(yq eval '.global.variants.batch_norm' "$CONFIG_FILE")
     
+    # Read dataset-specific descriptor settings
+    has_descriptors=$(yq eval ".datasets.${dataset}.has_descriptors" "$CONFIG_FILE")
+    
+    # Set default for has_descriptors if null or empty
+    [[ "$has_descriptors" == "null" || -z "$has_descriptors" ]] && has_descriptors="false"
+    
+    # Only read descriptor variants if dataset has descriptors
+    if [[ "$has_descriptors" == "true" ]]; then
+        gen_desc=$(yq eval ".datasets.${dataset}.descriptor_variants.use_descriptors" "$CONFIG_FILE")
+        gen_no_desc=$(yq eval ".datasets.${dataset}.descriptor_variants.no_descriptors" "$CONFIG_FILE")
+        
+        # Set defaults for descriptor variants if null or empty
+        [[ "$gen_desc" == "null" || -z "$gen_desc" ]] && gen_desc="false"
+        [[ "$gen_no_desc" == "null" || -z "$gen_no_desc" ]] && gen_no_desc="true"
+    else
+        gen_desc="false"
+        gen_no_desc="true"
+    fi
+    
     echo "  Targets: ${#targets[@]} (${targets[*]})"
     echo "  Train sizes: ${#train_sizes[@]} (${train_sizes[*]})"
     echo "  Models: ${#models[@]} (${models[*]})"
-    echo "  Script type: ${script_type}"
+    
+    # Show descriptor settings for tabular models
+    has_tabular=false
+    for model in "${models[@]}"; do
+        if [[ "$model" == "tabular" ]]; then
+            has_tabular=true
+            break
+        fi
+    done
+    
+    if [[ "$has_tabular" == "true" ]]; then
+        echo "  Has descriptors: ${has_descriptors}"
+        if [[ "$has_descriptors" == "true" ]]; then
+            echo "  Descriptor variants: use=${gen_desc}, no_use=${gen_no_desc}"
+        fi
+    fi
     
     # Filter models if specified
     models_to_use=()
@@ -325,8 +382,24 @@ for dataset in "${datasets_to_process[@]}"; do
         continue
     fi
     
+    # Function to determine script type based on model
+    get_script_type() {
+        local model="$1"
+        case "$model" in
+            "tabular")
+                echo "tabular"
+                ;;
+            *)
+                echo "graph"
+                ;;
+        esac
+    }
+    
     # Generate scripts for each combination
     for model in "${models_to_use[@]}"; do
+        # Determine script type based on model
+        script_type=$(get_script_type "$model")
+        
         for target in "${targets[@]}"; do
             for train_size in "${train_sizes[@]}"; do
                 # Determine which RDKit variants to generate
@@ -344,10 +417,31 @@ for dataset in "${datasets_to_process[@]}"; do
                     batch_norm_variants+=("true")
                 fi
                 
+                # Determine descriptor variants (only for tabular models that have descriptors)
+                desc_variants=("false")
+                if [[ "$script_type" == "tabular" && "$has_descriptors" == "true" ]]; then
+                    desc_variants=()
+                    if [[ "$gen_no_desc" == "true" ]]; then
+                        desc_variants+=("false")
+                    fi
+                    if [[ "$gen_desc" == "true" ]]; then
+                        desc_variants+=("true")
+                    fi
+                fi
+                
                 for use_rdkit in "${rdkit_variants[@]}"; do
                     for use_batch_norm in "${batch_norm_variants[@]}"; do
-                        generate_script "$dataset" "$model" "$target" "$train_size" "$use_rdkit" "$use_batch_norm" "$walltime" "$script_type"
-                        ((++generated_count))
+                        if [[ "$script_type" == "tabular" ]]; then
+                            # For tabular models, iterate over descriptor variants
+                            for use_desc in "${desc_variants[@]}"; do
+                                generate_script "$dataset" "$model" "$target" "$train_size" "$use_rdkit" "$use_batch_norm" "$use_desc" "$walltime" "$script_type"
+                                ((++generated_count))
+                            done
+                        else
+                            # For graph models, use false for descriptors (not applicable)
+                            generate_script "$dataset" "$model" "$target" "$train_size" "$use_rdkit" "$use_batch_norm" "false" "$walltime" "$script_type"
+                            ((++generated_count))
+                        fi
                     done
                 done
             done
