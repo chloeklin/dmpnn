@@ -8,6 +8,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/evaluation_config.yaml"
 OUTPUT_DIR="$SCRIPT_DIR"
 
+echo "🔍 Debug: Script directory: $SCRIPT_DIR"
+echo "🔍 Debug: Project root: $PROJECT_ROOT"
+
 # PBS configuration
 PBS_QUEUE="gpuvolta"
 PBS_PROJECT="um09"
@@ -266,14 +269,19 @@ cd "$PROJECT_ROOT" || exit 1
 CHECKPOINT_DIR="$PROJECT_ROOT/checkpoints"
 PREPROCESSING_DIR="$PROJECT_ROOT/preprocessing"
 
+echo "🔍 Debug: Checkpoint directory: $CHECKPOINT_DIR"
+echo "🔍 Debug: Preprocessing directory: $PREPROCESSING_DIR"
+
 if [ ! -d "$CHECKPOINT_DIR" ]; then
     echo "❌ Checkpoint directory not found: $CHECKPOINT_DIR"
+    echo "📁 Available directories in PROJECT_ROOT:"
+    ls -la "$PROJECT_ROOT" || echo "Cannot list PROJECT_ROOT contents"
     exit 1
 fi
 
 if [ ! -d "$PREPROCESSING_DIR" ]; then
-    echo "❌ Preprocessing directory not found: $PREPROCESSING_DIR"
-    exit 1
+    echo "⚠️  Preprocessing directory not found: $PREPROCESSING_DIR"
+    echo "   (This is optional, continuing without it)"
 fi
 
 # Track unique configurations (using a simple list instead of associative array for compatibility)
