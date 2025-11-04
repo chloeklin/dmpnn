@@ -152,6 +152,16 @@ generate_eval_script() {
     local checkpoint_path=$7
     local preprocessing_path=$8
     
+    echo "DEBUG: generate_eval_script called with:"
+    echo "  model='$model'"
+    echo "  dataset='$dataset'" 
+    echo "  has_desc='$has_desc'"
+    echo "  has_rdkit='$has_rdkit'"
+    echo "  has_batch_norm='$has_batch_norm'"
+    echo "  train_size='$train_size'"
+    echo "  checkpoint_path='$checkpoint_path'"
+    echo "  preprocessing_path='$preprocessing_path'"
+    
     # Build script name
     local script_name="eval_${dataset}_${model}"
     
@@ -217,6 +227,12 @@ generate_eval_script() {
         return
     fi
     
+    echo "DEBUG: About to create script: $script_path"
+    echo "DEBUG: Script name: $script_name"
+    echo "DEBUG: Walltime: $walltime"
+    echo "DEBUG: Result file: $result_file"
+    echo "DEBUG: eval_args: $eval_args"
+    
     # Generate the script
     cat > "$script_path" << EOF
 #!/bin/bash
@@ -257,9 +273,16 @@ echo "Evaluation complete!"
 echo "Results saved to: results/$model/$result_file"
 EOF
 
-    chmod +x "$script_path"
-    echo "✅ Generated: $script_name"
-    echo "$script_path"  # Output script path for tracking
+    echo "DEBUG: Script creation completed, checking file..."
+    if [ -f "$script_path" ]; then
+        echo "DEBUG: Script file exists"
+        chmod +x "$script_path"
+        echo "✅ Generated: $script_name"
+        echo "$script_path"  # Output script path for tracking
+    else
+        echo "DEBUG: Script file does not exist - creation failed"
+        return 1
+    fi
 }
 
 # Main execution
