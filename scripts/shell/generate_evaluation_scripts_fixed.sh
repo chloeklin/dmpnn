@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Generate evaluation scripts - Debug & robust version (spaces-safe, nested ckpts)
 
 set -euo pipefail
@@ -37,12 +36,11 @@ Options:
   --auto-submit       qsub each generated script
   --model NAME        Only scan this model (e.g., AttentiveFP, DMPNN, DMPNN_DiffPool)
   --dataset NAME      Only include this dataset (exact match)
-  --target-specific   One script per target (if target is present in name)
+  --target-specific   One script per target (if target is part of experiment name)
 EOF
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
-  case_end:
   esac
 done
 
@@ -60,7 +58,7 @@ parse_experiment_name() {
   echo "DEBUG: Parsing experiment: '$exp_name'"
 
   # Strip __rep#
-  exp_name="$(echo "$exp_name" | sed 's/__rep[0-9][0-9]*$//')"
+  exp_name="$(echo "$exp_name" | sed 's/__rep[0-9]\+$//')"
   IFS='__' read -r -a PARTS <<< "$exp_name"
 
   dataset="${PARTS[0]}"
@@ -97,22 +95,27 @@ rep_has_checkpoint() {
   echo "DEBUG:       Scanning for checkpoints in: $rep_dir"
 
   # Collect with find (recursive), support common patterns
-  mapfile -d '' ckpts < <(find "$rep_dir" -type f -print0 \
-    | xargs -0 -I{} bash -c '
-        f="$1";
-        case "$f" in
-          */best.pt|*/best*.ckpt|*/last.ckpt|*/logs/checkpoints/epoch=*step=*.ckpt) printf "%s\0" "$f" ;;
-        esac
-      ' _ {})
+  # Using -print0 to be safe with spaces/newlines
+  mapfile -d '' -t files < <(find "$rep_dir" -type f -print0)
 
-  if ((${#ckpts[@]} == 0)); then
+  local found=()
+  local f
+  for f in "${files[@]}"; do
+    case "$f" in
+      */best.pt|*/best*.ckpt|*/last.ckpt|*/logs/checkpoints/epoch=*step=*.ckpt)
+        found+=("$f")
+        ;;
+    esac
+  done
+
+  if ((${#found[@]} == 0)); then
     echo "DEBUG:         ❌ No checkpoint files matched patterns"
     return 1
   fi
 
-  echo "DEBUG:         ✅ Found ${#ckpts[@]} checkpoint file(s):"
-  for c in "${ckpts[@]}"; do
-    echo "DEBUG:            - $(basename "$c")"
+  echo "DEBUG:         ✅ Found ${#found[@]} checkpoint file(s):"
+  for c in "${found[@]}"; do
+    echo "DEBUG:            - $c"
   done
   return 0
 }
@@ -130,6 +133,7 @@ generate_eval_script() {
   $has_desc && script_name+="_desc"
   $has_rdkit && script_name+="_rdkit"
   $has_batch_norm && script_name+="_batch_norm"
+  # replace spaces with underscores
   script_name="${script_name// /_}.sh"
 
   local script_path="$EVAL_SCRIPTS_DIR/$script_name"
@@ -186,18 +190,19 @@ CONFIGS_FILE=$(mktemp)
 trap 'rm -f "$CONFIGS_FILE"' EXIT
 
 # Each model (e.g., AttentiveFP, DMPNN, DMPNN_DiffPool)
-mapfile -d '' model_dirs < <(find "$CHECKPOINTS_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
+# Use find -print0 to be safe with spaces in model dir names (rare but safe).
+mapfile -d '' -t model_dirs < <(find "$CHECKPOINTS_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
 
 for model_dir in "${model_dirs[@]}"; do
   model="$(basename "$model_dir")"
-  [[ -n "$SPECIFIC_MODEL" && "$model" != "$SPECIFIC_MODEL" ]] && continue
+  [[ -n "$SPECIFIC_MODEL" && "$model" != "$SPECIFIC_MODEL" ]] && { echo "DEBUG: Skip model '$model' (filter)"; continue; }
 
   echo ""
   echo "📂 Model: $model"
   echo "DEBUG: Model dir: $model_dir"
 
   # All rep0 experiment directories under this model
-  mapfile -d '' rep0_dirs < <(find "$model_dir" -mindepth 1 -maxdepth 1 -type d -name "*__rep0" -print0)
+  mapfile -d '' -t rep0_dirs < <(find "$model_dir" -mindepth 1 -maxdepth 1 -type d -name "*__rep0" -print0)
   echo "DEBUG: Found ${#rep0_dirs[@]} rep0 directories."
 
   for rep0 in "${rep0_dirs[@]}"; do
@@ -207,7 +212,7 @@ for model_dir in "${model_dirs[@]}"; do
 
     # Verify all 5 reps and checkpoints
     all_reps=true
-    for i in {0..4}; do
+    for i in 0 1 2 3 4; do
       rep_dir="${base}__rep${i}"
       echo "DEBUG:   Replicate dir: $rep_dir"
       if [[ ! -d "$rep_dir" ]]; then
@@ -230,7 +235,10 @@ for model_dir in "${model_dirs[@]}"; do
     IFS='|' read -r dataset target has_desc has_rdkit has_batch_norm <<< "$(parse_experiment_name "$exp_name")"
 
     # Optional dataset filter
-    [[ -n "$SPECIFIC_DATASET" && "$dataset" != "$SPECIFIC_DATASET" ]] && { echo "DEBUG: Skipping dataset '$dataset' (filter)"; continue; }
+    if [[ -n "$SPECIFIC_DATASET" && "$dataset" != "$SPECIFIC_DATASET" ]]; then
+      echo "DEBUG: Skipping dataset '$dataset' (filter)"
+      continue
+    fi
 
     # Uniqueness key (avoid duplicates)
     if $TARGET_SPECIFIC; then
