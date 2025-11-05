@@ -180,7 +180,7 @@ generate_eval_script() {
 #PBS -l ncpus=$PBS_NCPUS
 #PBS -l ngpus=$PBS_NGPUS
 #PBS -l mem=$PBS_MEM
-#PBS -l walltime=$walltime
+#PBS -l walltime=$DEFAULT_WALLTIME
 #PBS -l storage=$PBS_STORAGE
 #PBS -l jobfs=$PBS_JOBFS
 #PBS -N eval-${dataset}-${model}
