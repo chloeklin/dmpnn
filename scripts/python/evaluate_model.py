@@ -404,9 +404,45 @@ for target in target_columns:
             else:
                 # Lightning checkpoint format (DMPNN, wDMPNN, etc.)
                 logger.info(f"Loading Lightning checkpoint: {last_ckpt}")
-                mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
-                mpnn.eval()  # Ensure evaluation mode
-                logger.info("✅ Lightning model loaded in evaluation mode")
+                
+                # Load model based on model type
+                if args.model_name == "DMPNN_DiffPool":
+                    # DMPNN_DiffPool has different architecture - need to create model first
+                    logger.info("Creating DMPNN_DiffPool model architecture...")
+                    
+                    # Import required modules
+                    from chemprop import nn
+                    
+                    # Create the same architecture as in training (from utils.py)
+                    base_mp_cls = nn.BondMessagePassing
+                    mp = nn.BondMessagePassingWithDiffPool(
+                        base_mp_cls=base_mp_cls,
+                        depth=1,  # default diffpool_depth
+                        ratio=0.5  # default diffpool_ratio
+                    )
+                    agg = nn.IdentityAggregation()
+                    
+                    # Create MPNN with DiffPool architecture
+                    mpnn = models.MPNN(
+                        message_passing=mp,
+                        agg=agg,
+                        predictor=None,  # Will be loaded from checkpoint
+                        batch_norm=args.batch_norm,
+                        metric_list=[]
+                    )
+                    
+                    # Load checkpoint manually
+                    import torch
+                    checkpoint = torch.load(last_ckpt, map_location=map_location)
+                    mpnn.load_state_dict(checkpoint["state_dict"], strict=False)
+                    mpnn.eval()
+                    logger.info("✅ DMPNN_DiffPool model loaded in evaluation mode")
+                    
+                else:
+                    # Standard models (DMPNN, wDMPNN, PPG)
+                    mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
+                    mpnn.eval()  # Ensure evaluation mode
+                    logger.info(f"✅ {args.model_name} model loaded in evaluation mode")
                 
             logger.info("🧠 Extracting embeddings from trained model...")
             X_train = get_encodings_from_loader(mpnn, train_loader)
