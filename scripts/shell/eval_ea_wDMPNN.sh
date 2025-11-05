@@ -27,7 +27,7 @@ echo "Dataset: ea"
 echo "Configuration: Auto-detected from checkpoint path"
 
 python3 scripts/python/evaluate_model.py \
-    --model_name wDMPNN --dataset_name ea --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/wDMPNN/ea_ip__EA vs SHE (eV)__rep0/logs/checkpoints/epoch=186-step=401863.ckpt"
+    --model_name wDMPNN --dataset_name ea --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/wDMPNN/ea_ip__EA vs SHE (eV)__rep0/logs/checkpoints/epoch=199-step=429800.ckpt"
 
 echo "Evaluation complete!"
 echo "Results saved to: results/wDMPNN/ea_baseline.csv"
