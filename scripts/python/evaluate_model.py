@@ -304,12 +304,17 @@ if args.model_name == "AttentiveFP":
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
             logger.info(f"\n--- Split {i+1}/{len(train_indices)} ---")
             
-            # Build checkpoint path for AttentiveFP
-            checkpoint_name = f"{args.dataset_name}__{target}__rep{i}.pt"
+            # Build checkpoint path for AttentiveFP  ✅ directory + best.pt
+            checkpoint_stem = f"{args.dataset_name}__{target}"
             if args.train_size and args.train_size != "full":
-                checkpoint_name = f"{args.dataset_name}__{target}__size{args.train_size}__rep{i}.pt"
-            
-            checkpoint_path = checkpoint_dir / checkpoint_name
+                checkpoint_stem += f"__size{args.train_size}"
+            checkpoint_stem += f"__rep{i}"
+
+            # If setup_info already pointed checkpoint_dir at ".../checkpoints/AttentiveFP",
+            # use it as-is; otherwise append "AttentiveFP".
+            attn_root = checkpoint_dir if checkpoint_dir.name == "AttentiveFP" else (checkpoint_dir / "AttentiveFP")
+            checkpoint_path = attn_root / checkpoint_stem / "best.pt"
+
             
             if not checkpoint_path.exists():
                 logger.warning(f"AttentiveFP checkpoint not found: {checkpoint_path}")
