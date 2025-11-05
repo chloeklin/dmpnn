@@ -798,15 +798,15 @@ for target in target_columns:
                 try:
                     from train_attentivefp import create_checkpoint_name
                     checkpoint_name = create_checkpoint_name(args, target, i)
-                    checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name
+                    checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name / "best.pt"
                 except ImportError:
                     # Fallback: build AttentiveFP path manually
                     parts = [args.dataset_name, target]
                     if args.train_size and args.train_size != "full":
                         parts.append(f"size{args.train_size}")
                     parts.append(f"rep{i}")
-                    checkpoint_name = "__".join(parts) + ".pt"
-                    checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name
+                    checkpoint_name = "__".join(parts)
+                    checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name / "best.pt"
             else:
                 # DMPNN, wDMPNN, DMPNN_DiffPool use build_experiment_paths
                 checkpoint_path, _, _, _, _, _ = build_experiment_paths(
@@ -1133,71 +1133,71 @@ if eval_results:
     results_df = pd.DataFrame(eval_results)
     save_and_summarize_results(results_df, args, results_dir, descriptor_columns)
 
-# Clean up temporary embeddings
-logger.info("🧹 Cleaning up temporary embeddings...")
-import shutil
-
-# Get unique base checkpoint paths (target-agnostic) to avoid duplicate cleanup
-cleaned_paths = set()
-
-for target in target_columns:
-    for i in range(REPLICATES):
-        if args.checkpoint_path:
-            # Use the same path building logic as above
-            provided_path = Path(args.checkpoint_path)
-            current_path = provided_path
-            exp_dir = None
-            
-            if provided_path.is_file():
-                current_path = provided_path.parent
-            
-            for parent in [current_path] + list(current_path.parents):
-                if "__rep" in parent.name:
-                    exp_dir = parent
-                    break
-            
-            if exp_dir:
-                exp_dir_name = exp_dir.name
-                import re
-                new_exp_dir_name = re.sub(r'__rep\d+', f'__rep{i}', exp_dir_name)
-                checkpoint_path = exp_dir.parent / new_exp_dir_name
-            else:
-                if provided_path.is_file() and "__rep" in provided_path.name:
-                    import re
-                    new_filename = re.sub(r'__rep\d+', f'__rep{i}', provided_path.name)
-                    checkpoint_path = provided_path.parent / new_filename
-                else:
-                    checkpoint_path = provided_path
-        else:
-            checkpoint_path, _, _, _, _, _ = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-            )
-        
-        # Convert to target-agnostic path for cleanup
-        checkpoint_path_str = str(checkpoint_path)
-        if "__rep" in checkpoint_path_str:
-            # Use same logic as above for consistency
-            import re
-            match = re.match(r'^(.+?)__.*?__(rep\d+)$', checkpoint_path_str)
-            if match:
-                dataset_part = match.group(1)
-                rep_part = match.group(2)
-                base_path = f"{dataset_part}__{rep_part}"
-                base_checkpoint_path = Path(checkpoint_path_str).parent / base_path
-            else:
-                base_checkpoint_path = checkpoint_path
-        else:
-            base_checkpoint_path = checkpoint_path
-            
-        temp_embeddings_dir = base_checkpoint_path / "temp_embeddings"
-        
-        # Only clean each unique path once
-        if str(temp_embeddings_dir) not in cleaned_paths and temp_embeddings_dir.exists():
-            try:
-                shutil.rmtree(temp_embeddings_dir)
-                cleaned_paths.add(str(temp_embeddings_dir))
-                logger.info(f"🗑️ Cleaned up {temp_embeddings_dir}")
-            except OSError:
-                pass  # Ignore if cleanup fails
+# Clean up temporary embeddings - DISABLED to preserve embeddings for reuse
+# logger.info("🧹 Cleaning up temporary embeddings...")
+# import shutil
+# 
+# # Get unique base checkpoint paths (target-agnostic) to avoid duplicate cleanup
+# cleaned_paths = set()
+# 
+# for target in target_columns:
+#     for i in range(REPLICATES):
+#         if args.checkpoint_path:
+#             # Use the same path building logic as above
+#             provided_path = Path(args.checkpoint_path)
+#             current_path = provided_path
+#             exp_dir = None
+#             
+#             if provided_path.is_file():
+#                 current_path = provided_path.parent
+#             
+#             for parent in [current_path] + list(current_path.parents):
+#                 if "__rep" in parent.name:
+#                     exp_dir = parent
+#                     break
+#             
+#             if exp_dir:
+#                 exp_dir_name = exp_dir.name
+#                 import re
+#                 new_exp_dir_name = re.sub(r'__rep\d+', f'__rep{i}', exp_dir_name)
+#                 checkpoint_path = exp_dir.parent / new_exp_dir_name
+#             else:
+#                 if provided_path.is_file() and "__rep" in provided_path.name:
+#                     import re
+#                     new_filename = re.sub(r'__rep\d+', f'__rep{i}', provided_path.name)
+#                     checkpoint_path = provided_path.parent / new_filename
+#                 else:
+#                     checkpoint_path = provided_path
+#         else:
+#             checkpoint_path, _, _, _, _, _ = build_experiment_paths(
+#                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+#             )
+#         
+#         # Convert to target-agnostic path for cleanup
+#         checkpoint_path_str = str(checkpoint_path)
+#         if "__rep" in checkpoint_path_str:
+#             # Use same logic as above for consistency
+#             import re
+#             match = re.match(r'^(.+?)__.*?__(rep\d+)$', checkpoint_path_str)
+#             if match:
+#                 dataset_part = match.group(1)
+#                 rep_part = match.group(2)
+#                 base_path = f"{dataset_part}__{rep_part}"
+#                 base_checkpoint_path = Path(checkpoint_path_str).parent / base_path
+#             else:
+#                 base_checkpoint_path = checkpoint_path
+#         else:
+#             base_checkpoint_path = checkpoint_path
+#             
+#         temp_embeddings_dir = base_checkpoint_path / "temp_embeddings"
+#         
+#         # Only clean each unique path once
+#         if str(temp_embeddings_dir) not in cleaned_paths and temp_embeddings_dir.exists():
+#             try:
+#                 shutil.rmtree(temp_embeddings_dir)
+#                 cleaned_paths.add(str(temp_embeddings_dir))
+#                 logger.info(f"🗑️ Cleaned up {temp_embeddings_dir}")
+#             except OSError:
+#                 pass  # Ignore if cleanup fails
 
 logger.info("✅ Evaluation complete!")
