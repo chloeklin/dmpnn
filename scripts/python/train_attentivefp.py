@@ -246,6 +246,9 @@ def main():
     
     args = parser.parse_args()
     
+    # Set model_name for compatibility with setup_training_environment
+    args.model_name = "AttentiveFP"
+    
     logger.info("=== AttentiveFP Training ===")
     logger.info(f"Dataset: {args.dataset_name}")
     logger.info(f"Task type: {args.task_type}")
