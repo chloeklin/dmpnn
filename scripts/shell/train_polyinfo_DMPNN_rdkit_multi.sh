@@ -17,7 +17,7 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # DMPNN training
-python3 scripts/python/train_graph.py --dataset_name polyinfo --model_name DMPNN --task_type multi --incl_rdkit 
+python3 scripts/python/train_graph.py --dataset_name polyinfo --model_name DMPNN --task_type multi --incl_rdkit --export_embeddings 
 
 
 ##TODO
