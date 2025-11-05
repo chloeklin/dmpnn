@@ -179,10 +179,12 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 if method == 'Graph':
                     df['model'] = model_name
                 elif method == 'Baseline':
-                    # For Baseline, combine encoder name with baseline model
+                    # For Baseline, group by baseline model type instead of encoder
                     df['encoder'] = model_name  # Store the encoder (DMPNN/wDMPNN)
                     df['baseline_model'] = df['model']  # Store original model (Linear/RF/XGB)
-                    df['model'] = df['model'] + f'-{model_name}'  # Combine for unique identification
+                    # Group by baseline model type, not encoder
+                    df['model'] = df['model']  # Keep original baseline model name
+                    df['method'] = f"Baseline"  # Use consistent method name
                 
                 # Convert MSE to RMSE if MSE column exists
                 if 'mse' in df.columns:
@@ -346,10 +348,10 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     # Define desired feature order for combined plots, including batch norm variants
     base_features = [
         'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
+        'Baseline', 'Baseline+RDKit', 'Baseline+Desc+RDKit',  # Baseline features (after tabular)
+        'Baseline (BN)', 'Baseline+RDKit (BN)', 'Baseline+Desc+RDKit (BN)',  # Baseline with batch norm
         'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit',  # Graph features
-        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)',  # Graph with batch norm
-        'Baseline', 'Baseline+RDKit', 'Baseline+Desc+RDKit',  # Baseline features
-        'Baseline (BN)', 'Baseline+RDKit (BN)', 'Baseline+Desc+RDKit (BN)'  # Baseline with batch norm
+        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)'  # Graph with batch norm
     ]
     
     # Get available features and sort them according to our desired order
@@ -380,15 +382,18 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     
     # Define colors for different methods and models with distinct colors for batch norm variants
     colors = {
+        # Tabular models (keep existing colors)
         'Tabular': {'Linear': '#1f77b4', 'RF': '#ff7f0e', 'XGB': '#2ca02c', 'LogReg': '#1f77b4'},
+        
+        # Baseline models (consistent colors regardless of encoder)
+        'Baseline': {'Linear': '#87CEEB', 'RF': '#FFB347', 'XGB': '#90EE90', 'LogReg': '#87CEEB'},
+        
+        # Graph models (keep existing colors)
         'Graph_DMPNN': '#d62728',
         'Graph_wDMPNN': '#9467bd', 
         'Graph_PPG': '#8c564b',
         'Graph_AttentiveFP': '#e377c2',
-        'Baseline_DMPNN': '#17becf',
-        'Baseline_wDMPNN': '#bcbd22',
-        'Baseline_PPG': '#7f7f7f',
-        'Baseline_AttentiveFP': '#bcbd22'
+        'Graph_DMPNN_DiffPool': '#17becf'
     }
     
     for i, target in enumerate(targets):
@@ -413,11 +418,13 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
             
             model_data = target_data[(target_data['model'] == model) & (target_data['method'] == method)]
             
-            # Get color - handle both new flat structure and old nested structure
+            # Get color - handle both tabular, baseline, and graph methods
             if method == 'Tabular':
                 color = colors.get('Tabular', {}).get(model, '#1f77b4')
+            elif method == 'Baseline':
+                color = colors.get('Baseline', {}).get(model, '#87CEEB')
             else:
-                # For Graph_DMPNN, Baseline_wDMPNN, etc.
+                # For Graph_DMPNN, Graph_wDMPNN, etc.
                 color = colors.get(method, '#1f77b4')
             
             means = []
