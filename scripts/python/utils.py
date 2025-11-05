@@ -2044,12 +2044,17 @@ def load_best_checkpoint(ckpt_dir: Path):
         return ckpt_dir / pt_files[0]
     
     # For Lightning-based models, follow priority order:
-    # 1. Legacy format: best-XXX.ckpt (highest priority)
-    # 2. Lightning format: logs/checkpoints/epoch=XX-step=YYY.ckpt
-    # 3. Fallback: last.ckpt (lowest priority)
+    # 1. Legacy format: best.ckpt (highest priority)
+    # 2. Legacy format: best-XXX.ckpt 
+    # 3. Lightning format: logs/checkpoints/epoch=XX-step=YYY.ckpt
+    # 4. Fallback: last.ckpt (lowest priority)
     
-    # Priority 1: Check for legacy best-XXX.ckpt files in root directory
+    # Priority 1: Check for simple best.ckpt in root directory
     root_ckpts = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
+    if "best.ckpt" in root_ckpts:
+        return ckpt_dir / "best.ckpt"
+    
+    # Priority 2: Check for legacy best-XXX.ckpt files in root directory
     best_ckpts = [f for f in root_ckpts if f.startswith("best-")]
     
     if best_ckpts:

@@ -743,8 +743,9 @@ for target in target_columns:
         val_loader = data.build_dataloader(val, num_workers=eval_num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=eval_num_workers, shuffle=False)
         
-        # Use provided checkpoint path or build from experiment paths
+        # Build checkpoint path using the same logic as training scripts
         if args.checkpoint_path:
+            # Legacy support: if checkpoint_path is provided, use the existing logic
             # Extract the base experiment pattern from the provided checkpoint path
             # and build the correct path for this replicate
             provided_path = Path(args.checkpoint_path)
@@ -779,16 +780,41 @@ for target in target_columns:
                     checkpoint_path = provided_path.parent / new_filename
                     logger.info(f"Built checkpoint file path for rep {i}: {checkpoint_path}")
                 else:
-                    # Fallback: use the provided path as-is (might be a base directory)
-                    checkpoint_path = provided_path
-                    logger.info(f"Could not find experiment directory pattern, using provided path: {checkpoint_path}")
+                    # Check if this is a base pattern that we need to append __rep{i} to
+                    # This handles cases like "/checkpoints/DMPNN/htpmd__Conductivity"
+                    base_pattern = provided_path.name
+                    if not base_pattern.endswith(f"__rep{i}"):
+                        # Append the replicate suffix
+                        checkpoint_path = provided_path.parent / f"{base_pattern}__rep{i}"
+                        logger.info(f"Built checkpoint path for rep {i}: {checkpoint_path}")
+                    else:
+                        # Already has rep suffix, use as-is
+                        checkpoint_path = provided_path
+                        logger.info(f"Using provided checkpoint path: {checkpoint_path}")
         else:
-            # Use standard experiment path building
-            checkpoint_path, _, _, _, _, _ = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-            )
+            # Use the same checkpoint path building logic as training scripts
+            if args.model_name == "AttentiveFP":
+                # AttentiveFP uses a different checkpoint structure
+                try:
+                    from train_attentivefp import create_checkpoint_name
+                    checkpoint_name = create_checkpoint_name(args, target, i)
+                    checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name
+                except ImportError:
+                    # Fallback: build AttentiveFP path manually
+                    parts = [args.dataset_name, target]
+                    if args.train_size and args.train_size != "full":
+                        parts.append(f"size{args.train_size}")
+                    parts.append(f"rep{i}")
+                    checkpoint_name = "__".join(parts) + ".pt"
+                    checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name
+            else:
+                # DMPNN, wDMPNN, DMPNN_DiffPool use build_experiment_paths
+                checkpoint_path, _, _, _, _, _ = build_experiment_paths(
+                    args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+                )
         
         # Check if embeddings already exist from train_graph.py --export_embeddings FIRST
+        # OR if we've already extracted them in this evaluation run
         embeddings_dir = Path(checkpoint_path) / "embeddings"
         embedding_files_exist = (
             (embeddings_dir / f"X_train_split_{i}.npy").exists() and
@@ -797,12 +823,47 @@ for target in target_columns:
             (embeddings_dir / f"feature_mask_split_{i}.npy").exists()
         )
         
+        # Also check for temporary embeddings from this evaluation session
+        # Use a target-agnostic path since the same model can be used for all targets
+        checkpoint_path_str = str(checkpoint_path)
+        if "__rep" in checkpoint_path_str:
+            # Remove everything between dataset and rep to get base model path
+            # e.g., "htpmd__Conductivity__desc__rdkit__rep0" -> "htpmd__rep0"
+            import re
+            match = re.match(r'^(.+?)__.*?__(rep\d+)$', checkpoint_path_str)
+            if match:
+                dataset_part = match.group(1)
+                rep_part = match.group(2)
+                base_path = f"{dataset_part}__{rep_part}"
+                base_checkpoint_path = Path(checkpoint_path_str).parent / base_path
+            else:
+                base_checkpoint_path = checkpoint_path
+        else:
+            base_checkpoint_path = checkpoint_path
+            
+        temp_embeddings_dir = base_checkpoint_path / "temp_embeddings"
+        temp_embedding_files_exist = (
+            (temp_embeddings_dir / f"X_train_split_{i}.npy").exists() and
+            (temp_embeddings_dir / f"X_val_split_{i}.npy").exists() and
+            (temp_embeddings_dir / f"X_test_split_{i}.npy").exists() and
+            (temp_embeddings_dir / f"feature_mask_split_{i}.npy").exists()
+        )
+        
+        # Use either permanent or temporary embeddings
         if embedding_files_exist:
-            logger.info(f"✅ Found existing embeddings at {embeddings_dir} - loading directly (fast path)")
-            X_train = np.load(embeddings_dir / f"X_train_split_{i}.npy")
-            X_val = np.load(embeddings_dir / f"X_val_split_{i}.npy")
-            X_test = np.load(embeddings_dir / f"X_test_split_{i}.npy")
-            keep = np.load(embeddings_dir / f"feature_mask_split_{i}.npy")
+            use_embeddings_dir = embeddings_dir
+        elif temp_embedding_files_exist:
+            use_embeddings_dir = temp_embeddings_dir
+            embedding_files_exist = True
+        else:
+            use_embeddings_dir = None
+        
+        if embedding_files_exist:
+            logger.info(f"✅ Found existing embeddings at {use_embeddings_dir} - loading directly (fast path)")
+            X_train = np.load(use_embeddings_dir / f"X_train_split_{i}.npy")
+            X_val = np.load(use_embeddings_dir / f"X_val_split_{i}.npy")
+            X_test = np.load(use_embeddings_dir / f"X_test_split_{i}.npy")
+            keep = np.load(use_embeddings_dir / f"feature_mask_split_{i}.npy")
             
             logger.info(f"Loaded embeddings - kept dims: {int(keep.sum())} / {len(keep)}")
             logger.info(f"  - X_train: {X_train.shape}")
@@ -922,6 +983,18 @@ for target in target_columns:
             X_test  = X_test[:, keep]
 
             logger.info(f"Extracted embeddings - kept dims: {int(keep.sum())} / {len(keep)}")
+            
+            # Save temporary embeddings for reuse in subsequent targets
+            # Use the same target-agnostic path as above
+            temp_embeddings_dir = base_checkpoint_path / "temp_embeddings"
+            temp_embeddings_dir.mkdir(parents=True, exist_ok=True)
+            
+            np.save(temp_embeddings_dir / f"X_train_split_{i}.npy", X_train)
+            np.save(temp_embeddings_dir / f"X_val_split_{i}.npy", X_val)
+            np.save(temp_embeddings_dir / f"X_test_split_{i}.npy", X_test)
+            np.save(temp_embeddings_dir / f"feature_mask_split_{i}.npy", keep)
+            
+            logger.info(f"💾 Saved temporary embeddings to {temp_embeddings_dir} for reuse")
 
         # Get target data for each split
         y_train = df_input.loc[train_indices[i], target].to_numpy()
@@ -1059,3 +1132,72 @@ for (rep_idx, model_name), row_data in rep_model_to_row.items():
 if eval_results:
     results_df = pd.DataFrame(eval_results)
     save_and_summarize_results(results_df, args, results_dir, descriptor_columns)
+
+# Clean up temporary embeddings
+logger.info("🧹 Cleaning up temporary embeddings...")
+import shutil
+
+# Get unique base checkpoint paths (target-agnostic) to avoid duplicate cleanup
+cleaned_paths = set()
+
+for target in target_columns:
+    for i in range(REPLICATES):
+        if args.checkpoint_path:
+            # Use the same path building logic as above
+            provided_path = Path(args.checkpoint_path)
+            current_path = provided_path
+            exp_dir = None
+            
+            if provided_path.is_file():
+                current_path = provided_path.parent
+            
+            for parent in [current_path] + list(current_path.parents):
+                if "__rep" in parent.name:
+                    exp_dir = parent
+                    break
+            
+            if exp_dir:
+                exp_dir_name = exp_dir.name
+                import re
+                new_exp_dir_name = re.sub(r'__rep\d+', f'__rep{i}', exp_dir_name)
+                checkpoint_path = exp_dir.parent / new_exp_dir_name
+            else:
+                if provided_path.is_file() and "__rep" in provided_path.name:
+                    import re
+                    new_filename = re.sub(r'__rep\d+', f'__rep{i}', provided_path.name)
+                    checkpoint_path = provided_path.parent / new_filename
+                else:
+                    checkpoint_path = provided_path
+        else:
+            checkpoint_path, _, _, _, _, _ = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
+        
+        # Convert to target-agnostic path for cleanup
+        checkpoint_path_str = str(checkpoint_path)
+        if "__rep" in checkpoint_path_str:
+            # Use same logic as above for consistency
+            import re
+            match = re.match(r'^(.+?)__.*?__(rep\d+)$', checkpoint_path_str)
+            if match:
+                dataset_part = match.group(1)
+                rep_part = match.group(2)
+                base_path = f"{dataset_part}__{rep_part}"
+                base_checkpoint_path = Path(checkpoint_path_str).parent / base_path
+            else:
+                base_checkpoint_path = checkpoint_path
+        else:
+            base_checkpoint_path = checkpoint_path
+            
+        temp_embeddings_dir = base_checkpoint_path / "temp_embeddings"
+        
+        # Only clean each unique path once
+        if str(temp_embeddings_dir) not in cleaned_paths and temp_embeddings_dir.exists():
+            try:
+                shutil.rmtree(temp_embeddings_dir)
+                cleaned_paths.add(str(temp_embeddings_dir))
+                logger.info(f"🗑️ Cleaned up {temp_embeddings_dir}")
+            except OSError:
+                pass  # Ignore if cleanup fails
+
+logger.info("✅ Evaluation complete!")

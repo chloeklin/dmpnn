@@ -219,30 +219,14 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
     
-    # Parse arguments
-    parser = argparse.ArgumentParser(description="Clean AttentiveFP Training")
+    # Parse arguments using standardized parser
+    from utils import create_base_argument_parser, add_model_specific_args
     
-    # Dataset arguments
-    parser.add_argument('--dataset_name', type=str, required=True)
-    parser.add_argument('--target', type=str, default=None, 
-                       help='Specific target to train on (if not provided, trains on all targets)')
-    parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default='reg')
+    parser = create_base_argument_parser(description="Clean AttentiveFP Training")
+    add_model_specific_args(parser, "attentivefp")
     
-    # Model arguments
-    parser.add_argument('--hidden', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--epochs', type=int, default=300)
-    parser.add_argument('--patience', type=int, default=30)
-    
-    # Training arguments
-    parser.add_argument('--train_size', type=str, default=None,
-                       help='Training size (e.g., "500" or "full")')
+    # Add AttentiveFP-specific arguments
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Output arguments
-    parser.add_argument('--export_embeddings', action='store_true')
-    parser.add_argument('--save_predictions', action='store_true')
     
     args = parser.parse_args()
     
