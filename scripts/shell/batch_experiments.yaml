@@ -45,9 +45,9 @@ eaip_targets: &eaip_targets
 
 experiments:
   # Polyinfo dataset experiments    
-  - <<: *polyinfo_base
-    model: DMPNN_DiffPool
-    walltime: "5:30:00"
+  # - <<: *polyinfo_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "5:30:00"
 
 
 #     incl_rdkit: true
@@ -62,11 +62,11 @@ experiments:
 
   # HTPMD dataset experiments
     
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    walltime: "4:00:00"
-    incl_desc: true
-    incl_rdkit: true
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:00:00"
+  #   incl_desc: true
+  #   incl_rdkit: true
 
 
 
@@ -74,10 +74,11 @@ experiments:
 
   # OPV CAM-B3LYP experiments
     
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "25:00:00"
-  #   incl_rdkit: true
+  - <<: *opv_base
+    model: DMPNN
+    walltime: "25:00:00"
+    # incl_rdkit: true
+    targets: *opv_targets
   #   
 
     
@@ -133,11 +134,11 @@ experiments:
 
 
 # TC dataset experiments
-  - <<: *tc_base
-    model: DMPNN
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "1:00:00"
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "1:00:00"
   - <<: *tc_base
     model: AttentiveFP
     walltime: "1:00:00"
