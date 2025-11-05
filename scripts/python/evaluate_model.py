@@ -46,6 +46,8 @@ parser.add_argument('--target', type=str, default=None,
                     help='Specific target to evaluate (if not provided, evaluates all targets)')
 parser.add_argument('--checkpoint_path', type=str, default=None,
                     help='Path to specific checkpoint file to evaluate (overrides automatic checkpoint discovery)')
+parser.add_argument('--preprocessing_path', type=str, default=None,
+                    help='Path to preprocessing directory (overrides automatic preprocessing path discovery)')
 parser.add_argument('--batch_norm', action='store_true',
                     help='Use batch normalization models for evaluation')
 parser.add_argument('--train_size', type=str, default=None,
@@ -191,9 +193,18 @@ for target in target_columns:
         # Load preprocessing metadata directly (same as train_graph.py)
         split_preprocessing_metadata = {}
         for i in range(REPLICATES):
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-            )
+            # Use provided preprocessing path or build from experiment paths
+            if args.preprocessing_path:
+                preprocessing_path = Path(args.preprocessing_path)
+                logger.info(f"Using provided preprocessing path: {preprocessing_path}")
+                # Still need other paths for compatibility
+                checkpoint_path, _, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+                    args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+                )
+            else:
+                checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+                    args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+                )
             
             # Check if preprocessing files exist
             metadata_path = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
@@ -245,9 +256,12 @@ for target in target_columns:
             cleaning_meta = split_preprocessing_metadata[i]['cleaning']
             
             # Apply imputation using saved imputer (same as train_graph.py)
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-            )
+            if args.preprocessing_path:
+                preprocessing_path = Path(args.preprocessing_path)
+            else:
+                checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+                    args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+                )
             
             from joblib import load
             imputer_path = preprocessing_path / "descriptor_imputer.pkl"
@@ -285,9 +299,12 @@ for target in target_columns:
         
         # Apply descriptor scaling using saved scaler (same as train_graph.py)
         if combined_descriptor_data is not None:
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-            )
+            if args.preprocessing_path:
+                preprocessing_path = Path(args.preprocessing_path)
+            else:
+                checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+                    args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+                )
             
             # Load saved descriptor scaler
             from joblib import load
