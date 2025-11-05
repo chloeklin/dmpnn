@@ -1833,6 +1833,17 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
 def load_best_checkpoint(ckpt_dir: Path):
     if not ckpt_dir.exists():
         return None
+    
+    # Check for .pt files first (AttentiveFP)
+    pt_files = [f for f in os.listdir(ckpt_dir) if f.endswith(".pt")]
+    if pt_files:
+        # For AttentiveFP, look for best.pt
+        if "best.pt" in pt_files:
+            return ckpt_dir / "best.pt"
+        # Fallback to any .pt file
+        return ckpt_dir / pt_files[0]
+    
+    # Check for .ckpt files (Lightning models)
     ckpts = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
     if not ckpts:
         return None

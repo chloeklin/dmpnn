@@ -727,9 +727,85 @@ for target in target_columns:
             checkpoint_path, preprocessing_path, i, descriptor_dim, logger
         )
 
-        # Train
+        # Check if we should skip training (checkpoint exists and training is complete)
+        skip_training = False
+        best_ckpt_path = None
         
-        trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
+        if last_ckpt is not None:
+            # Check for completed training indicators
+            import os
+            
+            # Pattern 1: Direct best-*.ckpt files (older format)
+            best_ckpt_files = [f for f in os.listdir(checkpoint_path) if f.startswith("best-") and f.endswith(".ckpt")]
+            
+            # Pattern 2: Lightning checkpoints in logs/checkpoints/ subdirectory
+            lightning_ckpt_dir = checkpoint_path / "logs" / "checkpoints"
+            lightning_ckpt_files = []
+            if lightning_ckpt_dir.exists():
+                lightning_ckpt_files = [f for f in os.listdir(lightning_ckpt_dir) if f.startswith("epoch=") and f.endswith(".ckpt")]
+            
+            if best_ckpt_files:
+                # Use direct best-*.ckpt files
+                skip_training = True
+                logger.info(f"[{target}] split {i}: Found completed checkpoint (best-*.ckpt), skipping training")
+                
+                # Find best checkpoint by validation loss
+                import re
+                best_ckpt = None
+                lowest_val_loss = float('inf')
+                
+                for ckpt_name in best_ckpt_files:
+                    val_loss_match = re.search(r'(?:val_loss=|-)([0-9]+\.?[0-9]*)(?:\.ckpt|$)', ckpt_name)
+                    if val_loss_match:
+                        val_loss = float(val_loss_match.group(1))
+                        if val_loss < lowest_val_loss:
+                            lowest_val_loss = val_loss
+                            best_ckpt = ckpt_name
+                
+                if best_ckpt:
+                    best_ckpt_path = str(checkpoint_path / best_ckpt)
+                    
+            elif lightning_ckpt_files:
+                # Use Lightning checkpoints - assume training completed if any checkpoint exists
+                skip_training = True
+                logger.info(f"[{target}] split {i}: Found Lightning checkpoint, skipping training")
+                
+                # Use the most recent Lightning checkpoint
+                lightning_ckpt_files_with_time = [(f, os.path.getmtime(lightning_ckpt_dir / f)) for f in lightning_ckpt_files]
+                lightning_ckpt_files_with_time.sort(key=lambda x: x[1], reverse=True)
+                latest_lightning_ckpt = lightning_ckpt_files_with_time[0][0]
+                best_ckpt_path = str(lightning_ckpt_dir / latest_lightning_ckpt)
+                
+            else:
+                logger.info(f"[{target}] split {i}: Found checkpoint but no completion indicators, will resume training")
+
+        # Train or skip
+        if skip_training and best_ckpt_path:
+            logger.info(f"Loading checkpoint for evaluation: {best_ckpt_path}")
+            
+            # Load the model from checkpoint for evaluation
+            from chemprop import models
+            import torch
+            map_location = torch.device('cpu') if not torch.cuda.is_available() else None
+            mpnn = models.MPNN.load_from_checkpoint(best_ckpt_path, map_location=map_location)
+            mpnn.eval()
+            
+            # Create a dummy trainer for testing (no training needed)
+            trainer = build_model_and_trainer(
+                train, val, test,
+                combined_descriptor_data=processed_descriptor_data,
+                n_classes=n_classes_arg,
+                scaler=scaler_arg,
+                checkpoint_path=checkpoint_path,
+                batch_norm=batch_norm,
+                metric_list=metric_list,
+                early_stopping_patience=PATIENCE,
+                max_epochs=EPOCHS,
+                save_checkpoint=args.save_checkpoint,
+            )[1]  # Only get trainer
+        else:
+            # Normal training path
+            trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
         results = trainer.test(dataloaders=test_loader)
         test_metrics = results[0]
         test_metrics['split'] = i  # Add split index to metrics

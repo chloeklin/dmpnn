@@ -350,8 +350,40 @@ for target in target_columns:
             # Load encoder and make fingerprints (map to CPU if CUDA not available)
             import torch
             map_location = torch.device('cpu') if not torch.cuda.is_available() else None
-            mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
-            mpnn.eval()
+            
+            # Handle different checkpoint formats
+            if str(last_ckpt).endswith('.pt'):
+                # AttentiveFP checkpoint format
+                logger.info(f"Loading AttentiveFP checkpoint: {last_ckpt}")
+                
+                # Create AttentiveFP model (same as train_attentivefp.py)
+                from train_attentivefp import EdgeGuard
+                
+                # Determine output channels (we'll use 1 for embedding extraction)
+                core = models.AttentiveFP(
+                    in_channels=39, hidden_channels=200, out_channels=1, edge_dim=10,
+                    num_layers=2, num_timesteps=2, dropout=0.0
+                )
+                model = EdgeGuard(core, edge_dim=10)
+                
+                # Load checkpoint
+                checkpoint = torch.load(last_ckpt, map_location=map_location)
+                model.load_state_dict({k: v.to(map_location or torch.device('cuda')) for k, v in checkpoint["state_dict"].items()})
+                model.eval()
+                
+                # For AttentiveFP, we need to extract embeddings differently
+                # Use the core.gnn for embeddings (same as train_attentivefp.py)
+                if hasattr(model.core, "gnn"):
+                    mpnn = model.core.gnn  # Use the GNN part for embeddings
+                else:
+                    logger.warning("AttentiveFP model doesn't expose .gnn, using full model")
+                    mpnn = model.core
+                    
+            else:
+                # Lightning checkpoint format (DMPNN, wDMPNN, etc.)
+                logger.info(f"Loading Lightning checkpoint: {last_ckpt}")
+                mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
+                mpnn.eval()
             X_train = get_encodings_from_loader(mpnn, train_loader)
             X_val = get_encodings_from_loader(mpnn, val_loader)
             X_test = get_encodings_from_loader(mpnn, test_loader)
