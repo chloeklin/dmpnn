@@ -201,19 +201,9 @@ generate_eval_script() {
     local walltime=$(get_walltime "$dataset")
     
     # Build evaluate_model.py arguments
+    # NOTE: We only pass model, dataset, and paths. Configuration (desc, rdkit, batch_norm)
+    # is automatically extracted from the checkpoint path by evaluate_model.py
     local eval_args="--model_name $model --dataset_name $dataset"
-    
-    if [ "$has_desc" = true ]; then
-        eval_args="$eval_args --incl_desc"
-    fi
-    
-    if [ "$has_rdkit" = true ]; then
-        eval_args="$eval_args --incl_rdkit"
-    fi
-    
-    if [ "$has_batch_norm" = true ]; then
-        eval_args="$eval_args --batch_norm"
-    fi
     
     if [ -n "$checkpoint_path" ]; then
         eval_args="$eval_args --checkpoint_path \"$checkpoint_path\""
@@ -266,16 +256,13 @@ cd /scratch/um09/hl4138/dmpnn/
 # Evaluation Configuration
 # Dataset: $dataset
 # Model: $model
-# Descriptors: $has_desc
-# RDKit: $has_rdkit
-# Batch Norm: $has_batch_norm
-# Train Size: ${train_size:-full}
+# Configuration: Auto-detected from checkpoint path
 # Expected Result: results/$model/$result_file
 
 echo "Starting evaluation..."
 echo "Model: $model"
 echo "Dataset: $dataset"
-echo "Configuration: desc=$has_desc, rdkit=$has_rdkit, batch_norm=$has_batch_norm"
+echo "Configuration: Auto-detected from checkpoint path"
 
 python3 scripts/python/evaluate_model.py \\
     $eval_args

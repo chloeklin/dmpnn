@@ -29,6 +29,48 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def extract_config_from_checkpoint_path(checkpoint_path: str) -> dict:
+    """Extract training configuration from checkpoint path.
+    
+    Args:
+        checkpoint_path: Path to checkpoint file
+        
+    Returns:
+        dict: Configuration with keys 'descriptors', 'rdkit', 'batch_norm', 'train_size'
+    """
+    # Extract the experiment name from the path
+    # Format: /path/to/checkpoints/MODEL/dataset__target__[desc]__[rdkit]__[batch_norm]__[sizeN]__repN/...
+    path_parts = Path(checkpoint_path).parts
+    
+    # Find the experiment directory (contains dataset name and suffixes)
+    experiment_dir = None
+    for part in path_parts:
+        if '__rep' in part:
+            experiment_dir = part
+            break
+    
+    if not experiment_dir:
+        logger.warning(f"Could not extract experiment configuration from checkpoint path: {checkpoint_path}")
+        return {'descriptors': False, 'rdkit': False, 'batch_norm': False, 'train_size': 'full'}
+    
+    # Parse the experiment directory name
+    config = {
+        'descriptors': '__desc' in experiment_dir,
+        'rdkit': '__rdkit' in experiment_dir,
+        'batch_norm': '__batch_norm' in experiment_dir,
+        'train_size': 'full'
+    }
+    
+    # Extract train_size if present
+    if '__size' in experiment_dir:
+        import re
+        size_match = re.search(r'__size(\d+)', experiment_dir)
+        if size_match:
+            config['train_size'] = size_match.group(1)
+    
+    return config
+
+
 # === Modular Functions to Eliminate Code Duplication ===
 
 def get_metric_columns(task_type: str, results_df: pd.DataFrame) -> list:
@@ -517,29 +559,55 @@ for target in target_columns:
             logger.info(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
             orig_Xd[inf_mask] = np.nan
         
+        # Extract configuration from checkpoint path if provided
+        if args.checkpoint_path:
+            checkpoint_config = extract_config_from_checkpoint_path(args.checkpoint_path)
+            logger.info(f"Extracted config from checkpoint path: {checkpoint_config}")
+            
+            # Create a temporary args object with the extracted configuration
+            import copy
+            temp_args = copy.deepcopy(args)
+            temp_args.incl_rdkit = checkpoint_config['rdkit']
+            temp_args.batch_norm = checkpoint_config['batch_norm']
+            temp_args.train_size = checkpoint_config['train_size']
+            
+            # Update descriptor_columns based on extracted config
+            if checkpoint_config['descriptors'] and not descriptor_columns:
+                logger.warning("Checkpoint was trained with descriptors, but no descriptor columns provided!")
+            elif not checkpoint_config['descriptors'] and descriptor_columns:
+                logger.info("Checkpoint was trained without descriptors, ignoring provided descriptor columns")
+                descriptor_columns = None
+        else:
+            temp_args = args
+
         # Load preprocessing metadata directly (same as train_graph.py)
         split_preprocessing_metadata = {}
         for i in range(REPLICATES):
-            # Build experiment paths to get proper suffixes
+            # Build experiment paths to get proper suffixes using extracted config
             checkpoint_path, auto_preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+                temp_args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
             # Use provided preprocessing path or automatic path
             if args.preprocessing_path:
-                # Check if provided path already includes the experiment name
-                base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
                 provided_path = Path(args.preprocessing_path)
                 
-                # If the provided path already ends with the experiment name, use it directly
-                if provided_path.name == base_name:
-                    preprocessing_path = provided_path
-                    logger.info(f"Using provided preprocessing path directly: {preprocessing_path}")
+                # Check if the provided path is for a specific replicate (ends with __repN)
+                if '__rep' in provided_path.name:
+                    # Extract the base path by removing the __repN suffix and build path for current replicate
+                    import re
+                    base_path_name = re.sub(r'__rep\d+$', '', provided_path.name)
+                    base_directory = provided_path.parent
+                    current_rep_name = f"{base_path_name}__rep{i}"
+                    preprocessing_path = base_directory / current_rep_name
+                    logger.info(f"Extracted base from provided path: {base_path_name}")
+                    logger.info(f"Using preprocessing path for rep {i}: {preprocessing_path}")
                 else:
-                    # Otherwise, treat it as a base directory and append the experiment name
+                    # Provided path is a base directory, append the full experiment name
+                    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
                     preprocessing_path = provided_path / base_name
-                    logger.info(f"Using provided preprocessing base path: {args.preprocessing_path}")
-                    logger.info(f"Full preprocessing path with suffixes: {preprocessing_path}")
+                    logger.info(f"Using provided preprocessing base directory: {args.preprocessing_path}")
+                    logger.info(f"Full preprocessing path: {preprocessing_path}")
             else:
                 preprocessing_path = auto_preprocessing_path
                 logger.info(f"Using automatic preprocessing path: {preprocessing_path}")

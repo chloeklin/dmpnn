@@ -1,13 +1,13 @@
 # Evaluation Configuration
 # Records walltime for different datasets used in PBS job scripts
 
-walltime:
-  polyinfo: "4:00:00"
-  insulator: "2:00:00"
-  htpmd: "4:00:00"
-  opv_camb3lyp: "25:00:00"
-  opv_b3lyp: "12:00:00"
-  tc: "2:00:00"
+# walltime:
+#   polyinfo: "0:30:00"
+#   insulator: "2:30:00"
+#   htpmd: "4:30:00"
+#   opv_camb3lyp: "25:00:00"
+#   opv_b3lyp: "12:00:00"
+#   tc: "2:00:00"
   
 # Default walltime for datasets not listed above
-default_walltime: "2:00:00"
+default_walltime: "0:30:00"

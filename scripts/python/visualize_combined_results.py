@@ -301,6 +301,7 @@ def get_metrics_for_task(task_type: str) -> List[str]:
 def export_consolidated_csv(data: pd.DataFrame, dataset: str, metrics: List[str], output_dir: Path):
     """Export consolidated CSV with mean and std for each metric across all feature combinations."""
     
+    
     # Calculate summary statistics for all metrics
     agg_dict = {}
     for metric in metrics:
@@ -361,6 +362,11 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     # Check if metric exists in data
     if metric not in data.columns:
         print(f"Warning: Metric '{metric}' not found in {dataset} data. Skipping.")
+        return
+    
+    # Check if we have any targets to plot
+    if not targets:
+        print(f"Warning: No allowed targets found in {dataset} data for metric '{metric}'. Skipping plot creation.")
         return
     
     # Calculate means across splits
