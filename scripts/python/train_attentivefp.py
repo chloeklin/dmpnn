@@ -226,7 +226,7 @@ def main():
     add_model_specific_args(parser, "attentivefp")
     
     # Add AttentiveFP-specific arguments
-    parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+    # Note: --device is already defined in base parser
     
     args = parser.parse_args()
     

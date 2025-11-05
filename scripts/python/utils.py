@@ -95,9 +95,10 @@ def add_model_specific_args(parser, model_type):
         parser.add_argument('--patience', type=int, default=30)
         try:
             import torch
-            parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+            device_default='cuda' if torch.cuda.is_available() else 'cpu'
         except ImportError:
-            parser.add_argument('--device', default='cpu')
+            device_default='cpu'
+        parser.add_argument('--device', default=device_default)
         
     elif model_type == "graphormer":
         parser.add_argument("--model_name", type=str, default="Graphormer", help="Model name for config lookup")
