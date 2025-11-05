@@ -10,6 +10,18 @@ CHECKPOINTS_DIR="$PROJECT_ROOT/checkpoints"
 EVAL_SCRIPTS_DIR="$PROJECT_ROOT/scripts/shell/eval_scripts"
 PYTHON_SCRIPT="$PROJECT_ROOT/scripts/python/evaluate_model.py"
 
+# PBS configuration
+PBS_QUEUE="gpuvolta"
+PBS_PROJECT="um09"
+PBS_NCPUS="12"
+PBS_NGPUS="1"
+PBS_MEM="100GB"
+PBS_STORAGE="scratch/um09+gdata/dk92"
+PBS_JOBFS="100GB"
+
+# Default walltime
+DEFAULT_WALLTIME="2:00:00"
+
 # ── Options ───────────────────────────────────────────────────────────────────
 FORCE=false
 DRY_RUN=false
@@ -162,25 +174,28 @@ generate_eval_script() {
 
   cat > "$script_path" <<EOF
 #!/bin/bash
-#PBS -N eval_${dataset// /_}_${model}
-#PBS -l select=1:ncpus=8:mem=32gb:ngpus=1
-#PBS -l walltime=02:00:00
-#PBS -j oe
-#PBS -m abe
 
-module load python3/3.12.1
-module load intel-mkl/2023.2.0
-source ~/dmpnn-venv/bin/activate
+#PBS -q $PBS_QUEUE
+#PBS -P $PBS_PROJECT
+#PBS -l ncpus=$PBS_NCPUS
+#PBS -l ngpus=$PBS_NGPUS
+#PBS -l mem=$PBS_MEM
+#PBS -l walltime=$walltime
+#PBS -l storage=$PBS_STORAGE
+#PBS -l jobfs=$PBS_JOBFS
+#PBS -N eval-${dataset}-${model}
 
-cd \$PBS_O_WORKDIR
+module use /g/data/dk92/apps/Modules/modulefiles
+module load python3/3.12.1 cuda/12.9.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn/
 
-python3 "$PYTHON_SCRIPT" \\
+
+python3 $PYTHON_SCRIPT \\
   --model_name "$model" \\
   --dataset_name "$dataset" \\
-  $flag_target \\
   $flag_desc \\
   $flag_rdkit \\
-  $flag_bn
 
 echo "✅ Evaluation done for $model on $dataset ${target:+(target: $target)}"
 EOF
