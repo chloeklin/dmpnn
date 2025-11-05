@@ -125,6 +125,32 @@ if not model_config:
 # === Set Random Seed ===
 set_seed(SEED)
 
+# === Model-Specific Pipeline Routing ===
+if args.model_name == "AttentiveFP":
+    logger.info("🔄 AttentiveFP evaluation pipeline detected")
+    logger.warning("AttentiveFP uses different data processing (GraphCSV + PyTorch Geometric)")
+    logger.warning("Current implementation uses DMPNN pipeline - may not work correctly")
+    logger.info("For proper AttentiveFP evaluation:")
+    logger.info("  1. Use GraphCSV from train_attentivefp.py for data loading")
+    logger.info("  2. Load .pt checkpoints with EdgeGuard wrapper")
+    logger.info("  3. Extract embeddings using AttentiveFP model architecture")
+    logger.info("Full AttentiveFP pipeline implementation needed")
+    
+elif args.model_name == "Graphormer":
+    logger.error("❌ Graphormer evaluation not supported")
+    logger.info("Graphormer requires:")
+    logger.info("  1. DGL graph data format from train_graphormer.py")
+    logger.info("  2. Custom collation functions")
+    logger.info("  3. Accelerate-based model loading")
+    logger.info("  4. Graph-level embedding extraction")
+    logger.error("Please use DMPNN, wDMPNN, DMPNN_DiffPool, PPG, or AttentiveFP models")
+    sys.exit(1)
+    
+else:
+    logger.info("🔄 Using DMPNN/Lightning-based evaluation pipeline")
+
+# === Continue with Standard Pipeline (works for DMPNN variants, partially for AttentiveFP) ===
+
 # === Load and Preprocess Data ===
 df_input, target_columns = load_and_preprocess_data(args, setup_info)
 
