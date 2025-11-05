@@ -267,7 +267,7 @@ if args.model_name == "AttentiveFP":
             if args.train_size and args.train_size != "full":
                 checkpoint_name = f"{args.dataset_name}__{target}__size{args.train_size}__rep{i}.pt"
             
-            checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name
+            checkpoint_path = checkpoint_dir / checkpoint_name
             
             if not checkpoint_path.exists():
                 logger.warning(f"AttentiveFP checkpoint not found: {checkpoint_path}")
@@ -527,11 +527,19 @@ for target in target_columns:
             
             # Use provided preprocessing path or automatic path
             if args.preprocessing_path:
-                # Use provided base path but with proper experiment naming
+                # Check if provided path already includes the experiment name
                 base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
-                preprocessing_path = Path(args.preprocessing_path) / base_name
-                logger.info(f"Using provided preprocessing base path: {args.preprocessing_path}")
-                logger.info(f"Full preprocessing path with suffixes: {preprocessing_path}")
+                provided_path = Path(args.preprocessing_path)
+                
+                # If the provided path already ends with the experiment name, use it directly
+                if provided_path.name == base_name:
+                    preprocessing_path = provided_path
+                    logger.info(f"Using provided preprocessing path directly: {preprocessing_path}")
+                else:
+                    # Otherwise, treat it as a base directory and append the experiment name
+                    preprocessing_path = provided_path / base_name
+                    logger.info(f"Using provided preprocessing base path: {args.preprocessing_path}")
+                    logger.info(f"Full preprocessing path with suffixes: {preprocessing_path}")
             else:
                 preprocessing_path = auto_preprocessing_path
                 logger.info(f"Using automatic preprocessing path: {preprocessing_path}")
@@ -747,7 +755,7 @@ for target in target_columns:
                     agg=agg,
                     predictor=None,  # Will be loaded from checkpoint
                     batch_norm=args.batch_norm,
-                    metric_list=[]
+                    metrics=[]
                 )
                 
                 # Load checkpoint manually
