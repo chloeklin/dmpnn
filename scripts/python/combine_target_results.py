@@ -6,6 +6,11 @@ This script looks for files matching the pattern:
   {dataset}__*_results_{target}.csv
 and combines them into a single file:
   {dataset}__*_results.csv
+
+For OPV datasets, only specific targets are included:
+  - optical_lumo, gap, homo, lumo, spectral_overlap
+  - delta_optical_lumo, homo_extrapolated, gap_extrapolated
+Other datasets include all targets.
 """
 import os
 import re
@@ -19,6 +24,18 @@ def combine_results(results_dir: str):
     if not results_dir.exists():
         print(f"Error: Directory not found: {results_dir}")
         return
+    
+    # Define allowed targets for OPV dataset
+    opv_allowed_targets = {
+        'optical_lumo',
+        'gap', 
+        'homo',
+        'lumo',
+        'spectral_overlap',
+        'delta_optical_lumo',
+        'homo_extrapolated',
+        'gap_extrapolated'
+    }
     
     # Group files by their base name (everything before the last underscore)
     file_groups = defaultdict(list)
@@ -58,6 +75,12 @@ def combine_results(results_dir: str):
             else:
                 # For results files: dataset_results_target.csv -> target
                 target = file_path.stem.split('_results_')[-1]
+            
+            # Check if this is an OPV dataset and filter targets
+            is_opv_dataset = 'opv' in file_path.name.lower()
+            if is_opv_dataset and target not in opv_allowed_targets:
+                print(f"Skipping OPV target '{target}' (not in allowed list): {file_path.name}")
+                continue
             
             try:
                 # Read the CSV file
