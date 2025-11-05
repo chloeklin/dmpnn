@@ -38,12 +38,14 @@ parser.add_argument('--incl_desc', action='store_true',
                     help='Use dataset-specific descriptors')
 parser.add_argument('--incl_rdkit', action='store_true',
                     help='Include RDKit 2D descriptors')
-parser.add_argument('--model_name', type=str, choices=['DMPNN', 'wDMPNN'], default="DMPNN",
+parser.add_argument('--model_name', type=str, default="DMPNN",
                     help='Name of the model to use')
 parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
                     help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
 parser.add_argument('--target', type=str, default=None,
                     help='Specific target to evaluate (if not provided, evaluates all targets)')
+parser.add_argument('--checkpoint_path', type=str, default=None,
+                    help='Path to specific checkpoint file to evaluate (overrides automatic checkpoint discovery)')
 parser.add_argument('--batch_norm', action='store_true',
                     help='Use batch normalization models for evaluation')
 parser.add_argument('--train_size', type=str, default=None,
@@ -313,9 +315,17 @@ for target in target_columns:
         train_loader = data.build_dataloader(train, num_workers=eval_num_workers, shuffle=False)
         val_loader = data.build_dataloader(val, num_workers=eval_num_workers, shuffle=False)
         test_loader = data.build_dataloader(test, num_workers=eval_num_workers, shuffle=False)
-        checkpoint_path, _, _, _, _, _ = build_experiment_paths(
-            args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-        )
+        
+        # Use provided checkpoint path or build from experiment paths
+        if args.checkpoint_path:
+            # Use the specific checkpoint file provided
+            checkpoint_path = Path(args.checkpoint_path).parent  # Get directory for embeddings
+            logger.info(f"Using provided checkpoint: {args.checkpoint_path}")
+        else:
+            # Use standard experiment path building
+            checkpoint_path, _, _, _, _, _ = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
         
         # Check if embeddings already exist from train_graph.py --export_embeddings FIRST
         embeddings_dir = Path(checkpoint_path) / "embeddings"
@@ -340,12 +350,20 @@ for target in target_columns:
         else:
             logger.info("❌ No existing embeddings found, need to extract from checkpoint (slow path)")
             
-            # Only now check for checkpoint since we need to extract embeddings
-            last_ckpt = load_best_checkpoint(Path(checkpoint_path))
-            if last_ckpt is None:
-                # no checkpoint → skip this replicate (leave row without this target's metrics)
-                logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
-                continue
+            # Use provided checkpoint file or discover best checkpoint
+            if args.checkpoint_path:
+                last_ckpt = Path(args.checkpoint_path)
+                if not last_ckpt.exists():
+                    logger.warning(f"Provided checkpoint file does not exist: {args.checkpoint_path}; skipping rep {i} for target {target}.")
+                    continue
+                logger.info(f"Using provided checkpoint file: {last_ckpt}")
+            else:
+                # Only now check for checkpoint since we need to extract embeddings
+                last_ckpt = load_best_checkpoint(Path(checkpoint_path))
+                if last_ckpt is None:
+                    # no checkpoint → skip this replicate (leave row without this target's metrics)
+                    logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
+                    continue
             
             # Load encoder and make fingerprints (map to CPU if CUDA not available)
             import torch
