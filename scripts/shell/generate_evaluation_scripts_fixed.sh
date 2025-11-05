@@ -330,40 +330,39 @@ for model_dir in "$CHECKPOINTS_DIR"/*; do
             fi
         done
         
-        if [ "$all_reps_exist" = false ]; then
-            continue
+        if [ "$all_reps_exist" = true ]; then
+            checkpoint_count=$((checkpoint_count + 1))
+
+            # Parse experiment name
+            IFS='|' read -r dataset target has_desc has_rdkit has_batch_norm <<< "$(parse_experiment_name "$exp_name")"
+
+            # Skip if specific dataset requested and this isn't it
+            if [ -n "$SPECIFIC_DATASET" ] && [ "$dataset" != "$SPECIFIC_DATASET" ]; then
+                continue
+            fi
+
+            echo "  ✅ $dataset::$target (5/5 replicates)"
+
+            # Create unique config key
+            if [ "$TARGET_SPECIFIC" = true ]; then
+                config_key="${model}|${dataset}|${target}|${has_desc}|${has_rdkit}|${has_batch_norm}"
+            else
+                config_key="${model}|${dataset}|${has_desc}|${has_rdkit}|${has_batch_norm}"
+            fi
+
+            # Skip if we've already seen this configuration
+            if grep -Fxq "$config_key" "$CONFIGS_FILE" 2>/dev/null; then
+                continue
+            fi
+
+            echo "$config_key" >> "$CONFIGS_FILE"
+            ((total_complete_experiments++))
+
+            # ✅ Generate evaluation script now that all reps exist
+            generate_eval_script "$model" "$dataset" "$target" "$has_desc" "$has_rdkit" "$has_batch_norm"
+            ((total_scripts++))
         fi
-        
-        checkpoint_count=$((checkpoint_count + 1))
-        
-        # Parse experiment name
-        IFS='|' read -r dataset target has_desc has_rdkit has_batch_norm <<< "$(parse_experiment_name "$exp_name")"
-        
-        # Skip if specific dataset requested and this isn't it
-        if [ -n "$SPECIFIC_DATASET" ] && [ "$dataset" != "$SPECIFIC_DATASET" ]; then
-            continue
-        fi
-        
-        echo "  ✅ $dataset::$target (5/5 replicates)"
-        
-        # Create unique config key
-        if [ "$TARGET_SPECIFIC" = true ]; then
-            config_key="${model}|${dataset}|${target}|${has_desc}|${has_rdkit}|${has_batch_norm}"
-        else
-            config_key="${model}|${dataset}|${has_desc}|${has_rdkit}|${has_batch_norm}"
-        fi
-        
-        # Skip if we've already seen this configuration
-        if grep -Fxq "$config_key" "$CONFIGS_FILE" 2>/dev/null; then
-            continue
-        fi
-        
-        echo "$config_key" >> "$CONFIGS_FILE"
-        ((total_complete_experiments++))
-        
-        # Generate script
-        generate_eval_script "$model" "$dataset" "$target" "$has_desc" "$has_rdkit" "$has_batch_norm"
-        ((total_scripts++))
+
     done
     
     echo "  📊 Model $model: $exp_count experiments, $checkpoint_count complete"
