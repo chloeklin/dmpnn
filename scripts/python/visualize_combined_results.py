@@ -61,7 +61,7 @@ def parse_filename(filename: str) -> tuple:
     
     return dataset, features
 
-def parse_model_filename(filename: str, method: str) -> tuple:
+def parse_model_filename(filename: str, method: str, model_name: str = None) -> tuple:
     """Parse model CSV filename to extract dataset and feature information."""
     # Remove .csv extension and method suffix first
     base = filename.replace('.csv', '')
@@ -77,19 +77,25 @@ def parse_model_filename(filename: str, method: str) -> tuple:
         base = base.replace('_batch_norm', '')
         batch_norm = True
     
+    # For baseline methods, include the model name
+    if method == 'Baseline' and model_name:
+        method_name = f'Baseline_{model_name}'
+    else:
+        method_name = method
+    
     # Handle different feature combinations
     if '__desc__rdkit' in base:
         dataset = base.replace('__desc__rdkit', '')
-        features = f'{method}+Desc+RDKit'
+        features = f'{method_name}+Desc+RDKit'
     elif '__desc' in base:
         dataset = base.replace('__desc', '')
-        features = f'{method}+Desc'
+        features = f'{method_name}+Desc'
     elif '__rdkit' in base:
         dataset = base.replace('__rdkit', '')
-        features = f'{method}+RDKit'
+        features = f'{method_name}+RDKit'
     else:
         dataset = base
-        features = method
+        features = method_name
     
     # Clean up any trailing underscores in dataset name
     dataset = dataset.rstrip('_')
@@ -99,6 +105,43 @@ def parse_model_filename(filename: str, method: str) -> tuple:
         features = f"{features} (BN)"
     
     return dataset, features
+
+def apply_opv_target_filtering(results: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+    """Filter OPV datasets to only include specific targets."""
+    # Define allowed targets for OPV dataset
+    opv_allowed_targets = {
+        'optical_lumo',
+        'gap', 
+        'homo',
+        'lumo',
+        'spectral_overlap',
+        'delta_optical_lumo',
+        'homo_extrapolated',
+        'gap_extrapolated'
+    }
+    
+    filtered_results = {}
+    for dataset, df in results.items():
+        # Check if this is an OPV dataset
+        is_opv_dataset = 'opv' in dataset.lower()
+        
+        if is_opv_dataset and 'target' in df.columns:
+            # Filter to only allowed targets
+            original_targets = set(df['target'].unique())
+            df_filtered = df[df['target'].isin(opv_allowed_targets)]
+            filtered_targets = set(df_filtered['target'].unique())
+            
+            removed_targets = original_targets - filtered_targets
+            if removed_targets:
+                print(f"Filtered OPV dataset '{dataset}': removed targets {sorted(removed_targets)}")
+                print(f"Kept targets: {sorted(filtered_targets)}")
+            
+            filtered_results[dataset] = df_filtered
+        else:
+            # Keep all targets for non-OPV datasets
+            filtered_results[dataset] = df
+    
+    return filtered_results
 
 def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataFrame]:
     """Load results CSV files for a specific method (Graph, Baseline, or Tabular)."""
@@ -122,10 +165,10 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 continue
                 
             try:
-                dataset, features = parse_model_filename(csv_file.name, method)
-                
-                # Extract model name from path
+                # Extract model name from path first
                 model_name = csv_file.parent.name
+                
+                dataset, features = parse_model_filename(csv_file.name, method, model_name)
                 
                 df = pd.read_csv(csv_file)
                 
@@ -179,12 +222,12 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 if method == 'Graph':
                     df['model'] = model_name
                 elif method == 'Baseline':
-                    # For Baseline, group by baseline model type instead of encoder
+                    # For Baseline, include encoder name in method to distinguish between different baselines
                     df['encoder'] = model_name  # Store the encoder (DMPNN/wDMPNN)
                     df['baseline_model'] = df['model']  # Store original model (Linear/RF/XGB)
                     # Group by baseline model type, not encoder
                     df['model'] = df['model']  # Keep original baseline model name
-                    df['method'] = f"Baseline"  # Use consistent method name
+                    df['method'] = f"Baseline_{model_name}"  # Include encoder name in method
                 
                 # Convert MSE to RMSE if MSE column exists
                 if 'mse' in df.columns:
@@ -246,6 +289,9 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
     # Concatenate all feature combinations for each dataset
     for dataset in results:
         results[dataset] = pd.concat(results[dataset], ignore_index=True)
+    
+    # Apply OPV target filtering
+    results = apply_opv_target_filtering(results)
     
     return results
 
@@ -349,8 +395,13 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     # Define desired feature order for combined plots, including batch norm variants
     base_features = [
         'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
-        'Baseline', 'Baseline+RDKit', 'Baseline+Desc+RDKit',  # Baseline features (after tabular)
-        'Baseline (BN)', 'Baseline+RDKit (BN)', 'Baseline+Desc+RDKit (BN)',  # Baseline with batch norm
+        'Baseline_DMPNN', 'Baseline_DMPNN+RDKit', 'Baseline_DMPNN+Desc+RDKit',  # DMPNN Baseline features
+        'Baseline_DMPNN (BN)', 'Baseline_DMPNN+RDKit (BN)', 'Baseline_DMPNN+Desc+RDKit (BN)',  # DMPNN Baseline with batch norm
+        'Baseline_wDMPNN', 'Baseline_wDMPNN+RDKit', 'Baseline_wDMPNN+Desc+RDKit',  # wDMPNN Baseline features
+        'Baseline_wDMPNN (BN)', 'Baseline_wDMPNN+RDKit (BN)', 'Baseline_wDMPNN+Desc+RDKit (BN)',  # wDMPNN Baseline with batch norm
+        'Baseline_DMPNN_DiffPool', 'Baseline_DMPNN_DiffPool+RDKit', 'Baseline_DMPNN_DiffPool+Desc+RDKit',  # DMPNN_DiffPool Baseline
+        'Baseline_PPG', 'Baseline_PPG+RDKit', 'Baseline_PPG+Desc+RDKit',  # PPG Baseline features
+        'Baseline_AttentiveFP', 'Baseline_AttentiveFP+RDKit', 'Baseline_AttentiveFP+Desc+RDKit',  # AttentiveFP Baseline features
         'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit',  # Graph features
         'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)'  # Graph with batch norm
     ]
@@ -391,8 +442,12 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
         # Tabular models (keep existing colors)
         'Tabular': {'Linear': '#1f77b4', 'RF': '#ff7f0e', 'XGB': '#2ca02c', 'LogReg': '#1f77b4'},
         
-        # Baseline models (consistent colors regardless of encoder)
-        'Baseline': {'Linear': '#87CEEB', 'RF': '#FFB347', 'XGB': '#90EE90', 'LogReg': '#87CEEB'},
+        # Baseline models (different colors for different encoders)
+        'Baseline_DMPNN': {'Linear': '#87CEEB', 'RF': '#FFB347', 'XGB': '#90EE90', 'LogReg': '#87CEEB'},
+        'Baseline_wDMPNN': {'Linear': '#DDA0DD', 'RF': '#F0E68C', 'XGB': '#98FB98', 'LogReg': '#DDA0DD'},
+        'Baseline_DMPNN_DiffPool': {'Linear': '#B0E0E6', 'RF': '#FFDAB9', 'XGB': '#AFEEEE', 'LogReg': '#B0E0E6'},
+        'Baseline_PPG': {'Linear': '#D2B48C', 'RF': '#F5DEB3', 'XGB': '#E0FFFF', 'LogReg': '#D2B48C'},
+        'Baseline_AttentiveFP': {'Linear': '#F0B27A', 'RF': '#F7DC6F', 'XGB': '#ABEBC6', 'LogReg': '#F0B27A'},
         
         # Graph models (keep existing colors)
         'Graph_DMPNN': '#d62728',
@@ -424,11 +479,12 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
             
             model_data = target_data[(target_data['model'] == model) & (target_data['method'] == method)]
             
-            # Get color - handle both tabular, baseline, and graph methods
+            # Get color - handle tabular, baseline, and graph methods
             if method == 'Tabular':
                 color = colors.get('Tabular', {}).get(model, '#1f77b4')
-            elif method == 'Baseline':
-                color = colors.get('Baseline', {}).get(model, '#87CEEB')
+            elif method.startswith('Baseline_'):
+                # For Baseline_DMPNN, Baseline_wDMPNN, etc.
+                color = colors.get(method, {}).get(model, '#87CEEB')
             else:
                 # For Graph_DMPNN, Graph_wDMPNN, etc.
                 color = colors.get(method, '#1f77b4')
