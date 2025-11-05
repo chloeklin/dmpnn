@@ -182,9 +182,13 @@ for model_dir in "$CHECKPOINTS_DIR"/*; do
         for i in {0..4}; do
             rep_dir="${exp_dir%__rep0}__rep${i}"
             [ -d "$rep_dir" ] || { all_reps_exist=false; break; }
-            if ! ls "$rep_dir"/best*.ckpt "$rep_dir"/best.pt "$rep_dir"/logs/checkpoints/epoch=*-step=*.ckpt "$rep_dir"/last.ckpt >/dev/null 2>&1; then
-                all_reps_exist=false; break
+            # Flexible checkpoint detection
+            if find "$rep_dir" -maxdepth 2 -type f \
+                \( -name "best.pt" -o -name "best*.ckpt" -o -name "last.ckpt" -o -path "*/logs/checkpoints/epoch=*-step=*.ckpt" \) \
+                | grep -q .; then
+                checkpoint_found=true
             fi
+
         done
         [ "$all_reps_exist" = true ] || continue
         ((checkpoint_count++))
