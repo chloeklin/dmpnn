@@ -349,6 +349,7 @@ for target in target_columns:
             logger.info(f"  - X_test: {X_test.shape}")
         else:
             logger.info("❌ No existing embeddings found, need to extract from checkpoint (slow path)")
+            logger.info("🔄 NOTE: This script ONLY loads trained checkpoints for evaluation - NO TRAINING occurs")
             
             # Use provided checkpoint file or discover best checkpoint
             if args.checkpoint_path:
@@ -369,6 +370,8 @@ for target in target_columns:
             import torch
             map_location = torch.device('cpu') if not torch.cuda.is_available() else None
             
+            logger.info("📥 Loading trained model from checkpoint for embedding extraction...")
+            
             # Handle different checkpoint formats
             if str(last_ckpt).endswith('.pt'):
                 # AttentiveFP checkpoint format
@@ -387,7 +390,8 @@ for target in target_columns:
                 # Load checkpoint
                 checkpoint = torch.load(last_ckpt, map_location=map_location)
                 model.load_state_dict({k: v.to(map_location or torch.device('cuda')) for k, v in checkpoint["state_dict"].items()})
-                model.eval()
+                model.eval()  # Ensure evaluation mode
+                logger.info("✅ AttentiveFP model loaded in evaluation mode")
                 
                 # For AttentiveFP, we need to extract embeddings differently
                 # Use the core.gnn for embeddings (same as train_attentivefp.py)
@@ -401,7 +405,10 @@ for target in target_columns:
                 # Lightning checkpoint format (DMPNN, wDMPNN, etc.)
                 logger.info(f"Loading Lightning checkpoint: {last_ckpt}")
                 mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
-                mpnn.eval()
+                mpnn.eval()  # Ensure evaluation mode
+                logger.info("✅ Lightning model loaded in evaluation mode")
+                
+            logger.info("🧠 Extracting embeddings from trained model...")
             X_train = get_encodings_from_loader(mpnn, train_loader)
             X_val = get_encodings_from_loader(mpnn, val_loader)
             X_test = get_encodings_from_loader(mpnn, test_loader)
