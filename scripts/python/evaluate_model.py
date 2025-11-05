@@ -28,6 +28,106 @@ from sklearn.metrics import (
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+# === Modular Functions to Eliminate Code Duplication ===
+
+def get_metric_columns(task_type: str, results_df: pd.DataFrame) -> list:
+    """Get metric column names based on task type."""
+    if task_type == "reg":
+        metric_cols = ["test/mae", "test/r2", "test/rmse"]
+    else:
+        metric_cols = ["test/accuracy", "test/f1"]
+        if "test/roc_auc" in results_df.columns:
+            metric_cols.append("test/roc_auc")
+    return metric_cols
+
+
+def build_results_filename(args, results_dir: Path, descriptor_columns: list = None) -> Path:
+    """Build results filename with appropriate suffixes."""
+    # Create model results directory
+    model_results_dir = results_dir / args.model_name
+    model_results_dir.mkdir(exist_ok=True)
+    
+    # Build filename with suffixes
+    filename_parts = [args.dataset_name]
+    
+    # Add descriptor suffixes (for DMPNN pipeline)
+    if descriptor_columns:
+        desc_suffix = "__desc" if descriptor_columns else ""
+        if desc_suffix:
+            filename_parts.append("desc")
+    
+    if hasattr(args, 'incl_rdkit') and args.incl_rdkit:
+        filename_parts.append("rdkit")
+    
+    if hasattr(args, 'batch_norm') and args.batch_norm:
+        filename_parts.append("batch_norm")
+    
+    # Add target suffix if specific target
+    if args.target:
+        filename_parts.append(args.target)
+    
+    # Join with double underscores and add suffix
+    if len(filename_parts) == 1:
+        filename = f"{filename_parts[0]}_baseline.csv"
+    else:
+        filename = "__".join(filename_parts) + "_baseline.csv"
+    
+    return model_results_dir / filename
+
+
+def save_evaluation_results(results_df: pd.DataFrame, args, results_dir: Path, 
+                          descriptor_columns: list = None, model_name: str = None) -> Path:
+    """Save evaluation results with proper formatting and return the output path."""
+    if results_df.empty:
+        logger.warning("No results to save - empty DataFrame")
+        return None
+    
+    # Build output filename
+    out_csv = build_results_filename(args, results_dir, descriptor_columns)
+    
+    # Organize columns: target, split, then metrics, then model
+    base_cols = ["target", "split"]
+    metric_cols = get_metric_columns(args.task_type, results_df)
+    extra_cols = [c for c in results_df.columns if c not in base_cols + metric_cols]
+    results_df = results_df[base_cols + metric_cols + extra_cols]
+    
+    # Save to CSV
+    results_df.to_csv(out_csv, index=False)
+    
+    return out_csv
+
+
+def print_evaluation_summary(results_df: pd.DataFrame, model_name: str = None):
+    """Print summary statistics for evaluation results."""
+    model_label = f"{model_name} " if model_name else ""
+    logger.info(f"\n=== {model_label}Evaluation Summary ===")
+    
+    for col in results_df.columns:
+        if col.startswith('test/'):
+            mean_val = results_df[col].mean()
+            std_val = results_df[col].std()
+            logger.info(f"{col}: {mean_val:.4f} ± {std_val:.4f}")
+
+
+def save_and_summarize_results(results_df: pd.DataFrame, args, results_dir: Path,
+                             descriptor_columns: list = None, model_name: str = None) -> Path:
+    """Complete results saving and summary printing."""
+    if results_df.empty:
+        logger.warning("No results to save")
+        return None
+    
+    # Save results
+    out_csv = save_evaluation_results(results_df, args, results_dir, descriptor_columns, model_name)
+    
+    if out_csv:
+        logger.info(f"✅ {model_name or args.model_name} results saved to: {out_csv}")
+        
+        # Print summary statistics
+        print_evaluation_summary(results_df, model_name)
+    
+    return out_csv
+
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Train a Chemprop model for regression or classification')
 parser.add_argument('--dataset_name', type=str, required=True,
@@ -127,14 +227,201 @@ set_seed(SEED)
 
 # === Model-Specific Pipeline Routing ===
 if args.model_name == "AttentiveFP":
-    logger.info("🔄 AttentiveFP evaluation pipeline detected")
-    logger.warning("AttentiveFP uses different data processing (GraphCSV + PyTorch Geometric)")
-    logger.warning("Current implementation uses DMPNN pipeline - may not work correctly")
-    logger.info("For proper AttentiveFP evaluation:")
-    logger.info("  1. Use GraphCSV from train_attentivefp.py for data loading")
-    logger.info("  2. Load .pt checkpoints with EdgeGuard wrapper")
-    logger.info("  3. Extract embeddings using AttentiveFP model architecture")
-    logger.info("Full AttentiveFP pipeline implementation needed")
+    logger.info("🔄 AttentiveFP evaluation pipeline")
+    
+    # Import AttentiveFP utilities
+    from attentivefp_utils import GraphCSV, create_attentivefp_model, extract_embeddings
+    from torch_geometric.loader import DataLoader
+    from sklearn.preprocessing import StandardScaler
+    
+    # Load and preprocess data
+    df_input, target_columns = load_and_preprocess_data(args, setup_info)
+    
+    # Filter target columns if specific target is provided
+    if args.target:
+        if args.target not in target_columns:
+            logger.error(f"Target '{args.target}' not found in dataset. Available targets: {target_columns}")
+            sys.exit(1)
+        target_columns = [args.target]
+        logger.info(f"Evaluating single target: {args.target}")
+    
+    # Results storage
+    all_results = []
+    
+    # Process each target
+    for target in target_columns:
+        logger.info(f"\n=== Evaluating target: {target} ===")
+        
+        # Determine split strategy
+        ys = df_input.loc[:, target].astype(float).values
+        n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
+        
+        # Generate data splits
+        train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+        
+        for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
+            logger.info(f"\n--- Split {i+1}/{len(train_indices)} ---")
+            
+            # Build checkpoint path for AttentiveFP
+            checkpoint_name = f"{args.dataset_name}__{target}__rep{i}.pt"
+            if args.train_size and args.train_size != "full":
+                checkpoint_name = f"{args.dataset_name}__{target}__size{args.train_size}__rep{i}.pt"
+            
+            checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name
+            
+            if not checkpoint_path.exists():
+                logger.warning(f"AttentiveFP checkpoint not found: {checkpoint_path}")
+                continue
+            
+            logger.info(f"✅ Found AttentiveFP checkpoint: {checkpoint_path}")
+            
+            # Create datasets using AttentiveFP format
+            df_tr = df_input.iloc[tr].reset_index(drop=True)
+            df_va = df_input.iloc[va].reset_index(drop=True)
+            df_te = df_input.iloc[te].reset_index(drop=True)
+            
+            # Create AttentiveFP datasets
+            train_dataset = GraphCSV(df_tr, smiles_column, target, task_type=args.task_type)
+            val_dataset = GraphCSV(df_va, smiles_column, target, task_type=args.task_type)
+            test_dataset = GraphCSV(df_te, smiles_column, target, task_type=args.task_type)
+            
+            # Setup scaling for regression (match training)
+            scaler = None
+            if args.task_type == 'reg':
+                scaler = StandardScaler()
+                train_dataset.y = scaler.fit_transform(train_dataset.y)
+                val_dataset.y = scaler.transform(val_dataset.y)
+                # Keep test targets unscaled for evaluation
+            
+            # Create data loaders
+            train_loader = DataLoader(train_dataset, batch_size=64, shuffle=False)
+            val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
+            test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+            
+            # Load AttentiveFP model
+            import torch
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            
+            # Get number of classes for multi-class tasks
+            n_classes = None
+            if args.task_type == 'multi':
+                n_classes = df_input[target].dropna().nunique()
+            
+            # Create model with same architecture as training
+            model = create_attentivefp_model(
+                task_type=args.task_type,
+                n_classes=n_classes,
+                hidden_channels=200,  # Default from training
+                num_layers=2,
+                num_timesteps=2,
+                dropout=0.0
+            ).to(device)
+            
+            # Load checkpoint (AttentiveFP format)
+            checkpoint = torch.load(checkpoint_path, map_location=device)
+            model.load_state_dict({k: v.to(device) for k, v in checkpoint["state_dict"].items()})
+            model.eval()
+            
+            logger.info("✅ AttentiveFP model loaded successfully")
+            
+            # Extract embeddings if requested
+            if args.export_embeddings:
+                logger.info("🧠 Extracting AttentiveFP embeddings...")
+                
+                # Extract embeddings
+                train_emb = extract_embeddings(model, train_loader, device)
+                val_emb = extract_embeddings(model, val_loader, device)
+                test_emb = extract_embeddings(model, test_loader, device)
+                
+                # Save embeddings
+                embeddings_dir = checkpoint_path.parent / "embeddings"
+                embeddings_dir.mkdir(exist_ok=True)
+                
+                np.save(embeddings_dir / f"X_train_split_{i}.npy", train_emb)
+                np.save(embeddings_dir / f"X_val_split_{i}.npy", val_emb)
+                np.save(embeddings_dir / f"X_test_split_{i}.npy", test_emb)
+                
+                # Create feature mask (all features are valid for AttentiveFP embeddings)
+                feature_mask = np.ones(train_emb.shape[1], dtype=bool)
+                np.save(embeddings_dir / f"feature_mask_split_{i}.npy", feature_mask)
+                
+                logger.info(f"AttentiveFP embeddings saved to {embeddings_dir}")
+            
+            # Evaluate model performance
+            logger.info("📊 Evaluating AttentiveFP model performance...")
+            
+            # Test evaluation - match training evaluation exactly
+            model.eval()
+            y_true, y_pred = [], []
+            
+            with torch.no_grad():
+                for batch in test_loader:
+                    batch = batch.to(device)
+                    pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                    
+                    # Handle different prediction formats - match training
+                    if args.task_type == 'reg':
+                        # Regression: inverse transform scaling
+                        pred = scaler.inverse_transform(pred.view(-1,1).cpu().numpy()).reshape(-1)
+                        y_pred.append(pred)
+                        y_true.append(batch.y.view(-1,1).cpu().numpy().reshape(-1))  # test was NOT scaled
+                    elif args.task_type == 'binary':
+                        # Binary classification: apply sigmoid
+                        pred_prob = torch.sigmoid(pred.view(-1)).cpu().numpy()
+                        pred_class = (pred_prob >= 0.5).astype(int)
+                        y_pred.append(pred_class)
+                        y_true.append(batch.y.view(-1).cpu().numpy().astype(int))
+                    elif args.task_type == 'multi':
+                        # Multi-class classification: use argmax
+                        pred_class = torch.argmax(pred, dim=1).cpu().numpy()
+                        y_pred.append(pred_class)
+                        y_true.append(batch.y.view(-1).cpu().numpy().astype(int))
+            
+            # Concatenate results
+            y_true = np.concatenate(y_true)
+            y_pred = np.concatenate(y_pred)
+            
+            # Calculate metrics
+            from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, accuracy_score, f1_score, roc_auc_score
+            
+            result_row = {'target': target, 'split': i}
+            
+            if args.task_type == 'reg':
+                result_row['test/mae'] = mean_absolute_error(y_true, y_pred)
+                result_row['test/rmse'] = np.sqrt(mean_squared_error(y_true, y_pred))
+                result_row['test/r2'] = r2_score(y_true, y_pred)
+            else:  # binary or multi-class
+                result_row['test/accuracy'] = accuracy_score(y_true, y_pred)
+                result_row['test/f1'] = f1_score(y_true, y_pred, average='weighted' if args.task_type == 'multi' else 'binary')
+                
+                # Add ROC-AUC for binary classification
+                if args.task_type == 'binary':
+                    try:
+                        # Get probabilities for ROC-AUC
+                        y_prob = []
+                        with torch.no_grad():
+                            for batch in test_loader:
+                                batch = batch.to(device)
+                                pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                                pred_prob = torch.sigmoid(pred.view(-1)).cpu().numpy()
+                                y_prob.append(pred_prob)
+                        y_prob = np.concatenate(y_prob)
+                        result_row['test/roc_auc'] = roc_auc_score(y_true, y_prob)
+                    except ValueError:
+                        result_row['test/roc_auc'] = np.nan
+            
+            result_row['model'] = 'AttentiveFP'
+            all_results.append(result_row)
+            
+            logger.info(f"AttentiveFP evaluation complete for split {i}")
+    
+    # Save results using modular function
+    if all_results:
+        results_df = pd.DataFrame(all_results)
+        save_and_summarize_results(results_df, args, results_dir, model_name="AttentiveFP")
+    
+    logger.info("🎉 AttentiveFP evaluation complete!")
+    sys.exit(0)  # Exit after AttentiveFP evaluation
     
 elif args.model_name == "Graphormer":
     logger.error("❌ Graphormer evaluation not supported")
@@ -178,7 +465,7 @@ variant_qstattag = "" if variant_label == "original" else "_" + variant_label.re
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
 
 # Choose featurizer based on model type
-small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "AttentiveFP", "PPG", "Graphormer"]
+small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG"]
 featurizer = (
     featurizers.SimpleMoleculeMolGraphFeaturizer() 
     if args.model_name in small_molecule_models 
@@ -437,97 +724,44 @@ for target in target_columns:
             logger.info("📥 Loading trained model from checkpoint for embedding extraction...")
             
             # Handle different checkpoint formats and model types
-            if str(last_ckpt).endswith('.pt'):
-                # AttentiveFP checkpoint format
-                logger.info(f"Loading AttentiveFP checkpoint: {last_ckpt}")
+            # This section only handles DMPNN variants since AttentiveFP and Graphormer exit early
+            if args.model_name == "DMPNN_DiffPool":
+                # DMPNN_DiffPool has different architecture - need to create model first
+                logger.info("Creating DMPNN_DiffPool model architecture...")
                 
-                # Create AttentiveFP model (same as train_attentivefp.py)
-                from train_attentivefp import EdgeGuard
+                # Import required modules
+                from chemprop import nn
                 
-                # Determine output channels (we'll use 1 for embedding extraction)
-                core = models.AttentiveFP(
-                    in_channels=39, hidden_channels=200, out_channels=1, edge_dim=10,
-                    num_layers=2, num_timesteps=2, dropout=0.0
+                # Create the same architecture as in training (from utils.py)
+                base_mp_cls = nn.BondMessagePassing
+                mp = nn.BondMessagePassingWithDiffPool(
+                    base_mp_cls=base_mp_cls,
+                    depth=1,  # default diffpool_depth
+                    ratio=0.5  # default diffpool_ratio
                 )
-                model = EdgeGuard(core, edge_dim=10)
+                agg = nn.IdentityAggregation()
                 
-                # Load checkpoint
+                # Create MPNN with DiffPool architecture
+                mpnn = models.MPNN(
+                    message_passing=mp,
+                    agg=agg,
+                    predictor=None,  # Will be loaded from checkpoint
+                    batch_norm=args.batch_norm,
+                    metric_list=[]
+                )
+                
+                # Load checkpoint manually
                 checkpoint = torch.load(last_ckpt, map_location=map_location)
-                model.load_state_dict({k: v.to(map_location or torch.device('cuda')) for k, v in checkpoint["state_dict"].items()})
-                model.eval()  # Ensure evaluation mode
-                logger.info("✅ AttentiveFP model loaded in evaluation mode")
+                mpnn.load_state_dict(checkpoint["state_dict"], strict=False)
+                mpnn.eval()
+                logger.info("✅ DMPNN_DiffPool model loaded in evaluation mode")
                 
-                # For AttentiveFP, we need to extract embeddings differently
-                # Use the core.gnn for embeddings (same as train_attentivefp.py)
-                if hasattr(model.core, "gnn"):
-                    mpnn = model.core.gnn  # Use the GNN part for embeddings
-                else:
-                    logger.warning("AttentiveFP model doesn't expose .gnn, using full model")
-                    mpnn = model.core
-                    
-            elif args.model_name == "Graphormer":
-                # Graphormer model loading
-                logger.info(f"Loading Graphormer checkpoint: {last_ckpt}")
-                
-                # Graphormer uses different data format and loading approach
-                logger.warning("Graphormer evaluation not yet fully implemented")
-                logger.info("Graphormer evaluation would require:")
-                logger.info("  1. Loading Graphormer model architecture from train_graphormer.py")
-                logger.info("  2. Converting molecular data to DGL graph format")
-                logger.info("  3. Implementing graph-level embedding extraction")
-                logger.info("  4. Handling Accelerate-based model loading")
-                logger.info("  5. Converting embeddings to tabular format for sklearn models")
-                
-                # TODO: Full Graphormer implementation would look like:
-                # from train_graphormer import Graphormer, create_graphormer_dataset, collate_graphormer
-                # model = Graphormer(...)
-                # model.load_state_dict(torch.load(last_ckpt))
-                # # Convert data to DGL format and extract embeddings
-                
-                logger.warning(f"Skipping Graphormer evaluation for rep {i} - implementation needed")
-                continue
-                    
             else:
-                # Lightning checkpoint format (DMPNN, wDMPNN, etc.)
-                logger.info(f"Loading Lightning checkpoint: {last_ckpt}")
-                
-                # Load model based on model type
-                if args.model_name == "DMPNN_DiffPool":
-                    # DMPNN_DiffPool has different architecture - need to create model first
-                    logger.info("Creating DMPNN_DiffPool model architecture...")
-                    
-                    # Import required modules
-                    from chemprop import nn
-                    
-                    # Create the same architecture as in training (from utils.py)
-                    base_mp_cls = nn.BondMessagePassing
-                    mp = nn.BondMessagePassingWithDiffPool(
-                        base_mp_cls=base_mp_cls,
-                        depth=1,  # default diffpool_depth
-                        ratio=0.5  # default diffpool_ratio
-                    )
-                    agg = nn.IdentityAggregation()
-                    
-                    # Create MPNN with DiffPool architecture
-                    mpnn = models.MPNN(
-                        message_passing=mp,
-                        agg=agg,
-                        predictor=None,  # Will be loaded from checkpoint
-                        batch_norm=args.batch_norm,
-                        metric_list=[]
-                    )
-                    
-                    # Load checkpoint manually
-                    checkpoint = torch.load(last_ckpt, map_location=map_location)
-                    mpnn.load_state_dict(checkpoint["state_dict"], strict=False)
-                    mpnn.eval()
-                    logger.info("✅ DMPNN_DiffPool model loaded in evaluation mode")
-                    
-                else:
-                    # Standard models (DMPNN, wDMPNN, PPG)
-                    mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
-                    mpnn.eval()  # Ensure evaluation mode
-                    logger.info(f"✅ {args.model_name} model loaded in evaluation mode")
+                # Standard DMPNN variants (DMPNN, wDMPNN, PPG)
+                logger.info(f"Loading {args.model_name} Lightning checkpoint: {last_ckpt}")
+                mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
+                mpnn.eval()  # Ensure evaluation mode
+                logger.info(f"✅ {args.model_name} model loaded in evaluation mode")
                 
             logger.info("🧠 Extracting embeddings from trained model...")
             X_train = get_encodings_from_loader(mpnn, train_loader)
@@ -679,27 +913,4 @@ for (rep_idx, model_name), row_data in rep_model_to_row.items():
 
 if eval_results:
     results_df = pd.DataFrame(eval_results)
-    
-    # Use train_graph.py naming convention and directory structure
-    desc_suffix = "__desc" if descriptor_columns else ""
-    rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
-    batch_norm_suffix = "__batch_norm" if args.batch_norm else ""
-    target_suffix = f"__{args.target}" if args.target else ""
-    
-    model_results_dir = results_dir / args.model_name
-    model_results_dir.mkdir(exist_ok=True)
-    out_csv = model_results_dir / f"{args.dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{target_suffix}_baseline.csv"
-    
-    # Organize columns to match train_graph.py: target, split, then metrics, then model
-    base_cols = ["target", "split"]
-    if args.task_type == "reg":
-        metric_cols = ["test/mae", "test/r2", "test/rmse"]
-    else:
-        metric_cols = ["test/accuracy", "test/f1"]
-        if "test/roc_auc" in results_df.columns:
-            metric_cols.append("test/roc_auc")
-    extra_cols = [c for c in results_df.columns if c not in base_cols + metric_cols]
-    results_df = results_df[base_cols + metric_cols + extra_cols]
-    
-    results_df.to_csv(out_csv, index=False)
-    logger.info(f"Wrote/updated: {out_csv}")
+    save_and_summarize_results(results_df, args, results_dir, descriptor_columns)
