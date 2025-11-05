@@ -1,4 +1,3 @@
-import argparse
 import logging
 import numpy as np
 import pandas as pd
@@ -9,71 +8,25 @@ from utils import (set_seed, process_data,
                   create_all_data, build_model_and_trainer, get_metric_list,
                   build_experiment_paths, validate_checkpoint_compatibility, manage_preprocessing_cache,
                   setup_training_environment, load_and_preprocess_data, determine_split_strategy, 
-                  generate_data_splits, save_aggregate_results, get_encodings_from_loader, save_predictions)
+                  generate_data_splits, save_aggregate_results, get_encodings_from_loader, save_predictions,
+                  create_base_argument_parser, add_model_specific_args, validate_train_size_argument,
+                  setup_model_environment, save_model_results)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Parse command line arguments
-parser = argparse.ArgumentParser(description='Train a Chemprop model for regression or classification')
-parser.add_argument('--dataset_name', type=str, required=True,
-                    help='Name of the dataset file (without .csv extension)')
-parser.add_argument('--task_type', type=str,
-    choices=['reg','binary','multi','mixed-reg-multi'], default='reg')
-
-parser.add_argument('--incl_desc', action='store_true',
-                    help='Use dataset-specific descriptors')
-parser.add_argument('--incl_rdkit', action='store_true',
-                    help='Include RDKit descriptors')
-parser.add_argument('--model_name', type=str, default="DMPNN", choices=["DMPNN", "wDMPNN", "PPG","DMPNN_DiffPool"],
-                    help='Name of the model to use')
-parser.add_argument('--target', type=str, default=None,
-                    help='Specific target column to train on (if not specified, trains on all targets)')
-parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
-                        help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
-parser.add_argument('--batch_norm', action='store_true',
-                    help='Enable batch normalization in the model')
-parser.add_argument('--train_size', type=str, default=None,
-                    help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
-parser.add_argument('--export_embeddings', action='store_true',
-                    help='Export GNN embeddings/encodings for train/val/test sets after training')
-parser.add_argument('--save_checkpoint', action='store_true',
-                    help='Save model checkpoints during training')
-parser.add_argument('--save_predictions', action='store_true',
-                    help='Save y_true and y_pred for each split/target/train_size for learning curve analysis')
-parser.add_argument('--pretrain_monomer', action='store_true',
-                    help='Train a single multitask D-MPNN on pooled homopolymer data (ignores NaNs).')
-parser.add_argument('--multiclass_targets', type=str, default="polyinfo_Class:21",
-  help='Comma list NAME:NUM_CLASSES for multiclass tasks, e.g. "phase_label:11,color:3". Others are regression.')
-parser.add_argument('--task_weights', type=str, default="",
-  help='Optional comma list of per-task loss weights aligned with target_columns.')
-parser.add_argument('--diffpool_depth', type=int, default=1,
-  help='Depth of the DiffPool layer in the DMPNNWithDiffPool model.')
-parser.add_argument('--batch_size', type=int, default=16,
-  help='Batch size for training (reduce for DiffPool to improve speed)')
-parser.add_argument('--diffpool_ratio', type=float, default=0.25,
-  help='Pooling ratio for DiffPool (lower = fewer clusters = faster)')
-
-
+# Parse command line arguments using modular parser
+parser = create_base_argument_parser('Train a Chemprop model for regression or classification')
+parser = add_model_specific_args(parser, "dmpnn")
 
 args = parser.parse_args()
 
-# Validate train_size argument
-if args.train_size is not None:
-    if args.train_size.lower() == "full":
-        # "full" is a valid option, no further validation needed
-        pass
-    else:
-        try:
-            train_size_int = int(args.train_size)
-            if train_size_int <= 0:
-                parser.error("--train_size must be a positive integer or 'full' (e.g., 500, 5000, full)")
-        except ValueError:
-            parser.error("--train_size must be a valid integer or 'full' (e.g., 500, 5000, full)")
+# Validate arguments
+validate_train_size_argument(args, parser)
 
 # Setup training environment with common configuration
-setup_info = setup_training_environment(args, model_type="graph")
+setup_info = setup_model_environment(args, "dmpnn")
 
 # Extract commonly used variables for backward compatibility
 config = setup_info['config']
@@ -904,5 +857,7 @@ for target in target_columns:
     results_df['target'] = target
     all_results.append(results_df)
     
-    # Save progressive aggregate results after each target
-    save_aggregate_results(all_results, results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
+# Save final results using modular function
+if all_results:
+    combined_results = pd.concat(all_results, ignore_index=True)
+    save_model_results(combined_results, args, MODEL_NAME, results_dir, logger)

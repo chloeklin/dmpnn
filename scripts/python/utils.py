@@ -6,6 +6,7 @@ This module provides various utility functions for:
 - Model building and training
 - Feature selection and processing
 - File I/O operations
+- Argument parsing for training scripts
 """
 
 # Standard library imports
@@ -14,6 +15,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
+import argparse
 
 # Third-party imports
 import joblib
@@ -28,6 +30,201 @@ try:
 except Exception:
     StratifiedGroupKFold = None  # type: ignore
     HAVE_SGKF = False
+
+
+# ===== ARGUMENT PARSER FACTORY FUNCTIONS =====
+
+def create_base_argument_parser(description="Train a graph model"):
+    """Create base argument parser with common arguments for all training scripts."""
+    parser = argparse.ArgumentParser(description=description)
+    
+    # Dataset arguments
+    parser.add_argument('--dataset_name', type=str, required=True,
+                        help='Name of the dataset file (without .csv extension)')
+    parser.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi', 'mixed-reg-multi'], 
+                        default='reg', help='Type of task: regression, binary, multi-class, or mixed')
+    parser.add_argument('--target', type=str, default=None,
+                        help='Specific target column to train on (if not specified, trains on all targets)')
+    
+    # Feature arguments
+    parser.add_argument('--incl_desc', action='store_true',
+                        help='Use dataset-specific descriptors')
+    parser.add_argument('--incl_rdkit', action='store_true',
+                        help='Include RDKit 2D descriptors')
+    parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
+                        help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
+    
+    # Training arguments
+    parser.add_argument('--train_size', type=str, default=None,
+                        help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
+    parser.add_argument('--batch_norm', action='store_true',
+                        help='Enable batch normalization in the model')
+    
+    # Output arguments
+    parser.add_argument('--export_embeddings', action='store_true',
+                        help='Export GNN embeddings/encodings for train/val/test sets after training')
+    parser.add_argument('--save_predictions', action='store_true',
+                        help='Save y_true and y_pred for each split/target/train_size for learning curve analysis')
+    parser.add_argument('--save_checkpoint', action='store_true',
+                        help='Save model checkpoints during training')
+    
+    return parser
+
+
+def add_model_specific_args(parser, model_type):
+    """Add model-specific arguments to the base parser."""
+    if model_type == "dmpnn":
+        parser.add_argument('--model_name', type=str, default="DMPNN", 
+                            choices=["DMPNN", "wDMPNN", "PPG", "DMPNN_DiffPool"],
+                            help='Name of the model to use')
+        parser.add_argument('--pretrain_monomer', action='store_true',
+                            help='Train a single multitask D-MPNN on pooled homopolymer data (ignores NaNs).')
+        parser.add_argument('--multiclass_targets', type=str, default="polyinfo_Class:21",
+                            help='Comma list NAME:NUM_CLASSES for multiclass tasks, e.g. "phase_label:11,color:3". Others are regression.')
+        parser.add_argument('--task_weights', type=str, default="",
+                            help='Optional comma list of per-task loss weights aligned with target_columns.')
+        
+    elif model_type == "attentivefp":
+        parser.add_argument('--model_name', type=str, default="AttentiveFP")
+        parser.add_argument('--batch_size', type=int, default=64)
+        parser.add_argument('--hidden', type=int, default=300)
+        parser.add_argument('--lr', type=float, default=1e-3)
+        parser.add_argument('--epochs', type=int, default=300)
+        parser.add_argument('--patience', type=int, default=30)
+        try:
+            import torch
+            parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+        except ImportError:
+            parser.add_argument('--device', default='cpu')
+        
+    elif model_type == "graphormer":
+        parser.add_argument("--model_name", type=str, default="Graphormer", help="Model name for config lookup")
+        parser.add_argument("--num_layers", type=int, default=12, help="Number of Graphormer layers")
+        parser.add_argument("--hidden_dim", type=int, default=768, help="Hidden dimension")
+        parser.add_argument("--num_heads", type=int, default=32, help="Number of attention heads")
+        parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
+        parser.add_argument("--epochs", type=int, default=100, help="Number of epochs")
+        parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+        parser.add_argument("--lr", type=float, default=2e-4, help="Learning rate")
+        parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay")
+    
+    return parser
+
+
+def validate_train_size_argument(args, parser):
+    """Validate train_size argument across all models."""
+    if args.train_size is not None:
+        if args.train_size.lower() == "full":
+            # "full" is a valid option, no further validation needed
+            pass
+        else:
+            try:
+                train_size_int = int(args.train_size)
+                if train_size_int <= 0:
+                    parser.error("--train_size must be a positive integer or 'full' (e.g., 500, 5000, full)")
+            except ValueError:
+                parser.error("--train_size must be a valid integer or 'full' (e.g., 500, 5000, full)")
+
+
+def setup_model_environment(args, model_type):
+    """Unified setup for all model types."""
+    if model_type in ["dmpnn", "attentivefp"]:
+        return setup_training_environment(args, model_type="graph")
+    elif model_type == "graphormer":
+        return setup_graphormer_environment(args)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
+
+
+def setup_graphormer_environment(args):
+    """Setup environment for Graphormer training."""
+    import yaml
+    
+    # Load config
+    config_path = Path("scripts/python/train_config.yaml")
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Extract paths and settings
+    chemprop_dir = Path(config['paths']['chemprop_dir'])
+    checkpoint_dir = Path(config['paths']['checkpoint_dir'])
+    results_dir = Path(config['paths']['results_dir'])
+    
+    return {
+        'config': config,
+        'chemprop_dir': chemprop_dir,
+        'checkpoint_dir': checkpoint_dir,
+        'results_dir': results_dir,
+        'SEED': config['training']['seed'],
+        'REPLICATES': config['training']['replicates'],
+        'EPOCHS': config['training']['epochs'],
+        'PATIENCE': config['training']['patience'],
+        'num_workers': config['training']['num_workers']
+    }
+
+
+def save_model_results(results_data, args, model_name, results_dir, logger=None):
+    """Unified results saving with consistent naming conventions."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    # Convert results to DataFrame if needed
+    if isinstance(results_data, list):
+        results_df = pd.DataFrame(results_data)
+    else:
+        results_df = results_data
+    
+    # Create results directory
+    model_results_dir = Path(results_dir) / model_name
+    model_results_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Build filename with consistent naming
+    filename_parts = [args.dataset_name]
+    
+    # Add descriptors suffix
+    if getattr(args, 'incl_desc', False):
+        filename_parts.append("desc")
+    if getattr(args, 'incl_rdkit', False):
+        filename_parts.append("rdkit")
+    if getattr(args, 'batch_norm', False):
+        filename_parts.append("batch_norm")
+    
+    # Add train size suffix
+    if getattr(args, 'train_size', None) and args.train_size != "full":
+        filename_parts.append(f"size{args.train_size}")
+    
+    # Add target suffix if specific target
+    if getattr(args, 'target', None):
+        filename_parts.append(f"target_{args.target}")
+    
+    filename = "__".join(filename_parts) + "_results.csv"
+    results_file = model_results_dir / filename
+    
+    # Save results
+    results_df.to_csv(results_file, index=False)
+    logger.info(f"✓ Saved results to {results_file}")
+    
+    # Print summary statistics
+    logger.info(f"\n{'='*70}")
+    logger.info("Training Complete - Summary Statistics")
+    logger.info(f"{'='*70}")
+    
+    for col in results_df.columns:
+        if col not in ['split', 'target', 'model']:
+            try:
+                mean_val = results_df[col].mean()
+                std_val = results_df[col].std()
+                logger.info(f"{col}: {mean_val:.4f} ± {std_val:.4f}")
+            except (TypeError, ValueError):
+                # Skip non-numeric columns
+                continue
+    
+    logger.info(f"{'='*70}\n")
+    
+    return results_file
+
+
+# ===== EXISTING FUNCTIONS =====
 
 def load_dmpnn_preproc(preprocessing_path: Path, split_id: int):
     """

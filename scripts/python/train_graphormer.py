@@ -470,51 +470,30 @@ def main(args):
         
         accelerator.print(f"\nSplit {split_idx + 1} best test metrics: {best_test_metrics}")
     
-    # Save results
+    # Save results using modular function
     results_df = pd.DataFrame(all_results)
     
-    # Create results directory
-    results_dir = Path(config['paths']['results_dir']) / "Graphormer"
-    results_dir.mkdir(parents=True, exist_ok=True)
+    # Use modular results saving
+    from utils import save_model_results
+    import logging
+    logger = logging.getLogger(__name__)
     
-    # Build filename
-    size_suffix = f"__size{args.train_size}" if args.train_size != "full" else ""
-    results_file = results_dir / f"{args.dataset_name}{size_suffix}_results.csv"
-    
-    results_df.to_csv(results_file, index=False)
-    accelerator.print(f"\n✓ Saved results to {results_file}")
-    
-    # Print summary
-    accelerator.print(f"\n{'='*70}")
-    accelerator.print("Training Complete - Summary Statistics")
-    accelerator.print(f"{'='*70}")
-    for col in results_df.columns:
-        if col != 'split':
-            mean_val = results_df[col].mean()
-            std_val = results_df[col].std()
-            accelerator.print(f"{col}: {mean_val:.4f} ± {std_val:.4f}")
-    accelerator.print(f"{'='*70}\n")
+    results_dir = Path(config['paths']['results_dir'])
+    save_model_results(results_df, args, "Graphormer", results_dir, logger)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train Graphormer on custom datasets")
+    # Use modular argument parser
+    import sys
+    sys.path.append('.')
+    from utils import (create_base_argument_parser, add_model_specific_args, 
+                      validate_train_size_argument, setup_model_environment, save_model_results)
     
-    # Dataset args
-    parser.add_argument("--dataset_name", type=str, required=True, help="Dataset name (e.g., insulator, opv_camb3lyp)")
-    parser.add_argument("--model_name", type=str, default="Graphormer", help="Model name for config lookup")
-    parser.add_argument("--task_type", type=str, default="regression", choices=["regression", "classification"])
-    
-    # Model args
-    parser.add_argument("--num_layers", type=int, default=12, help="Number of Graphormer layers")
-    parser.add_argument("--hidden_dim", type=int, default=768, help="Hidden dimension")
-    parser.add_argument("--num_heads", type=int, default=32, help="Number of attention heads")
-    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
-    
-    # Training args
-    parser.add_argument("--epochs", type=int, default=100, help="Number of epochs")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
-    parser.add_argument("--lr", type=float, default=2e-4, help="Learning rate")
-    parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay")
-    parser.add_argument("--train_size", type=str, default="full", help="Training size (e.g., '500' or 'full')")
+    parser = create_base_argument_parser("Train Graphormer on custom datasets")
+    parser = add_model_specific_args(parser, "graphormer")
     
     args = parser.parse_args()
+    
+    # Validate arguments
+    validate_train_size_argument(args, parser)
+    
     main(args)

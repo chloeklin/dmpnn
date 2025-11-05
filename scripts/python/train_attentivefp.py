@@ -239,44 +239,19 @@ def save_splits_json(out_dir: Path, dataset_name: str, target: str,
 # -----------------------
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    logger = logging.getLogger(__name__)    
-    ap = argparse.ArgumentParser(description="AttentiveFP training aligned with Chemprop/D-MPNN pipeline")
-    ap.add_argument('--dataset_name', type=str, required=True)
-    ap.add_argument('--target', type=str, default="")
-    ap.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
-                        help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
-    ap.add_argument('--incl_desc', action='store_true',
-                    help='Use dataset-specific descriptors')
-    ap.add_argument('--incl_rdkit', action='store_true',
-                    help='Include RDKit descriptors')
-    ap.add_argument('--train_size', type=str, default=None,
-                    help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
-    ap.add_argument('--task_type', type=str, choices=['reg', 'binary', 'multi'], default='reg')  # support classification
-    ap.add_argument('--batch_size', type=int, default=64)
-    ap.add_argument('--hidden', type=int, default=300)
-    ap.add_argument('--lr', type=float, default=1e-3)
-    ap.add_argument('--epochs', type=int, default=300)
-    ap.add_argument('--patience', type=int, default=30)
-    ap.add_argument('--export_embeddings', action='store_true',
-                    help='Export GNN embeddings/encodings for train/val/test sets after training')
-    ap.add_argument('--save_predictions', action='store_true')
-    ap.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
-    ap.add_argument('--model_name', type=str, default="AttentiveFP")
+    logger = logging.getLogger(__name__)
     
-    args = ap.parse_args()
+    # Use modular argument parser
+    from utils import (create_base_argument_parser, add_model_specific_args, 
+                      validate_train_size_argument, setup_model_environment, save_model_results)
     
-    # Validate train_size argument
-    if args.train_size is not None:
-        if args.train_size.lower() == "full":
-            # "full" is a valid option, no further validation needed
-            pass
-        else:
-            try:
-                train_size_int = int(args.train_size)
-                if train_size_int <= 0:
-                    ap.error("--train_size must be a positive integer or 'full' (e.g., 500, 5000, full)")
-            except ValueError:
-                ap.error("--train_size must be a valid integer or 'full' (e.g., 500, 5000, full)")
+    parser = create_base_argument_parser("AttentiveFP training aligned with Chemprop/D-MPNN pipeline")
+    parser = add_model_specific_args(parser, "attentivefp")
+    
+    args = parser.parse_args()
+    
+    # Validate arguments
+    validate_train_size_argument(args, parser)
     
     device = torch.device(args.device)
 
@@ -673,9 +648,9 @@ def main():
                     dump(train_loader, df_tr, "train")
                     dump(val_loader,   df_va, "val") 
                     dump(test_loader,  df_te, "test")
-    # aggregate + save like your script
+    # aggregate + save using modular function
     results_df = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
-    save_aggregate_results([results_df], results_dir, "AttentiveFP", args.dataset_name, desc_suffix, rdkit_suffix, bn_suffix, size_suffix, logger)
+    save_model_results(results_df, args, "AttentiveFP", results_dir, logger)
 
 
 
