@@ -810,18 +810,51 @@ for target in target_columns:
                 
                 # Create the same architecture as in training (from utils.py)
                 base_mp_cls = nn.BondMessagePassing
+                
+                # Use same defaults as in utils.py build_model_and_trainer
+                depth = getattr(args, "diffpool_depth", 1)
+                ratio = getattr(args, "diffpool_ratio", 0.5)
+                
                 mp = nn.BondMessagePassingWithDiffPool(
                     base_mp_cls=base_mp_cls,
-                    depth=1,  # default diffpool_depth
-                    ratio=0.5  # default diffpool_ratio
+                    depth=depth,
+                    ratio=ratio
                 )
                 agg = nn.IdentityAggregation()
+                
+                # Calculate input dimension for FFN (same as in utils.py)
+                descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
+                input_dim = mp.output_dim + descriptor_dim
+                
+                # Create predictor based on task type (same as in utils.py)
+                if args.task_type == 'reg':
+                    predictor = nn.RegressionFFN(
+                        output_transform=None,  # Will be loaded from checkpoint
+                        n_tasks=1, 
+                        input_dim=input_dim
+                    )
+                elif args.task_type == 'binary':
+                    predictor = nn.BinaryClassificationFFN(input_dim=input_dim)
+                elif args.task_type == 'multi':
+                    # For multi-class, we need n_classes - use a reasonable default
+                    n_classes = max(n_classes_per_target.values()) if n_classes_per_target else 2
+                    predictor = nn.MulticlassClassificationFFN(
+                        n_classes=n_classes, 
+                        input_dim=input_dim
+                    )
+                else:
+                    # Default to regression
+                    predictor = nn.RegressionFFN(
+                        output_transform=None,
+                        n_tasks=1, 
+                        input_dim=input_dim
+                    )
                 
                 # Create MPNN with DiffPool architecture
                 mpnn = models.MPNN(
                     message_passing=mp,
                     agg=agg,
-                    predictor=None,  # Will be loaded from checkpoint
+                    predictor=predictor,
                     batch_norm=args.batch_norm,
                     metrics=[]
                 )
