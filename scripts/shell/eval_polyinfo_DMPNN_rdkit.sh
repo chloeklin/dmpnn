@@ -19,18 +19,18 @@ cd /scratch/um09/hl4138/dmpnn/
 # Dataset: polyinfo
 # Model: DMPNN
 # Descriptors: false
-# RDKit: false
+# RDKit: true
 # Batch Norm: false
 # Train Size: full
-# Expected Result: results/DMPNN/polyinfo_baseline.csv
+# Expected Result: results/DMPNN/polyinfo_rdkit_baseline.csv
 
 echo "Starting evaluation..."
 echo "Model: DMPNN"
 echo "Dataset: polyinfo"
-echo "Configuration: desc=false, rdkit=false, batch_norm=false"
+echo "Configuration: desc=false, rdkit=true, batch_norm=false"
 
 python3 scripts/python/evaluate_model.py \
-    --model_name DMPNN --dataset_name polyinfo --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/polyinfo__Class__batch_norm__rep0/logs/checkpoints/epoch=40-step=24969.ckpt"
+    --model_name DMPNN --dataset_name polyinfo --incl_rdkit --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/polyinfo__Class__rdkit__batch_norm__rep0/logs/checkpoints/epoch=41-step=25578.ckpt" --preprocessing_path "/scratch/um09/hl4138/dmpnn/preprocessing/polyinfo__Class__rdkit__batch_norm__rep0"
 
 echo "Evaluation complete!"
-echo "Results saved to: results/DMPNN/polyinfo_baseline.csv"
+echo "Results saved to: results/DMPNN/polyinfo_rdkit_baseline.csv"

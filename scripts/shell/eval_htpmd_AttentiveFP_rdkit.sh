@@ -8,7 +8,7 @@
 #PBS -l walltime=4:00:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N eval-htpmd-DMPNN
+#PBS -N eval-htpmd-AttentiveFP
 
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.9.0
@@ -17,20 +17,20 @@ cd /scratch/um09/hl4138/dmpnn/
 
 # Evaluation Configuration
 # Dataset: htpmd
-# Model: DMPNN
+# Model: AttentiveFP
 # Descriptors: false
-# RDKit: false
+# RDKit: true
 # Batch Norm: false
 # Train Size: full
-# Expected Result: results/DMPNN/htpmd_baseline.csv
+# Expected Result: results/AttentiveFP/htpmd_rdkit_baseline.csv
 
 echo "Starting evaluation..."
-echo "Model: DMPNN"
+echo "Model: AttentiveFP"
 echo "Dataset: htpmd"
-echo "Configuration: desc=false, rdkit=false, batch_norm=false"
+echo "Configuration: desc=false, rdkit=true, batch_norm=false"
 
 python3 scripts/python/evaluate_model.py \
-    --model_name DMPNN --dataset_name htpmd --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/htpmd__Conductivity__rep0/logs/checkpoints/epoch=53-step=16092.ckpt"
+    --model_name AttentiveFP --dataset_name htpmd --incl_rdkit --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/AttentiveFP/htpmd__Conductivity__rdkit__rep0/best.pt" --preprocessing_path "/scratch/um09/hl4138/dmpnn/preprocessing/htpmd__Conductivity__rdkit__rep0"
 
 echo "Evaluation complete!"
-echo "Results saved to: results/DMPNN/htpmd_baseline.csv"
+echo "Results saved to: results/AttentiveFP/htpmd_rdkit_baseline.csv"

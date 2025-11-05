@@ -19,18 +19,18 @@ cd /scratch/um09/hl4138/dmpnn/
 # Dataset: insulator
 # Model: DMPNN
 # Descriptors: false
-# RDKit: false
+# RDKit: true
 # Batch Norm: false
 # Train Size: full
-# Expected Result: results/DMPNN/insulator_baseline.csv
+# Expected Result: results/DMPNN/insulator_rdkit_baseline.csv
 
 echo "Starting evaluation..."
 echo "Model: DMPNN"
 echo "Dataset: insulator"
-echo "Configuration: desc=false, rdkit=false, batch_norm=false"
+echo "Configuration: desc=false, rdkit=true, batch_norm=false"
 
 python3 scripts/python/evaluate_model.py \
-    --model_name DMPNN --dataset_name insulator --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/insulator__bandgap_chain__rep0/logs/checkpoints/epoch=61-step=12834.ckpt"
+    --model_name DMPNN --dataset_name insulator --incl_rdkit --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/insulator__bandgap_chain__rdkit__rep0/logs/checkpoints/epoch=61-step=12834.ckpt" --preprocessing_path "/scratch/um09/hl4138/dmpnn/preprocessing/insulator__bandgap_chain__rdkit__rep0"
 
 echo "Evaluation complete!"
-echo "Results saved to: results/DMPNN/insulator_baseline.csv"
+echo "Results saved to: results/DMPNN/insulator_rdkit_baseline.csv"

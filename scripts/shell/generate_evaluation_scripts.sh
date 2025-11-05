@@ -27,6 +27,7 @@ DEFAULT_WALLTIME="2:00:00"
 FORCE=false
 DRY_RUN=false
 AUTO_SUBMIT=false
+SKIP_BATCH_NORM=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -42,14 +43,19 @@ while [[ $# -gt 0 ]]; do
             AUTO_SUBMIT=true
             shift
             ;;
+        --skip-batch-norm)
+            SKIP_BATCH_NORM=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --force        Overwrite existing evaluation scripts"
-            echo "  --dry-run      Show what would be generated without creating files"
-            echo "  --auto-submit  Automatically submit generated scripts with qsub"
-            echo "  --help, -h     Show this help message"
+            echo "  --force            Overwrite existing evaluation scripts"
+            echo "  --dry-run          Show what would be generated without creating files"
+            echo "  --auto-submit      Automatically submit generated scripts with qsub"
+            echo "  --skip-batch-norm  Skip configurations with batch normalization"
+            echo "  --help, -h         Show this help message"
             exit 0
             ;;
         *)
@@ -198,11 +204,15 @@ generate_eval_script() {
     local eval_args="--model_name $model --dataset_name $dataset"
     
     if [ "$has_desc" = true ]; then
-        eval_args="$eval_args --incl_descriptors"
+        eval_args="$eval_args --incl_desc"
     fi
     
     if [ "$has_rdkit" = true ]; then
         eval_args="$eval_args --incl_rdkit"
+    fi
+    
+    if [ "$has_batch_norm" = true ]; then
+        eval_args="$eval_args --batch_norm"
     fi
     
     if [ -n "$checkpoint_path" ]; then
@@ -372,6 +382,12 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
         
         if [ -z "$dataset" ]; then
             echo "    ❌ Skipping: empty dataset after parsing"
+            continue
+        fi
+        
+        # Skip batch norm configurations if requested
+        if [ "$SKIP_BATCH_NORM" = true ] && [ "$has_batch_norm" = true ]; then
+            echo "    ⏭️  Skipping: batch norm configuration (--skip-batch-norm enabled)"
             continue
         fi
         

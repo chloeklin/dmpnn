@@ -1,24 +1,36 @@
 #!/bin/bash
-#PBS -P um09
+
 #PBS -q gpuvolta
-#PBS -l walltime=2:00:00
+#PBS -P um09
 #PBS -l ncpus=12
 #PBS -l ngpus=1
 #PBS -l mem=100GB
-#PBS -l jobfs=100GB
+#PBS -l walltime=2:00:00
 #PBS -l storage=scratch/um09+gdata/dk92
-#PBS -N eval_insulator_wDMPNN
+#PBS -l jobfs=100GB
+#PBS -N eval-insulator-wDMPNN
 
-# Change to project directory
-cd /Users/u6788552/Desktop/experiments/dmpnn
+module use /g/data/dk92/apps/Modules/modulefiles
+module load python3/3.12.1 cuda/12.9.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn/
 
-# Activate conda environment
-source ~/.bashrc
-conda activate chemprop
+# Evaluation Configuration
+# Dataset: insulator
+# Model: wDMPNN
+# Descriptors: false
+# RDKit: false
+# Batch Norm: false
+# Train Size: full
+# Expected Result: results/wDMPNN/insulator_baseline.csv
 
-# Run evaluation
+echo "Starting evaluation..."
+echo "Model: wDMPNN"
+echo "Dataset: insulator"
+echo "Configuration: desc=false, rdkit=false, batch_norm=false"
+
 python3 scripts/python/evaluate_model.py \
-    --model_name wDMPNN --dataset_name insulator
+    --model_name wDMPNN --dataset_name insulator --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/wDMPNN/insulator__bandgap_chain__rep0/logs/checkpoints/epoch=74-step=15525.ckpt"
 
 echo "Evaluation complete!"
 echo "Results saved to: results/wDMPNN/insulator_baseline.csv"

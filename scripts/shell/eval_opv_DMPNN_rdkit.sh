@@ -8,7 +8,7 @@
 #PBS -l walltime=2:00:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N eval-insulator-DMPNN
+#PBS -N eval-opv-DMPNN
 
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.9.0
@@ -16,21 +16,21 @@ source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
 # Evaluation Configuration
-# Dataset: insulator
+# Dataset: opv
 # Model: DMPNN
 # Descriptors: false
-# RDKit: false
+# RDKit: true
 # Batch Norm: false
 # Train Size: full
-# Expected Result: results/DMPNN/insulator_baseline.csv
+# Expected Result: results/DMPNN/opv_rdkit_baseline.csv
 
 echo "Starting evaluation..."
 echo "Model: DMPNN"
-echo "Dataset: insulator"
-echo "Configuration: desc=false, rdkit=false, batch_norm=false"
+echo "Dataset: opv"
+echo "Configuration: desc=false, rdkit=true, batch_norm=false"
 
 python3 scripts/python/evaluate_model.py \
-    --model_name DMPNN --dataset_name insulator --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/insulator__bandgap_chain__rep0/logs/checkpoints/epoch=61-step=12834.ckpt"
+    --model_name DMPNN --dataset_name opv --incl_rdkit --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/opv_camb3lyp__delta_optical_lumo__rdkit__rep0/logs/checkpoints/epoch=132-step=118503.ckpt" --preprocessing_path "/scratch/um09/hl4138/dmpnn/preprocessing/opv_camb3lyp__delta_optical_lumo__rdkit__rep0"
 
 echo "Evaluation complete!"
-echo "Results saved to: results/DMPNN/insulator_baseline.csv"
+echo "Results saved to: results/DMPNN/opv_rdkit_baseline.csv"

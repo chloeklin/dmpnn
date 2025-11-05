@@ -8,7 +8,7 @@
 #PBS -l walltime=4:00:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N eval-polyinfo-DMPNN
+#PBS -N eval-htpmd-DMPNN
 
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.9.0
@@ -16,21 +16,21 @@ source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
 # Evaluation Configuration
-# Dataset: polyinfo
+# Dataset: htpmd
 # Model: DMPNN
 # Descriptors: false
-# RDKit: false
+# RDKit: true
 # Batch Norm: false
 # Train Size: full
-# Expected Result: results/DMPNN/polyinfo_baseline.csv
+# Expected Result: results/DMPNN/htpmd_rdkit_baseline.csv
 
 echo "Starting evaluation..."
 echo "Model: DMPNN"
-echo "Dataset: polyinfo"
-echo "Configuration: desc=false, rdkit=false, batch_norm=false"
+echo "Dataset: htpmd"
+echo "Configuration: desc=false, rdkit=true, batch_norm=false"
 
 python3 scripts/python/evaluate_model.py \
-    --model_name DMPNN --dataset_name polyinfo --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/polyinfo__Class__batch_norm__rep0/logs/checkpoints/epoch=40-step=24969.ckpt"
+    --model_name DMPNN --dataset_name htpmd --incl_rdkit --checkpoint_path "/scratch/um09/hl4138/dmpnn/checkpoints/DMPNN/htpmd__Conductivity__rdkit__rep0/logs/checkpoints/epoch=33-step=10132.ckpt" --preprocessing_path "/scratch/um09/hl4138/dmpnn/preprocessing/htpmd__Conductivity__rdkit__rep0"
 
 echo "Evaluation complete!"
-echo "Results saved to: results/DMPNN/polyinfo_baseline.csv"
+echo "Results saved to: results/DMPNN/htpmd_rdkit_baseline.csv"
