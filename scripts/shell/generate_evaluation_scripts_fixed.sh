@@ -133,4 +133,62 @@ echo "🔍 Scanning for completed experiments..."
 CONFIGS_FILE=$(mktemp)
 trap "rm -f $CONFIGS_FILE" EXIT
 
-for model
+for model_dir in "$CHECKPOINTS_DIR"/*; do
+    [ ! -d "$model_dir" ] && continue
+    model=$(basename "$model_dir")
+    [ -n "$SPECIFIC_MODEL" ] && [ "$model" != "$SPECIFIC_MODEL" ] && continue
+
+    echo ""
+    echo "📂 Model: $model"
+    echo "DEBUG: Scanning model_dir='$model_dir'"
+
+    mapfile -d '' exp_dirs < <(find "$model_dir" -maxdepth 1 -type d -name "*__rep0" -print0)
+    echo "DEBUG: Found ${#exp_dirs[@]} rep0 directories."
+
+    for exp_dir in "${exp_dirs[@]}"; do
+        exp_name=$(basename "$exp_dir")
+        echo "DEBUG: Checking experiment: $exp_name"
+
+        # Check replicates
+        all_reps_exist=true
+        for i in {0..4}; do
+            rep_dir="${exp_dir%__rep0}__rep${i}"
+            echo "DEBUG:   → Checking replicate: $rep_dir"
+            if [ ! -d "$rep_dir" ]; then
+                echo "DEBUG:     ⚠️ Missing replicate dir"
+                all_reps_exist=false
+                break
+            fi
+
+            # Check for checkpoints
+            if ! find "$rep_dir" -type f \( -name "best.pt" -o -name "best*.ckpt" -o -name "last.ckpt" \) | grep -q .; then
+                echo "DEBUG:     ⚠️ No checkpoint in $rep_dir"
+                all_reps_exist=false
+                break
+            else
+                echo "DEBUG:     ✅ Checkpoint found in $rep_dir"
+            fi
+        done
+
+        if [ "$all_reps_exist" = false ]; then
+            echo "DEBUG: Skipping experiment '$exp_name' (incomplete replicates)"
+            continue
+        fi
+
+        IFS='|' read -r dataset target has_desc has_rdkit has_batch_norm <<< "$(parse_experiment_name "$exp_name")"
+        [ -n "$SPECIFIC_DATASET" ] && [ "$dataset" != "$SPECIFIC_DATASET" ] && continue
+
+        config_key="${model}|${dataset}|${target}|${has_desc}|${has_rdkit}|${has_batch_norm}"
+        if grep -Fxq "$config_key" "$CONFIGS_FILE" 2>/dev/null; then
+            echo "DEBUG: Duplicate config $config_key"
+            continue
+        fi
+        echo "$config_key" >> "$CONFIGS_FILE"
+
+        echo "  ✅ $dataset::$target (5/5 replicates)"
+        generate_eval_script "$model" "$dataset" "$target" "$has_desc" "$has_rdkit" "$has_batch_norm"
+    done
+done
+
+echo ""
+echo "✅ Script generation complete!"
