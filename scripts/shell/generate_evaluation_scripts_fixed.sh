@@ -48,14 +48,18 @@ echo "🔍 Scanning checkpoints directory: $CHECKPOINTS_DIR"
 echo "📝 Output directory: $EVAL_SCRIPTS_DIR"
 mkdir -p "$EVAL_SCRIPTS_DIR"
 
+# ── Debug helper ──────────────────────────────────────────────────────────────
+debug() { echo "DEBUG: $*" >&2; }
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 # Parse "dataset__target__desc__repX" (spaces supported in target)
+# IMPORTANT: Only the LAST echo (the pipe-delimited line) goes to stdout.
 parse_experiment_name() {
   local exp_name=$1
   local dataset="" target="" has_desc=false has_rdkit=false has_batch_norm=false
 
-  echo "DEBUG: Parsing experiment: '$exp_name'"
+  debug "Parsing experiment: '$exp_name'"
 
   # Strip __rep#
   exp_name="$(echo "$exp_name" | sed 's/__rep[0-9]\+$//')"
@@ -85,37 +89,37 @@ parse_experiment_name() {
     [[ $p == batch_norm ]] && has_batch_norm=true
   done
 
-  echo "DEBUG: Parsed -> dataset='$dataset' target='$target' desc=$has_desc rdkit=$has_rdkit batch_norm=$has_batch_norm"
+  debug "Parsed -> dataset='$dataset' target='$target' desc=$has_desc rdkit=$has_rdkit batch_norm=$has_batch_norm"
+  # This is the ONLY stdout from this function:
   printf "%s|%s|%s|%s|%s" "$dataset" "$target" "$has_desc" "$has_rdkit" "$has_batch_norm"
 }
 
-# Return 0 if any checkpoint file exists; print list for debugging
+# Return 0 if any checkpoint file exists; print list for debugging (to stderr)
 rep_has_checkpoint() {
   local rep_dir=$1
-  echo "DEBUG:       Scanning for checkpoints in: $rep_dir"
+  debug "  Scan checkpoints in: $rep_dir"
 
-  # Collect with find (recursive), support common patterns
-  # Using -print0 to be safe with spaces/newlines
+  # collect recursively; spaces-safe
   mapfile -d '' -t files < <(find "$rep_dir" -type f -print0)
 
   local found=()
   local f
   for f in "${files[@]}"; do
     case "$f" in
-      */best.pt|*/best*.ckpt|*/last.ckpt|*/logs/checkpoints/epoch=*step=*.ckpt)
+      */best.pt|*/best*.ckpt|*/last.ckpt|*/logs/checkpoints/epoch=*step=*.ckpt|*/logs/checkpoints/*.ckpt)
         found+=("$f")
         ;;
     esac
   done
 
   if ((${#found[@]} == 0)); then
-    echo "DEBUG:         ❌ No checkpoint files matched patterns"
+    debug "    ❌ No checkpoint files matched"
     return 1
   fi
 
-  echo "DEBUG:         ✅ Found ${#found[@]} checkpoint file(s):"
+  debug "    ✅ Found ${#found[@]} checkpoint file(s):"
   for c in "${found[@]}"; do
-    echo "DEBUG:            - $c"
+    debug "       - $c"
   done
   return 0
 }
@@ -123,7 +127,7 @@ rep_has_checkpoint() {
 generate_eval_script() {
   local model="$1" dataset="$2" target="$3" has_desc="$4" has_rdkit="$5" has_batch_norm="$6"
 
-  echo "DEBUG: Generating script for model='$model' dataset='$dataset' target='${target:-ALL}' flags: desc=$has_desc rdkit=$has_rdkit batch_norm=$has_batch_norm"
+  debug "Gen script for model='$model' dataset='$dataset' target='${target:-ALL}' flags: desc=$has_desc rdkit=$has_rdkit batch_norm=$has_batch_norm"
 
   local script_name="eval_${dataset}"
   if $TARGET_SPECIFIC && [[ -n "${target}" ]]; then
@@ -133,8 +137,9 @@ generate_eval_script() {
   $has_desc && script_name+="_desc"
   $has_rdkit && script_name+="_rdkit"
   $has_batch_norm && script_name+="_batch_norm"
-  # replace spaces with underscores
-  script_name="${script_name// /_}.sh"
+  # Replace spaces and slashes to be safe
+  script_name="${script_name// /_}"
+  script_name="${script_name//\//_}.sh"
 
   local script_path="$EVAL_SCRIPTS_DIR/$script_name"
 
@@ -147,6 +152,13 @@ generate_eval_script() {
     echo "  📝 DRY-RUN would create: $(basename "$script_path")"
     return
   fi
+
+  # Build optional flags for heredoc (empty expands to nothing)
+  local flag_desc="" flag_rdkit="" flag_bn="" flag_target=""
+  $has_desc && flag_desc="--incl_desc"
+  $has_rdkit && flag_rdkit="--incl_rdkit"
+  $has_batch_norm && flag_bn="--batch_norm"
+  [[ -n "${target}" ]] && flag_target="--target \"$target\""
 
   cat > "$script_path" <<EOF
 #!/bin/bash
@@ -165,10 +177,10 @@ cd \$PBS_O_WORKDIR
 python3 "$PYTHON_SCRIPT" \\
   --model_name "$model" \\
   --dataset_name "$dataset" \\
-  ${target:+--target "$target"} \\
-  $( $has_desc && echo "--incl_desc" ) \\
-  $( $has_rdkit && echo "--incl_rdkit" ) \\
-  $( $has_batch_norm && echo "--batch_norm" )
+  $flag_target \\
+  $flag_desc \\
+  $flag_rdkit \\
+  $flag_bn
 
 echo "✅ Evaluation done for $model on $dataset ${target:+(target: $target)}"
 EOF
@@ -190,45 +202,47 @@ CONFIGS_FILE=$(mktemp)
 trap 'rm -f "$CONFIGS_FILE"' EXIT
 
 # Each model (e.g., AttentiveFP, DMPNN, DMPNN_DiffPool)
-# Use find -print0 to be safe with spaces in model dir names (rare but safe).
 mapfile -d '' -t model_dirs < <(find "$CHECKPOINTS_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
 
 for model_dir in "${model_dirs[@]}"; do
   model="$(basename "$model_dir")"
-  [[ -n "$SPECIFIC_MODEL" && "$model" != "$SPECIFIC_MODEL" ]] && { echo "DEBUG: Skip model '$model' (filter)"; continue; }
+  if [[ -n "$SPECIFIC_MODEL" && "$model" != "$SPECIFIC_MODEL" ]]; then
+    debug "Skip model '$model' (filter)"
+    continue
+  fi
 
   echo ""
   echo "📂 Model: $model"
-  echo "DEBUG: Model dir: $model_dir"
+  debug "Model dir: $model_dir"
 
   # All rep0 experiment directories under this model
   mapfile -d '' -t rep0_dirs < <(find "$model_dir" -mindepth 1 -maxdepth 1 -type d -name "*__rep0" -print0)
-  echo "DEBUG: Found ${#rep0_dirs[@]} rep0 directories."
+  debug "Found ${#rep0_dirs[@]} rep0 directories."
 
   for rep0 in "${rep0_dirs[@]}"; do
     exp_name="$(basename "$rep0")"
     base="${rep0%__rep0}"
-    echo "DEBUG: Checking base experiment: '$exp_name' (base='$base')"
+    debug "Checking base experiment: '$exp_name' (base='$base')"
 
     # Verify all 5 reps and checkpoints
     all_reps=true
     for i in 0 1 2 3 4; do
       rep_dir="${base}__rep${i}"
-      echo "DEBUG:   Replicate dir: $rep_dir"
+      debug "  Replicate dir: $rep_dir"
       if [[ ! -d "$rep_dir" ]]; then
-        echo "DEBUG:     ❌ Missing replicate directory"
+        debug "    ❌ Missing replicate directory"
         all_reps=false
         break
       fi
       if ! rep_has_checkpoint "$rep_dir"; then
-        echo "DEBUG:     ❌ Missing checkpoint in replicate"
+        debug "    ❌ Missing checkpoint in replicate"
         all_reps=false
         break
       fi
     done
 
     if ! $all_reps; then
-      echo "DEBUG: Skipping '$exp_name' (incomplete)"
+      debug "Skipping '$exp_name' (incomplete)"
       continue
     fi
 
@@ -236,7 +250,7 @@ for model_dir in "${model_dirs[@]}"; do
 
     # Optional dataset filter
     if [[ -n "$SPECIFIC_DATASET" && "$dataset" != "$SPECIFIC_DATASET" ]]; then
-      echo "DEBUG: Skipping dataset '$dataset' (filter)"
+      debug "Skipping dataset '$dataset' (filter)"
       continue
     fi
 
@@ -248,7 +262,7 @@ for model_dir in "${model_dirs[@]}"; do
     fi
 
     if grep -Fxq "$config_key" "$CONFIGS_FILE" 2>/dev/null; then
-      echo "DEBUG: Duplicate config: $config_key"
+      debug "Duplicate config: $config_key"
       continue
     fi
     echo "$config_key" >> "$CONFIGS_FILE"
