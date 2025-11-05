@@ -1,0 +1,11 @@
+MISSING PREPROCESSING ANALYSIS REPORT
+Generated: Wed Nov  5 14:51:04 AEDT 2025
+Log directory: /scratch/um09/hl4138/dmpnn/scripts/shell/
+=========================================
+
+
+SUMMARY
+=======
+Total log files analyzed: 82
+Failed jobs (missing preprocessing): 0
+
