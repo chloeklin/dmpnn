@@ -445,7 +445,7 @@ for target in target_columns:
                         agg=agg,
                         predictor=None,  # Will be loaded from checkpoint
                         batch_norm=args.batch_norm,
-                        metric_list=[]
+                        metrics=[]
                     )
                     
                     # Load checkpoint manually
