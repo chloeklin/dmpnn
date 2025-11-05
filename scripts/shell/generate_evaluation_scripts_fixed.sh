@@ -341,8 +341,6 @@ for model_dir in "$CHECKPOINTS_DIR"/*; do
                 continue
             fi
 
-            echo "  ✅ $dataset::$target (5/5 replicates)"
-
             # Create unique config key
             if [ "$TARGET_SPECIFIC" = true ]; then
                 config_key="${model}|${dataset}|${target}|${has_desc}|${has_rdkit}|${has_batch_norm}"
@@ -350,7 +348,7 @@ for model_dir in "$CHECKPOINTS_DIR"/*; do
                 config_key="${model}|${dataset}|${has_desc}|${has_rdkit}|${has_batch_norm}"
             fi
 
-            # Skip if we've already seen this configuration
+            # Skip if we've already seen this configuration (before printing ✅)
             if grep -Fxq "$config_key" "$CONFIGS_FILE" 2>/dev/null; then
                 continue
             fi
@@ -358,9 +356,10 @@ for model_dir in "$CHECKPOINTS_DIR"/*; do
             echo "$config_key" >> "$CONFIGS_FILE"
             ((total_complete_experiments++))
 
-            # ✅ Generate evaluation script now that all reps exist
+            echo "  ✅ $dataset::$target (5/5 replicates)"
             generate_eval_script "$model" "$dataset" "$target" "$has_desc" "$has_rdkit" "$has_batch_norm"
             ((total_scripts++))
+
         fi
 
     done
