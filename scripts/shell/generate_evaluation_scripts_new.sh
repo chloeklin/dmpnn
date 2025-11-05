@@ -21,6 +21,8 @@ PYTHON_SCRIPT="$PROJECT_ROOT/scripts/python/evaluate_model.py"
 # Command line options
 FORCE=false
 DRY_RUN=false
+TARGET_SPECIFIC=false
+QUICK_SCAN=false
 AUTO_SUBMIT=false
 SPECIFIC_MODEL=""
 SPECIFIC_DATASET=""
@@ -34,6 +36,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --target-specific)
+            TARGET_SPECIFIC=true
+            shift
+            ;;
+        --quick-scan)
+            QUICK_SCAN=true
             shift
             ;;
         --auto-submit)
@@ -59,6 +69,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --auto-submit      Automatically submit generated scripts with qsub"
             echo "  --model MODEL      Generate scripts only for specific model"
             echo "  --dataset DATASET  Generate scripts only for specific dataset"
+            echo "  --target-specific  Generate individual scripts per target (instead of all-target)"
+            echo "  --quick-scan       Fast scan mode (just count directories, don't analyze)"
             echo "  --help, -h         Show this help message"
             exit 0
             ;;
@@ -286,39 +298,56 @@ for model_dir in "$CHECKPOINTS_DIR"/*; do
     echo ""
     echo "📂 Model: $model"
     
+    # Quick scan mode: just count directories and continue
+    if [ "$QUICK_SCAN" = true ]; then
+        total_dirs=$(find "$model_dir" -maxdepth 1 -type d -name "*__rep[0-4]" 2>/dev/null | wc -l)
+        echo "  📊 Found $total_dirs checkpoint directories (quick scan)"
+        continue
+    fi
+    
     # Collect all checkpoint patterns (without rep suffix)
     patterns_file=$(mktemp)
     checkpoint_count=0
     
     echo "  🔍 Scanning checkpoint directories..."
     
-    for checkpoint_dir in "$model_dir"/*; do
-        if [ ! -d "$checkpoint_dir" ]; then
-            continue
-        fi
-        
+    # Use find with limits for better performance and timeout
+    echo "    🔍 Searching for checkpoint directories (timeout: 30s)..."
+    checkpoint_dirs=$(timeout 30s find "$model_dir" -maxdepth 1 -type d -name "*__rep[0-4]" 2>/dev/null | head -100)
+    find_exit_code=$?
+    
+    if [ $find_exit_code -eq 124 ]; then
+        echo "    ⏰ Timeout: Too many files, using first 100 found"
+    elif [ $find_exit_code -ne 0 ]; then
+        echo "    ❌ Error scanning directory: $model_dir"
+        continue
+    fi
+    
+    if [ -z "$checkpoint_dirs" ]; then
+        echo "  📭 No checkpoint directories with rep suffix found"
+        continue
+    fi
+    
+    checkpoint_count=0
+    for checkpoint_dir in $checkpoint_dirs; do
         checkpoint_name=$(basename "$checkpoint_dir")
         ((checkpoint_count++))
         
-        # Extract pattern by removing __repX suffix (more precise regex)
-        if echo "$checkpoint_name" | grep -E "__rep[0-4]$" >/dev/null; then
-            pattern=$(echo "$checkpoint_name" | sed -E 's/__rep[0-4]$//')
-            echo "$pattern" >> "$patterns_file"
-            if [ "${DEBUG:-0}" = "1" ]; then
-                echo "    Found: $checkpoint_name -> $pattern"
-            fi
-        else
-            if [ "${DEBUG:-0}" = "1" ]; then
-                echo "    Skipped: $checkpoint_name (no rep suffix)"
-            fi
+        # Extract pattern by removing __repX suffix
+        pattern=$(echo "$checkpoint_name" | sed -E 's/__rep[0-4]$//')
+        echo "$pattern" >> "$patterns_file"
+        
+        if [ "${DEBUG:-0}" = "1" ]; then
+            echo "    Found: $checkpoint_name -> $pattern"
         fi
         
-        # Safety check - don't process too many at once
-        if [ $checkpoint_count -gt 100 ]; then
-            echo "    ⚠️  Too many checkpoints, stopping scan for this model"
-            break
+        # Progress indicator for large numbers
+        if [ $((checkpoint_count % 20)) -eq 0 ]; then
+            echo "    ... processed $checkpoint_count directories"
         fi
     done
+    
+    echo "  📊 Found $checkpoint_count checkpoint directories"
     
     if [ $checkpoint_count -eq 0 ]; then
         echo "  📭 No checkpoint directories found"
