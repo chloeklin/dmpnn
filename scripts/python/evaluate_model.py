@@ -749,26 +749,39 @@ for target in target_columns:
             # and build the correct path for this replicate
             provided_path = Path(args.checkpoint_path)
             
+            # Try to find the experiment directory by looking for __rep pattern in the path
+            # Walk up the path until we find a directory with __rep in its name
+            current_path = provided_path
+            exp_dir = None
+            
+            # If it's a file, start from its parent directory
             if provided_path.is_file():
-                # It's a specific checkpoint file - extract the experiment directory pattern
-                # Path structure: .../checkpoints/MODEL/experiment__rep0/logs/checkpoints/file.ckpt
-                # We need: .../checkpoints/MODEL/experiment__repI/
-                exp_dir = provided_path.parent.parent  # Go up to experiment directory
+                current_path = provided_path.parent
+            
+            # Walk up the directory tree to find the experiment directory
+            for parent in [current_path] + list(current_path.parents):
+                if "__rep" in parent.name:
+                    exp_dir = parent
+                    break
+            
+            if exp_dir:
                 exp_dir_name = exp_dir.name
-                
-                # Replace rep0 with current replicate number
-                if "__rep0" in exp_dir_name:
-                    new_exp_dir_name = exp_dir_name.replace("__rep0", f"__rep{i}")
-                    checkpoint_path = exp_dir.parent / new_exp_dir_name
-                else:
-                    # If no rep number found, assume it needs to be added
-                    checkpoint_path = exp_dir.parent / f"{exp_dir_name}__rep{i}"
-                    
+                # Replace any existing rep number with the current replicate number
+                import re
+                new_exp_dir_name = re.sub(r'__rep\d+', f'__rep{i}', exp_dir_name)
+                checkpoint_path = exp_dir.parent / new_exp_dir_name
                 logger.info(f"Built checkpoint path for rep {i}: {checkpoint_path}")
             else:
-                # It's a directory - use as base and build replicate-specific path
-                checkpoint_path = provided_path
-                logger.info(f"Using provided checkpoint directory: {checkpoint_path}")
+                # Special case: check if the file itself has __rep pattern (e.g., AttentiveFP)
+                if provided_path.is_file() and "__rep" in provided_path.name:
+                    import re
+                    new_filename = re.sub(r'__rep\d+', f'__rep{i}', provided_path.name)
+                    checkpoint_path = provided_path.parent / new_filename
+                    logger.info(f"Built checkpoint file path for rep {i}: {checkpoint_path}")
+                else:
+                    # Fallback: use the provided path as-is (might be a base directory)
+                    checkpoint_path = provided_path
+                    logger.info(f"Could not find experiment directory pattern, using provided path: {checkpoint_path}")
         else:
             # Use standard experiment path building
             checkpoint_path, _, _, _, _, _ = build_experiment_paths(
