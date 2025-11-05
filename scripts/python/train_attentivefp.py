@@ -35,36 +35,20 @@ from utils import set_seed, load_and_preprocess_data
 
 
 def setup_attentivefp_environment(args):
-    """Setup environment specifically for AttentiveFP."""
-    import yaml
+    """Setup environment specifically for AttentiveFP using existing infrastructure."""
+    # Use existing setup function from utils.py
+    from utils import setup_model_environment
     
-    # Load config
-    config_path = Path("scripts/python/train_config.yaml")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    # Extract dataset configuration
-    dataset_config = config['datasets'][args.dataset_name]
-    
-    # Setup paths
-    chemprop_dir = Path(config['paths']['chemprop_dir'])
-    results_dir = Path(config['paths']['results_dir'])
+    setup_info = setup_model_environment(args, "attentivefp")
     
     # Create AttentiveFP-specific checkpoint directory
-    checkpoint_dir = chemprop_dir / "checkpoints" / "AttentiveFP"
+    checkpoint_dir = setup_info['checkpoint_dir'] / "AttentiveFP"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
-    return {
-        'config': config,
-        'dataset_config': dataset_config,
-        'chemprop_dir': chemprop_dir,
-        'checkpoint_dir': checkpoint_dir,
-        'results_dir': results_dir,
-        'smiles_column': dataset_config['smiles_column'],
-        'target_columns': dataset_config['target_columns'],
-        'SEED': config['training']['seed'],
-        'REPLICATES': config['training']['replicates']
-    }
+    # Update checkpoint_dir in setup_info
+    setup_info['checkpoint_dir'] = checkpoint_dir
+    
+    return setup_info
 
 
 def create_checkpoint_name(args, target, split_idx):
