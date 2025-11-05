@@ -75,7 +75,12 @@ parse_experiment_name() {
 
   # Strip __rep#
   exp_name="$(echo "$exp_name" | sed 's/__rep[0-9]\+$//')"
-  IFS='__' read -r -a PARTS <<< "$exp_name"
+  local SEP=$'\x1f'
+  local tmp="${exp_name//__/$SEP}"
+  IFS=$SEP read -r -a PARTS <<< "$tmp"
+  IFS=$' \t\n'  # restore default IFS
+
+
 
   dataset="${PARTS[0]}"
   local target_parts=()
