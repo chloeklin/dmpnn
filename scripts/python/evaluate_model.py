@@ -84,8 +84,22 @@ if args.pretrain_monomer:
     logger.info(f"Pretrain monomer: Enabled")
 logger.info("===============================\n")
 
-# Setup evaluation environment with common configuration
-setup_info = setup_training_environment(args, model_type="graph")
+# Setup evaluation environment with model-specific configuration
+from utils import setup_model_environment
+
+# Determine model type for environment setup
+if args.model_name in ["DMPNN", "wDMPNN", "DMPNN_DiffPool", "PPG"]:
+    model_type = "dmpnn"
+elif args.model_name == "AttentiveFP":
+    model_type = "attentivefp"
+elif args.model_name == "Graphormer":
+    model_type = "graphormer"
+else:
+    # Default to dmpnn for unknown models
+    model_type = "dmpnn"
+    logger.warning(f"Unknown model type {args.model_name}, using DMPNN environment setup")
+
+setup_info = setup_model_environment(args, model_type)
 
 # Extract commonly used variables for backward compatibility
 config = setup_info['config']
@@ -138,7 +152,7 @@ variant_qstattag = "" if variant_label == "original" else "_" + variant_label.re
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
 
 # Choose featurizer based on model type
-small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "AttentiveFP", "PPG"]
+small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "AttentiveFP", "PPG", "Graphormer"]
 featurizer = (
     featurizers.SimpleMoleculeMolGraphFeaturizer() 
     if args.model_name in small_molecule_models 
@@ -389,7 +403,7 @@ for target in target_columns:
             
             logger.info("📥 Loading trained model from checkpoint for embedding extraction...")
             
-            # Handle different checkpoint formats
+            # Handle different checkpoint formats and model types
             if str(last_ckpt).endswith('.pt'):
                 # AttentiveFP checkpoint format
                 logger.info(f"Loading AttentiveFP checkpoint: {last_ckpt}")
@@ -418,6 +432,28 @@ for target in target_columns:
                     logger.warning("AttentiveFP model doesn't expose .gnn, using full model")
                     mpnn = model.core
                     
+            elif args.model_name == "Graphormer":
+                # Graphormer model loading
+                logger.info(f"Loading Graphormer checkpoint: {last_ckpt}")
+                
+                # Graphormer uses different data format and loading approach
+                logger.warning("Graphormer evaluation not yet fully implemented")
+                logger.info("Graphormer evaluation would require:")
+                logger.info("  1. Loading Graphormer model architecture from train_graphormer.py")
+                logger.info("  2. Converting molecular data to DGL graph format")
+                logger.info("  3. Implementing graph-level embedding extraction")
+                logger.info("  4. Handling Accelerate-based model loading")
+                logger.info("  5. Converting embeddings to tabular format for sklearn models")
+                
+                # TODO: Full Graphormer implementation would look like:
+                # from train_graphormer import Graphormer, create_graphormer_dataset, collate_graphormer
+                # model = Graphormer(...)
+                # model.load_state_dict(torch.load(last_ckpt))
+                # # Convert data to DGL format and extract embeddings
+                
+                logger.warning(f"Skipping Graphormer evaluation for rep {i} - implementation needed")
+                continue
+                    
             else:
                 # Lightning checkpoint format (DMPNN, wDMPNN, etc.)
                 logger.info(f"Loading Lightning checkpoint: {last_ckpt}")
@@ -445,11 +481,10 @@ for target in target_columns:
                         agg=agg,
                         predictor=None,  # Will be loaded from checkpoint
                         batch_norm=args.batch_norm,
-                        metrics=[]
+                        metric_list=[]
                     )
                     
                     # Load checkpoint manually
-                    import torch
                     checkpoint = torch.load(last_ckpt, map_location=map_location)
                     mpnn.load_state_dict(checkpoint["state_dict"], strict=False)
                     mpnn.eval()
