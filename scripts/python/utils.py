@@ -2030,6 +2030,7 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
 
 
 def load_best_checkpoint(ckpt_dir: Path):
+    import os
     if not ckpt_dir.exists():
         return None
     
@@ -2042,13 +2043,15 @@ def load_best_checkpoint(ckpt_dir: Path):
         # Fallback to any .pt file
         return ckpt_dir / pt_files[0]
     
-    # Check for .ckpt files (Lightning models)
-    ckpts = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
-    if not ckpts:
-        return None
+    # For Lightning-based models, follow priority order:
+    # 1. Legacy format: best-XXX.ckpt (highest priority)
+    # 2. Lightning format: logs/checkpoints/epoch=XX-step=YYY.ckpt
+    # 3. Fallback: last.ckpt (lowest priority)
     
-    # Prioritize validation-best checkpoints over last.ckpt
-    best_ckpts = [f for f in ckpts if f.startswith("best-")]
+    # Priority 1: Check for legacy best-XXX.ckpt files in root directory
+    root_ckpts = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
+    best_ckpts = [f for f in root_ckpts if f.startswith("best-")]
+    
     if best_ckpts:
         # Parse validation loss from checkpoint names and select the one with lowest loss
         import re
@@ -2057,7 +2060,6 @@ def load_best_checkpoint(ckpt_dir: Path):
         
         for ckpt_name in best_ckpts:
             # Extract validation loss from filename: best-[epoch]-[val_loss].ckpt
-            # Handle various possible formats like best-epoch=10-val_loss=0.123.ckpt or best-10-0.123.ckpt
             val_loss_match = re.search(r'(?:val_loss=|-)([0-9]+\.?[0-9]*)(?:\.ckpt|$)', ckpt_name)
             if val_loss_match:
                 try:
@@ -2075,9 +2077,26 @@ def load_best_checkpoint(ckpt_dir: Path):
             best_ckpts.sort()
             return ckpt_dir / best_ckpts[-1]
     
-    # Fallback to lexicographically last checkpoint
-    ckpts.sort()
-    return ckpt_dir / ckpts[-1]
+    # Priority 2: Check for Lightning format in logs/checkpoints/ subdirectory
+    lightning_ckpt_dir = ckpt_dir / "logs" / "checkpoints"
+    if lightning_ckpt_dir.exists():
+        lightning_ckpts = [f for f in os.listdir(lightning_ckpt_dir) if f.endswith(".ckpt")]
+        if lightning_ckpts:
+            # Sort by modification time (newest first) for Lightning checkpoints
+            lightning_ckpts_with_time = [(f, os.path.getmtime(lightning_ckpt_dir / f)) for f in lightning_ckpts]
+            lightning_ckpts_with_time.sort(key=lambda x: x[1], reverse=True)  # Newest first
+            return lightning_ckpt_dir / lightning_ckpts_with_time[0][0]
+    
+    # Priority 3: Fallback to last.ckpt in root directory
+    if "last.ckpt" in root_ckpts:
+        return ckpt_dir / "last.ckpt"
+    
+    # Final fallback: any .ckpt file in root directory
+    if root_ckpts:
+        root_ckpts.sort()
+        return ckpt_dir / root_ckpts[-1]
+    
+    return None
 
 
 # def get_encodings_from_loader(model, loader):

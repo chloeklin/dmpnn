@@ -745,9 +745,30 @@ for target in target_columns:
         
         # Use provided checkpoint path or build from experiment paths
         if args.checkpoint_path:
-            # Use the specific checkpoint file provided
-            checkpoint_path = Path(args.checkpoint_path).parent  # Get directory for embeddings
-            logger.info(f"Using provided checkpoint: {args.checkpoint_path}")
+            # Extract the base experiment pattern from the provided checkpoint path
+            # and build the correct path for this replicate
+            provided_path = Path(args.checkpoint_path)
+            
+            if provided_path.is_file():
+                # It's a specific checkpoint file - extract the experiment directory pattern
+                # Path structure: .../checkpoints/MODEL/experiment__rep0/logs/checkpoints/file.ckpt
+                # We need: .../checkpoints/MODEL/experiment__repI/
+                exp_dir = provided_path.parent.parent  # Go up to experiment directory
+                exp_dir_name = exp_dir.name
+                
+                # Replace rep0 with current replicate number
+                if "__rep0" in exp_dir_name:
+                    new_exp_dir_name = exp_dir_name.replace("__rep0", f"__rep{i}")
+                    checkpoint_path = exp_dir.parent / new_exp_dir_name
+                else:
+                    # If no rep number found, assume it needs to be added
+                    checkpoint_path = exp_dir.parent / f"{exp_dir_name}__rep{i}"
+                    
+                logger.info(f"Built checkpoint path for rep {i}: {checkpoint_path}")
+            else:
+                # It's a directory - use as base and build replicate-specific path
+                checkpoint_path = provided_path
+                logger.info(f"Using provided checkpoint directory: {checkpoint_path}")
         else:
             # Use standard experiment path building
             checkpoint_path, _, _, _, _, _ = build_experiment_paths(
@@ -780,11 +801,13 @@ for target in target_columns:
             
             # Use provided checkpoint file or discover best checkpoint
             if args.checkpoint_path:
-                last_ckpt = Path(args.checkpoint_path)
-                if not last_ckpt.exists():
-                    logger.warning(f"Provided checkpoint file does not exist: {args.checkpoint_path}; skipping rep {i} for target {target}.")
+                # Always discover the best checkpoint in the replicate-specific directory
+                # (we've already built the correct checkpoint_path above)
+                last_ckpt = load_best_checkpoint(Path(checkpoint_path))
+                if last_ckpt is None:
+                    logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
                     continue
-                logger.info(f"Using provided checkpoint file: {last_ckpt}")
+                logger.info(f"Using discovered checkpoint file for rep {i}: {last_ckpt}")
             else:
                 # Only now check for checkpoint since we need to extract embeddings
                 last_ckpt = load_best_checkpoint(Path(checkpoint_path))

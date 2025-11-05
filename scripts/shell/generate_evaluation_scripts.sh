@@ -28,6 +28,7 @@ FORCE=false
 DRY_RUN=false
 AUTO_SUBMIT=false
 SKIP_BATCH_NORM=false
+SPECIFIC_MODEL=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -47,6 +48,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_BATCH_NORM=true
             shift
             ;;
+        --model)
+            SPECIFIC_MODEL="$2"
+            shift 2
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -55,6 +60,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --dry-run          Show what would be generated without creating files"
             echo "  --auto-submit      Automatically submit generated scripts with qsub"
             echo "  --skip-batch-norm  Skip configurations with batch normalization"
+            echo "  --model MODEL      Generate scripts only for specific model (e.g., DMPNN, wDMPNN, DMPNN_DiffPool)"
             echo "  --help, -h         Show this help message"
             exit 0
             ;;
@@ -312,6 +318,10 @@ trap "rm -f $CONFIGS_FILE $SCRIPTS_FILE" EXIT
 
 # Scan checkpoint directories
 echo "📂 Scanning model directories in: $CHECKPOINT_DIR"
+if [ -n "$SPECIFIC_MODEL" ]; then
+    echo "🎯 Filtering for model: $SPECIFIC_MODEL"
+fi
+
 model_count=0
 for model_dir in "$CHECKPOINT_DIR"/*; do
     if [ ! -d "$model_dir" ]; then
@@ -319,6 +329,13 @@ for model_dir in "$CHECKPOINT_DIR"/*; do
     fi
     
     model=$(basename "$model_dir")
+    
+    # Skip if specific model is requested and this isn't it
+    if [ -n "$SPECIFIC_MODEL" ] && [ "$model" != "$SPECIFIC_MODEL" ]; then
+        echo "⏭️  Skipping model: $model (not $SPECIFIC_MODEL)"
+        continue
+    fi
+    
     model_count=$((model_count + 1))
     echo "🔍 Found model directory: $model"
     
@@ -450,6 +467,9 @@ echo ""
 echo "════════════════════════════════════════════════════════════"
 echo "📊 GENERATION SUMMARY"
 echo "════════════════════════════════════════════════════════════"
+if [ -n "$SPECIFIC_MODEL" ]; then
+    echo "Model filter: $SPECIFIC_MODEL"
+fi
 echo "Total unique configurations: $TOTAL_CONFIGS"
 
 if [ "$DRY_RUN" = true ]; then
