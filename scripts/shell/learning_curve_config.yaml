@@ -2,31 +2,31 @@
 # Defines dataset-specific settings for generating training scripts
 
 datasets:
-  # opv_camb3lyp:
-  #   targets:
-  #     # - optical_lumo
-  #     - gap
-  #     - homo
-  #     - lumo
-  #     - spectral_overlap
-  #     - delta_optical_lumo
-  #     - homo_extrapolated
-  #     - gap_extrapolated
-  #   train_sizes:
-  #     - 250
-  #     - 500
-  #     - 1000
-  #     # - 2000
-  #     # - 3500
-  #     # - 5000
-  #     # - 8000
-  #     # - 12000
-  #   models:
-  #     - DMPNN
-  #     # - tabular
-  #     # - AttentiveFP
-  #     # - DMPNN_DiffPool
-  #   walltime: "04:00:00"
+  opv_camb3lyp:
+    targets:
+      - optical_lumo
+      - gap
+      - homo
+      - lumo
+      - spectral_overlap
+      - delta_optical_lumo
+      - homo_extrapolated
+      - gap_extrapolated
+    train_sizes:
+      - 250
+      - 500
+      - 1000
+      - 2000
+      - 3500
+      - 5000
+      - 8000
+      - 12000
+    models:
+      - DMPNN
+      # - tabular
+      - AttentiveFP
+      - DMPNN_DiffPool
+    walltime: "02:00:00"
     
   insulator:
     targets:
@@ -34,22 +34,22 @@ datasets:
     train_sizes:
       - 128
       - 256
-      # - 512
-      # - 768
-      # - 1024
-      # - 1536
-      # - 2048
-      # - 2560
-      # - 3072
-      # - 3367
+      - 512
+      - 768
+      - 1024
+      - 1536
+      - 2048
+      - 2560
+      - 3072
+      - 3367
     models:
-      # - DMPNN
-      # - wDMPNN
-      - tabular
-      # - AttentiveFP
-      # - DMPNN_DiffPool
+      - DMPNN
+      - wDMPNN
+      # - tabular
+      - AttentiveFP
+      - DMPNN_DiffPool
     # script_type: graph
-    walltime: "01:00:00"
+    walltime: "00:30:00"
     # Dataset-specific descriptor settings
     has_descriptors: false
     descriptor_variants:
