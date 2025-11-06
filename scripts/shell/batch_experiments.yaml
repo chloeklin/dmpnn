@@ -175,18 +175,18 @@ experiments:
   #   walltime: "1:10:00"
 
 
-  # - <<: *polyinfo_base
-  #   model: wDMPNN
-  #   walltime: "6:30:00"
-  # - <<: *polyinfo_base
-  #   model: wDMPNN
-  #   incl_rdkit: true
-  #   walltime: "6:30:00"
+  - <<: *polyinfo_base
+    model: wDMPNN
+    walltime: "6:30:00"
+  - <<: *polyinfo_base
+    model: wDMPNN
+    incl_rdkit: true
+    walltime: "6:30:00"
 
     
-  # - <<: *insulator_base
-  #   model: wDMPNN
-  #   walltime: "1:30:00"
+  - <<: *insulator_base
+    model: wDMPNN
+    walltime: "1:30:00"
   # - <<: *insulator_base
   #   model: wDMPNN
   #   incl_rdkit: true
@@ -225,40 +225,40 @@ experiments:
   #   walltime: "1:10:00"
 
 
-  - <<: *polyinfo_base
-    model: DMPNN_DiffPool
-    walltime: "4:30:00"
-  - <<: *polyinfo_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    walltime: "4:30:00"
+  # - <<: *polyinfo_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:30:00"
+  # - <<: *polyinfo_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "4:30:00"
 
     
-  - <<: *insulator_base
-    model: DMPNN_DiffPool
-    walltime: "4:30:00"
-  - <<: *insulator_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    walltime: "4:30:00"
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:30:00"
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "4:30:00"
 
     
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    walltime: "3:30:00"
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    walltime: "3:30:00"
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    incl_desc: true
-    walltime: "3:30:00"
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "3:30:00"
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "3:30:00"
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "3:30:00"
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "3:30:00"
 
     
   # - <<: *opv_base

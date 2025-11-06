@@ -22,10 +22,10 @@ datasets:
       - 8000
       - 12000
     models:
-      # - DMPNN
+      - DMPNN #12000
       # - tabular
       # - AttentiveFP
-      - DMPNN_DiffPool
+      - DMPNN_DiffPool #20000
     walltime: "02:00:00"
     
   insulator:
@@ -44,7 +44,7 @@ datasets:
       - 3367
     models:
       # - DMPNN
-      # - wDMPNN
+      # - wDMPNN #768
       # - tabular
       # - AttentiveFP
       - DMPNN_DiffPool
