@@ -883,3 +883,105 @@ def load_preprocessing_objects(checkpoint_dir: Path, split_idx: int) -> Optional
         print(f"Error loading preprocessing objects: {e}")
         return None
 
+
+def prepare_target_data(y_raw: np.ndarray, task_type: str, target_name: str, logger: logging.Logger) -> np.ndarray:
+    """Prepare target data based on task type.
+    
+    Args:
+        y_raw: Raw target values
+        task_type: Task type ('reg', 'binary', 'multi')
+        target_name: Name of target variable
+        logger: Logger instance
+        
+    Returns:
+        Processed target values
+        
+    Raises:
+        ValueError: If binary target is not actually binary or multi-class has < 3 classes
+    """
+    from sklearn.preprocessing import LabelEncoder
+    
+    if task_type == "reg":
+        # For regression, ensure numeric type
+        y_vec = y_raw.astype(float)
+        
+    elif task_type == "binary":
+        # For binary classification, handle both string and numeric labels
+        if y_raw.dtype.kind in "OUS":  # If string type
+            y_vec = LabelEncoder().fit_transform(y_raw)
+        else:
+            uniq = np.unique(y_raw)
+            # Convert to 0/1 if already binary, otherwise encode
+            y_vec = y_raw.astype(int) if set(uniq) <= {0,1} else LabelEncoder().fit_transform(y_raw)
+        # Verify binary encoding
+        if not set(np.unique(y_vec)) <= {0,1}:
+            raise ValueError(f"{target_name} is not binary.")
+        
+    else:  # multi-class classification
+        # Encode string labels to integers
+        y_vec = LabelEncoder().fit_transform(y_raw)
+        # Skip if not enough classes for multi-class
+        if len(np.unique(y_vec)) < 3:
+            raise ValueError(f"{target_name}: only {len(np.unique(y_vec))} classes; insufficient for multi-class.")
+    
+    return y_vec
+
+
+def group_splits(df, y, task_type, n_splits, seed, train_frac=0.8, val_frac=0.1, test_frac=0.1):
+    """
+    Produce train/val/test index lists with group integrity preserved.
+    - For CV (n_splits > 1): GroupKFold (or StratifiedGroupKFold for classification if available).
+    - For holdout (n_splits == 1): two-stage GroupShuffleSplit to get 80/10/10 by groups.
+    Returns: train_indices, val_indices, test_indices as lists (len = n_splits or 1).
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    assert abs(train_frac + val_frac + test_frac - 1.0) < 1e-8
+    
+    groups = make_groups_for_copolymer(df)
+    n = len(df)
+
+    # ---------------------- Cross-validation path ----------------------
+    if n_splits > 1:
+        if task_type != "reg" and HAVE_SGKF:
+            splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+            cv_iter = splitter.split(np.zeros(n), y, groups)
+        else:
+            splitter = GroupKFold(n_splits=n_splits)  # deterministic, no shuffle
+            cv_iter = splitter.split(np.zeros(n), groups=groups)
+
+        tr_list, va_list, te_list = [], [], []
+        # proportion actually available for training folds in CV (rest is test)
+        train_total = 1.0 - 1.0 / n_splits
+        # inner val fraction relative to TRAIN so that global val ≈ val_frac
+        inner_val = min(max(val_frac / train_total, 0.0), 1.0)
+
+        for k, (tr_idx, te_idx) in enumerate(cv_iter):
+            # carve validation from training by groups
+            inner = GroupShuffleSplit(n_splits=1, train_size=1.0 - inner_val,
+                                      random_state=seed + k)
+            tr2_rel, va_rel = next(inner.split(tr_idx, groups=groups[tr_idx]))
+            tr2_idx = tr_idx[tr2_rel]
+            va_idx = tr_idx[va_rel]
+
+            tr_list.append(tr2_idx)
+            va_list.append(va_idx)
+            te_list.append(te_idx)
+
+        return tr_list, va_list, te_list
+
+    # ---------------------- Holdout path (80/10/10 by default) ----------------------
+    outer = GroupShuffleSplit(n_splits=1, train_size=train_frac, random_state=seed)
+    tr_idx, temp_idx = next(outer.split(np.zeros(n), groups=groups))
+
+    temp_groups = groups[temp_idx]
+    # fraction of TEMP that should become VAL (so VAL:TEST ≈ val_frac:test_frac)
+    inner_train_size = val_frac / (val_frac + test_frac)
+    inner = GroupShuffleSplit(n_splits=1, train_size=inner_train_size, random_state=seed + 1)
+    va_rel, te_rel = next(inner.split(temp_idx, groups=temp_groups))
+
+    va_idx = temp_idx[va_rel]
+    te_idx = temp_idx[te_rel]
+
+    return [tr_idx], [va_idx], [te_idx]

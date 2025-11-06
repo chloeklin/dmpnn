@@ -3,29 +3,29 @@ import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import json
+import re
+import torch
+
 import logging
 
 from utils import (
-    set_seed, process_data, determine_split_strategy, generate_data_splits, 
-    create_all_data,
+    set_seed, process_data, 
+    determine_split_strategy, 
+    generate_data_splits, 
     build_sklearn_models,
-    build_experiment_paths,
-    setup_training_environment,
     load_and_preprocess_data,
-    load_best_checkpoint,
+    pick_best_checkpoint,
     get_encodings_from_loader,
 )
 
 
-from chemprop import data, featurizers, models, nn
+from chemprop import data, featurizers, models
 
 from sklearn.metrics import (
-    r2_score, mean_squared_error, mean_absolute_error,
-    accuracy_score, f1_score, roc_auc_score
+    r2_score, accuracy_score, f1_score, roc_auc_score
 )
 
-from attentivefp_utils import build_attentivefp_loaders
+from attentivefp_utils import build_attentivefp_loaders, extract_attentivefp_embeddings
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -74,15 +74,14 @@ def extract_config_from_checkpoint_path(checkpoint_path: str) -> dict:
 
 # === Modular Functions to Eliminate Code Duplication ===
 
-def get_metric_columns(task_type: str, results_df: pd.DataFrame) -> list:
-    """Get metric column names based on task type."""
-    if task_type == "reg":
-        metric_cols = ["test/mae", "test/r2", "test/rmse"]
-    else:
-        metric_cols = ["test/accuracy", "test/f1"]
-        if "test/roc_auc" in results_df.columns:
-            metric_cols.append("test/roc_auc")
-    return metric_cols
+def get_metric_columns(task_type: str, results_df: pd.DataFrame) -> list[str]:
+    cols = {
+        "reg": ["test/mae", "test/r2", "test/rmse"],
+        "binary": ["test/accuracy", "test/f1", "test/roc_auc"],
+        "multi": ["test/accuracy", "test/f1"],  # roc_auc often absent for multi
+    }[task_type]
+    return [c for c in cols if c in results_df.columns]
+
 
 
 def build_results_filename(args, results_dir: Path, descriptor_columns: list = None) -> Path:
@@ -96,9 +95,7 @@ def build_results_filename(args, results_dir: Path, descriptor_columns: list = N
     
     # Add descriptor suffixes (for DMPNN pipeline)
     if descriptor_columns:
-        desc_suffix = "__desc" if descriptor_columns else ""
-        if desc_suffix:
-            filename_parts.append("desc")
+        filename_parts.append("desc")
     
     if hasattr(args, 'incl_rdkit') and args.incl_rdkit:
         filename_parts.append("rdkit")
@@ -171,16 +168,20 @@ def save_and_summarize_results(results_df: pd.DataFrame, args, results_dir: Path
     
     return out_csv
 
+def make_experiment_tokens(args, target, has_desc: bool) -> dict:
+    return dict(
+        desc="__desc" if has_desc else "",
+        rdkit="__rdkit" if getattr(args, "incl_rdkit", False) else "",
+        bn="__batch_norm" if getattr(args, "batch_norm", False) else "",
+        size=("" if not getattr(args, "train_size", None)
+              or str(args.train_size).lower() == "full"
+              else f"__size{args.train_size}")
+    )
+
 def experiment_base(args, target, descriptor_columns):
-    desc  = "__desc" if descriptor_columns else ""
-    rdkit = "__rdkit" if getattr(args, "incl_rdkit", False) else ""
-    bn    = "__batch_norm" if getattr(args, "batch_norm", False) else ""
-    size  = ""
-    ts = getattr(args, "train_size", None)
-    if ts is not None and str(ts).lower() != "full":
-        size = f"__size{ts}"
-    # leave a placeholder for rep
-    return f"{args.dataset_name}__{target}{desc}{rdkit}{bn}{size}__rep{{rep}}"
+    t = make_experiment_tokens(args, target, bool(descriptor_columns))
+    return f"{args.dataset_name}__{target}{t['desc']}{t['rdkit']}{t['bn']}{t['size']}__rep{{rep}}"
+
 
 def paths_from_base(args, setup_info, base_name_with_placeholder, rep: int):
     chemprop_dir    = Path(setup_info["chemprop_dir"])
@@ -204,21 +205,40 @@ def paths_from_base(args, setup_info, base_name_with_placeholder, rep: int):
 
     return ckpt_dir, preproc_dir, primary_embeddings_dir, embedding_prefix
 
+def resolve_checkpoint_for_rep(args, setup_info, target: str, rep: int, descriptor_columns) -> Path | None:
+    """
+    Returns a file path for the checkpoint to load for this rep, or None if missing.
+    AttentiveFP -> <dir>/best.pt
+    DMPNN-family -> pick_best_checkpoint(<dir>)
+    """
+    # (A) If the user passed a path, rewrite only the __repN suffix to this rep:
+    if args.checkpoint_path:
+        p = Path(args.checkpoint_path)
+        # If it's a file, operate on parent; else on dir name
+        base = p.parent if p.suffix else p
+        name = base.name
+        import re
+        name = re.sub(r'__rep\d+', f'__rep{rep}', name) if '__rep' in name else f"{name}__rep{rep}"
+        candidate_dir = base.parent / name
+        if args.model_name == "AttentiveFP":
+            ckpt = candidate_dir / "best.pt"
+            return ckpt if ckpt.exists() else None
+        else:
+            ckpt, _ = pick_best_checkpoint(candidate_dir)
+            return Path(ckpt) if ckpt else None
+
+    # (B) Normal discovery via your experiment naming
+    base = experiment_base(args, target, setup_info['descriptor_columns'])
+    ckpt_dir, *_ = paths_from_base(args, setup_info, base, rep)
+    if args.model_name == "AttentiveFP":
+        ckpt = ckpt_dir / "best.pt"
+        return ckpt if ckpt.exists() else None
+    else:
+        ckpt, _ = pick_best_checkpoint(ckpt_dir)
+        return Path(ckpt) if ckpt else None
+
+
 # ---------- tiny loaders for each model family ----------
-
-def build_chemp_loaders(args, setup_info, target, train_idx, val_idx, test_idx, smis, df_input,
-                        combined_descriptor_data):
-    """Make Chemprop (DMPNN family) datasets & loaders — mirrors train_graph.py."""
-    small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG"]
-    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer() \
-        if args.model_name in small_molecule_models else featurizers.PolymerMolGraphFeaturizer()
-
-    # Assemble data objects
-    ys = df_input.loc[:, target].astype(float).values
-    if args.task_type != 'reg': ys = ys.astype(int)
-    ys = ys.reshape(-1, 1)
-    all_data = data.MoleculeDataset(
-        create_all_data=[])  # <-- not used here, we’ll use utils.create_all_data below
 
 def build_dmpnn_loaders(args, setup_info, target, train_idx, val_idx, test_idx, smis, df_input,
                         combined_descriptor_data):
@@ -260,134 +280,111 @@ def build_dmpnn_loaders(args, setup_info, target, train_idx, val_idx, test_idx, 
 
 
 # ---------- main overall process skeleton ----------
+def extract_embeddings_for_rep(args, setup_info, target, rep, tr, va, te,
+                               smis, df_input, combined_descriptor_data,
+                               smiles_col, base_ckpt_dir: Path,
+                               keep_eps: float = 1e-8):
+    """Returns (X_train, X_val, X_test, keep_mask) and writes cache to both primary & temp."""
+    import torch
+    # Build loaders
+    if args.model_name == "AttentiveFP":
+        from attentivefp_utils import create_attentivefp_model
+        df_tr, df_va, df_te = df_input.iloc[tr].reset_index(drop=True), df_input.iloc[va].reset_index(drop=True), df_input.iloc[te].reset_index(drop=True)
+        train_loader, val_loader, test_loader, _ = build_attentivefp_loaders(
+            args, df_tr, df_va, df_te, smiles_col, target, eval=True
+        )
+        ckpt = resolve_checkpoint_for_rep(args, setup_info, target, rep, setup_info['descriptor_columns'])
+        if not ckpt or not ckpt.exists():
+            logger.warning(f"[rep {rep}] missing AttentiveFP ckpt: {ckpt}")
+            return None
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        hidden = getattr(args, "hidden", 200)
+        n_classes = None if args.task_type != 'multi' else int(df_input[target].dropna().nunique())
+        model = create_attentivefp_model(args.task_type, n_classes, hidden_channels=hidden,
+                                         num_layers=2, num_timesteps=2, dropout=0.0).to(device)
+        state = torch.load(ckpt, map_location=device)
+        model.load_state_dict({k: v.to(device) for k, v in state["state_dict"].items()})
+        X_train = extract_attentivefp_embeddings(model, train_loader, device)
+        X_val   = extract_attentivefp_embeddings(model, val_loader,   device)
+        X_test  = extract_attentivefp_embeddings(model, test_loader,  device)
+    else:
+        # DMPNN-family
+        train_loader, val_loader, test_loader = build_dmpnn_loaders(
+            args, setup_info, target, tr, va, te, smis, df_input, combined_descriptor_data
+        )
+        ckpt = resolve_checkpoint_for_rep(args, setup_info, target, rep, setup_info['descriptor_columns'])
+        if not ckpt:
+            logger.warning(f"[rep {rep}] missing checkpoint dir")
+            return None
+        map_location = None if torch.cuda.is_available() else torch.device('cpu')
+        if args.model_name == "DMPNN_DiffPool":
+            # If you’ve got a helper in utils to instantiate, call that; otherwise leave as-is.
+            from chemprop import nn, models
+            base_mp_cls = nn.BondMessagePassing
+            depth = getattr(args, "diffpool_depth", 1)
+            ratio = getattr(args, "diffpool_ratio", 0.5)
+            mp = nn.BondMessagePassingWithDiffPool(base_mp_cls=base_mp_cls, depth=depth, ratio=ratio)
+            desc_dim = (combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0)
+            input_dim = mp.output_dim + desc_dim
+            if args.task_type == 'reg':
+                predictor = nn.RegressionFFN(output_transform=None, n_tasks=1, input_dim=input_dim)
+            elif args.task_type == 'binary':
+                predictor = nn.BinaryClassificationFFN(input_dim=input_dim)
+            else:
+                n_classes = max(2, int(df_input[target].dropna().nunique()))
+                predictor = nn.MulticlassClassificationFFN(n_classes=n_classes, input_dim=input_dim)
+            mpnn = models.MPNN(message_passing=mp, agg=nn.IdentityAggregation(),
+                               predictor=predictor, batch_norm=args.batch_norm, metrics=[])
+            import torch as _t
+            state = _t.load(ckpt, map_location=map_location)
+            mpnn.load_state_dict(state["state_dict"], strict=False)
+            mpnn.eval()
+        else:
+            from chemprop import models
+            mpnn = models.MPNN.load_from_checkpoint(str(ckpt), map_location=map_location)
+            mpnn.eval()
+        X_train = get_encodings_from_loader(mpnn, train_loader)
+        X_val   = get_encodings_from_loader(mpnn, val_loader)
+        X_test  = get_encodings_from_loader(mpnn, test_loader)
 
-def overall_process(args):
-    # env + config
-    model_type = "dmpnn" if args.model_name in ["DMPNN", "wDMPNN", "DMPNN_DiffPool", "PPG"] \
-        else "attentivefp" if args.model_name == "AttentiveFP" else "dmpnn"
-    setup_info = setup_model_environment(args, model_type)
-    set_seed(setup_info['SEED'])
+    # Low-variance mask
+    std_train = X_train.std(axis=0)
+    keep = std_train > keep_eps
+    return X_train[:, keep], X_val[:, keep], X_test[:, keep], keep
 
-    # data
-    df_input, target_columns = load_and_preprocess_data(args, setup_info)
-    smiles_col = setup_info['smiles_column']
-    descriptor_columns = setup_info['descriptor_columns']
-    smis, df_input, combined_descriptor_data, _ = process_data(
-        df_input, smiles_col, descriptor_columns, target_columns, args
+
+def _cache_files(rep_idx: int, prefix: str | None = None):
+    # with prefix -> "<prefix>__X_train_split_i.npy"; else "X_train_split_i.npy"
+    stem = (lambda name: f"{prefix}__{name}" if prefix else name)
+    return (
+        stem(f"X_train_split_{rep_idx}.npy"),
+        stem(f"X_val_split_{rep_idx}.npy"),
+        stem(f"X_test_split_{rep_idx}.npy"),
+        stem(f"feature_mask_split_{rep_idx}.npy"),
     )
 
-    # choose one target for the demonstration (match your example)
-    target = target_columns[0]
+def resolve_embeddings_for_rep(rep_idx: int, primary_dir: Path, base_ckpt_dir: Path, prefix: str | None) -> tuple[Path, bool, tuple[str,str,str,str]]:
+    f_tr, f_va, f_te, f_mask = _cache_files(rep_idx, prefix)
+    # 1) primary
+    primary_have = all((primary_dir / f).exists() for f in (f_tr, f_va, f_te, f_mask))
+    if primary_have:
+        return primary_dir, True, (f_tr, f_va, f_te, f_mask)
+    # 2) temp next to checkpoint base (no prefix there to keep it short)
+    f_tr2, f_va2, f_te2, f_mask2 = _cache_files(rep_idx, None)
+    temp_dir = base_ckpt_dir / "temp_embeddings"
+    temp_have = all((temp_dir / f).exists() for f in (f_tr2, f_va2, f_te2, f_mask2))
+    return temp_dir, temp_have, (f_tr2, f_va2, f_te2, f_mask2)
 
-    # build CV/holdout splits
-    ys = df_input.loc[:, target].astype(float).values
-    n_splits, local_reps = determine_split_strategy(len(ys), setup_info['REPLICATES'])
-    train_indices, val_indices, test_indices = generate_data_splits(args, ys.reshape(-1,1), n_splits, local_reps, setup_info['SEED'])
+def load_cached_embeddings(d: Path, names: tuple[str,str,str,str]):
+    f_tr, f_va, f_te, f_mask = names
+    X_tr = np.load(d / f_tr); X_va = np.load(d / f_va); X_te = np.load(d / f_te); keep = np.load(d / f_mask)
+    return X_tr, X_va, X_te, keep
 
-    # precompute base name once
-    base = experiment_base(args, target, descriptor_columns)
+def save_cached_embeddings(d: Path, names: tuple[str,str,str,str], X_tr, X_va, X_te, keep):
+    d.mkdir(parents=True, exist_ok=True)
+    f_tr, f_va, f_te, f_mask = names
+    np.save(d / f_tr, X_tr); np.save(d / f_va, X_va); np.save(d / f_te, X_te); np.save(d / f_mask, keep)
 
-    for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-        ckpt_dir, preproc_dir, emb_dir, emb_prefix = paths_from_base(args, setup_info, base, i)
-
-        print(f"[rep {i}] ckpt_dir   : {ckpt_dir}")
-        print(f"[rep {i}] preproc_dir: {preproc_dir}")
-        print(f"[rep {i}] emb_dir    : {emb_dir}")
-        print(f"[rep {i}] emb_prefix : {emb_prefix}")
-
-        # 1) Try primary location first (results_dir/embeddings, same for all models)
-        primary = {
-            "train": emb_dir / f"{emb_prefix}__X_train_split_{i}.npy",
-            "val":   emb_dir / f"{emb_prefix}__X_val_split_{i}.npy",
-            "test":  emb_dir / f"{emb_prefix}__X_test_split_{i}.npy",
-            "mask":  emb_dir / f"{emb_prefix}__feature_mask_split_{i}.npy",
-        }
-        have_primary = all(p.exists() for p in primary.values())
-
-        if have_primary:
-            X_train = np.load(primary["train"]); X_val = np.load(primary["val"]); X_test = np.load(primary["test"])
-            keep    = np.load(primary["mask"])
-            print(f"[rep {i}] loaded primary embeddings → kept dims {keep.sum()}/{len(keep)}")
-
-        else:
-            # 3) No embeddings: extract from checkpoints
-            print(f"[rep {i}] no embeddings found → extracting from checkpoint")
-
-            if args.model_name == "AttentiveFP":
-                # load AttentiveFP model and make loaders
-                from attentivefp_utils import create_attentivefp_model
-                # build split dataframes
-                df_tr = df_input.iloc[tr].reset_index(drop=True)
-                df_va = df_input.iloc[va].reset_index(drop=True)
-                df_te = df_input.iloc[te].reset_index(drop=True)
-                train_loader, val_loader, test_loader, _ = build_attentivefp_loaders(
-                    args, df_tr, df_va, df_te, smiles_col, target, eval=True
-                )
-                # checkpoint is a file best.pt inside ckpt_dir
-                ckpt_file = ckpt_dir / "best.pt"
-                if not ckpt_file.exists():
-                    print(f"[rep {i}] missing AttentiveFP ckpt: {ckpt_file}")
-                    continue
-
-                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                # use your training hidden size to be safe
-                hidden = getattr(args, "hidden", 200)
-                model = create_attentivefp_model(
-                    task_type=args.task_type, n_classes=None, hidden_channels=hidden,
-                    num_layers=2, num_timesteps=2, dropout=0.0
-                ).to(device)
-                ckpt = torch.load(ckpt_file, map_location=device)
-                model.load_state_dict({k: v.to(device) for k, v in ckpt["state_dict"].items()})
-                model.eval()
-
-                # prefer extracting via core.gnn if available
-                def _extract(rep_model, loader):
-                    rep_model.eval()
-                    outs = []
-                    with torch.no_grad():
-                        for batch in loader:
-                            batch = batch.to(device)
-                            if hasattr(rep_model.core, "gnn"):
-                                emb = rep_model.core.gnn(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                            else:
-                                emb = rep_model.core(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                            outs.append(emb.cpu().numpy())
-                    return np.vstack(outs)
-
-                X_train = _extract(model, train_loader)
-                X_val   = _extract(model, val_loader)
-                X_test  = _extract(model, test_loader)
-
-            else:
-                # DMPNN/wDMPNN/DiffPool/PPG
-                train_loader, val_loader, test_loader = build_dmpnn_loaders(
-                    args, setup_info, target, tr, va, te, smis, df_input, combined_descriptor_data
-                )
-                best = load_best_checkpoint(ckpt_dir)
-                if best is None:
-                    print(f"[rep {i}] missing DMPNN checkpoint in {ckpt_dir}")
-                    continue
-                mpnn = models.MPNN.load_from_checkpoint(str(best), map_location=None if torch.cuda.is_available() else torch.device('cpu'))
-                mpnn.eval()
-                X_train = get_encodings_from_loader(mpnn, train_loader)
-                X_val   = get_encodings_from_loader(mpnn, val_loader)
-                X_test  = get_encodings_from_loader(mpnn, test_loader)
-
-            # apply low-variance filter based on train (like train_graph.py)
-            std_train = X_train.std(axis=0)
-            keep = std_train > 1e-8
-            X_train = X_train[:, keep]; X_val = X_val[:, keep]; X_test = X_test[:, keep]
-            print(f"[rep {i}] extracted embeddings → kept dims {keep.sum()}/{len(keep)}")
-
-            # save to primary (results_dir/embeddings) with standard naming
-            emb_dir.mkdir(parents=True, exist_ok=True)
-            np.save(primary["train"], X_train)
-            np.save(primary["val"],   X_val)
-            np.save(primary["test"],  X_test)
-            np.save(primary["mask"],  keep)
-            print(f"[rep {i}] saved embeddings to primary dir")
-
-    print("✓ Done.")
 
 
 
@@ -416,12 +413,9 @@ parser.add_argument('--batch_norm', action='store_true',
                     help='Use batch normalization models for evaluation')
 parser.add_argument('--train_size', type=str, default=None,
                     help='Training size used during model training (for path matching)')
-parser.add_argument('--export_embeddings', action='store_true',
-                    help='Load pre-exported embeddings if available (speeds up evaluation)')
-parser.add_argument('--save_predictions', action='store_true',
-                    help='Save predictions during evaluation')
-parser.add_argument('--pretrain_monomer', action='store_true',
-                    help='Evaluate pretrained monomer multitask model')
+parser.add_argument('--batch_size', type=int, default=64,
+                    help='Batch size for dataloaders during embedding extraction')
+
 
 args = parser.parse_args()
 
@@ -440,18 +434,12 @@ logger.info(f"RDKit desc.   : {'Enabled' if args.incl_rdkit else 'Disabled'}")
 logger.info(f"Batch norm    : {'Enabled' if args.batch_norm else 'Disabled'}")
 if args.train_size is not None:
     logger.info(f"Train size    : {args.train_size}")
-if args.export_embeddings:
-    logger.info(f"Load embeddings: Enabled")
-if args.save_predictions:
-    logger.info(f"Save predictions: Enabled")
-if args.pretrain_monomer:
-    logger.info(f"Pretrain monomer: Enabled")
 logger.info("===============================\n")
 
 # Setup evaluation environment with model-specific configuration
 from utils import setup_model_environment
 
-# Determine model type for environment setup
+# Determine model type once
 if args.model_name in ["DMPNN", "wDMPNN", "DMPNN_DiffPool", "PPG"]:
     model_type = "dmpnn"
 elif args.model_name == "AttentiveFP":
@@ -459,986 +447,136 @@ elif args.model_name == "AttentiveFP":
 elif args.model_name == "Graphormer":
     model_type = "graphormer"
 else:
-    # Default to dmpnn for unknown models
     model_type = "dmpnn"
     logger.warning(f"Unknown model type {args.model_name}, using DMPNN environment setup")
 
 setup_info = setup_model_environment(args, model_type)
-
-# Extract commonly used variables for backward compatibility
-config = setup_info['config']
-chemprop_dir = setup_info['chemprop_dir']
-checkpoint_dir = setup_info['checkpoint_dir']
-results_dir = setup_info['results_dir']
-smiles_column = setup_info['smiles_column']
-ignore_columns = setup_info['ignore_columns']
-descriptor_columns = setup_info['descriptor_columns']
-SEED = setup_info['SEED']
-REPLICATES = setup_info['REPLICATES']
-EPOCHS = setup_info['EPOCHS']
-PATIENCE = setup_info['PATIENCE']
-num_workers = setup_info['num_workers']
-DATASET_DESCRIPTORS = setup_info['DATASET_DESCRIPTORS']
-MODEL_NAME = args.model_name
-
-# Check model configuration
-model_config = config['MODELS'].get(args.model_name, {})
-if not model_config:
-    logger.info(f"Warning: No configuration found for model '{args.model_name}'. Using defaults.")
-
-# === Set Random Seed ===
-set_seed(SEED)
+set_seed(setup_info['SEED'])
 
 
-# Load and preprocess data
+# data
 df_input, target_columns = load_and_preprocess_data(args, setup_info)
+if args.target:
+    if args.target not in target_columns:
+        logger.error(f"Target '{args.target}' not in {target_columns}")
+        sys.exit(1)
+    target_columns = [args.target]
 
-base = experiment_base(args, target_columns[0], descriptor_columns)
+smiles_col = setup_info['smiles_column']
+descriptor_columns = setup_info['descriptor_columns']
+smis, df_input, combined_descriptor_data, n_classes = process_data(
+    df_input, smiles_col, descriptor_columns, target_columns, args
+)
 
-for i in range(REPLICATES):
-    ckpt_dir, preproc_dir, emb_dir, emb_prefix = paths_from_base(args, setup_info, base, i)
-    print(f"ckpt_dir: {ckpt_dir}")
-    print(f"preproc_dir: {preproc_dir}")
-    print(f"emb_dir: {emb_dir}")
-    print(f"emb_prefix: {emb_prefix}")
+all_results = []
+for target in target_columns:
+    ys = df_input[target].astype(float if args.task_type=='reg' else int).values.reshape(-1,1)
+    n_splits, local_reps = determine_split_strategy(len(ys), setup_info['REPLICATES'])
+    train_indices, val_indices, test_indices = generate_data_splits(
+        args, ys, n_splits, local_reps, setup_info['SEED'], df_input=df_input
+    )
 
-    break
+    base = experiment_base(args, target, descriptor_columns)
+    for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
+        ckpt_dir, preproc_dir, emb_dir, emb_prefix = paths_from_base(args, setup_info, base, i)
 
-# # === Model-Specific Pipeline Routing ===
-# if args.model_name == "AttentiveFP":
-#     logger.info("🔄 AttentiveFP evaluation pipeline")
-    
-#     # Import AttentiveFP utilities
-#     from attentivefp_utils import GraphCSV, create_attentivefp_model, extract_embeddings
-#     from torch_geometric.loader import DataLoader
-#     from sklearn.preprocessing import StandardScaler
-    
-#     
-    
-#     # Filter target columns if specific target is provided
-#     if args.target:
-#         if args.target not in target_columns:
-#             logger.error(f"Target '{args.target}' not found in dataset. Available targets: {target_columns}")
-#             sys.exit(1)
-#         target_columns = [args.target]
-#         logger.info(f"Evaluating single target: {args.target}")
-    
-#     # Results storage
-#     all_results = []
-    
-#     # Process each target
-#     for target in target_columns:
-#         logger.info(f"\n=== Evaluating target: {target} ===")
-        
-#         # Determine split strategy
-#         ys = df_input.loc[:, target].astype(float).values
-#         n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
-        
-#         # Generate data splits
-#         train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
-        
-#         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-#             logger.info(f"\n--- Split {i+1}/{len(train_indices)} ---")
-            
-#             # Build checkpoint path for AttentiveFP  ✅ directory + best.pt
-#             checkpoint_stem = f"{args.dataset_name}__{target}"
-#             if args.train_size and args.train_size != "full":
-#                 checkpoint_stem += f"__size{args.train_size}"
-#             checkpoint_stem += f"__rep{i}"
+        # Embedding cache
+        # Build a target-agnostic base ckpt dir (dataset__repN)
+        import re
+        rep_token = re.search(r"__rep\d+$", ckpt_dir.name)
+        if rep_token:
+            base_ckpt_dir = ckpt_dir.parent / rep_token.group(0).lstrip("_")
+        else:
+            base_ckpt_dir = ckpt_dir  # fallback
+        use_dir, have = resolve_embeddings_for_rep(i, emb_dir, base_ckpt_dir)
+        if have:
+            X_train, X_val, X_test, keep = load_cached_embeddings(i, use_dir)
+        else:
+            extracted = extract_embeddings_for_rep(
+                args, setup_info, target, i, tr, va, te, smis, df_input,
+                combined_descriptor_data, smiles_col, base_ckpt_dir
+            )
+            if extracted is None:
+                logger.warning(f"[rep {i}] skipped (no checkpoint)")
+                continue
+            X_train, X_val, X_test, keep = extracted
+            save_cached_embeddings(i, use_dir, X_train, X_val, X_test, keep)
 
-#             # If setup_info already pointed checkpoint_dir at ".../checkpoints/AttentiveFP",
-#             # use it as-is; otherwise append "AttentiveFP".
-#             attn_root = checkpoint_dir if checkpoint_dir.name == "AttentiveFP" else (checkpoint_dir / "AttentiveFP")
-#             checkpoint_path = attn_root / checkpoint_stem / "best.pt"
+        # Targets aligned with possibly shorter loader outputs
+        y_train = df_input.loc[tr, target].to_numpy()[:len(X_train)]
+        y_val   = df_input.loc[va, target].to_numpy()[:len(X_val)]
+        y_test  = df_input.loc[te, target].to_numpy()[:len(X_test)]
 
-            
-#             if not checkpoint_path.exists():
-#                 logger.warning(f"AttentiveFP checkpoint not found: {checkpoint_path}")
-#                 continue
-            
-#             logger.info(f"✅ Found AttentiveFP checkpoint: {checkpoint_path}")
-            
-#             # Create datasets using AttentiveFP format
-#             df_tr = df_input.iloc[tr].reset_index(drop=True)
-#             df_va = df_input.iloc[va].reset_index(drop=True)
-#             df_te = df_input.iloc[te].reset_index(drop=True)
-            
-#             # Create AttentiveFP datasets
-#             train_dataset = GraphCSV(df_tr, smiles_column, target, task_type=args.task_type)
-#             val_dataset = GraphCSV(df_va, smiles_column, target, task_type=args.task_type)
-#             test_dataset = GraphCSV(df_te, smiles_column, target, task_type=args.task_type)
-            
-#             # Setup scaling for regression (match training)
-#             scaler = None
-#             if args.task_type == 'reg':
-#                 scaler = StandardScaler()
-#                 train_dataset.y = scaler.fit_transform(train_dataset.y)
-#                 val_dataset.y = scaler.transform(val_dataset.y)
-#                 # Keep test targets unscaled for evaluation
-            
-#             # Create data loaders
-#             train_loader = DataLoader(train_dataset, batch_size=64, shuffle=False)
-#             val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
-#             test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
-            
-#             # Load AttentiveFP model
-#             import torch
-#             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            
-#             # Get number of classes for multi-class tasks
-#             n_classes = None
-#             if args.task_type == 'multi':
-#                 n_classes = df_input[target].dropna().nunique()
-            
-#             # Create model with same architecture as training
-#             model = create_attentivefp_model(
-#                 task_type=args.task_type,
-#                 n_classes=n_classes,
-#                 hidden_channels=200,  # Default from training
-#                 num_layers=2,
-#                 num_timesteps=2,
-#                 dropout=0.0
-#             ).to(device)
-            
-#             # Load checkpoint (AttentiveFP format)
-#             checkpoint = torch.load(checkpoint_path, map_location=device)
-#             model.load_state_dict({k: v.to(device) for k, v in checkpoint["state_dict"].items()})
-#             model.eval()
-            
-#             logger.info("✅ AttentiveFP model loaded successfully")
-            
-#             # Extract embeddings if requested
-#             if args.export_embeddings:
-#                 logger.info("🧠 Extracting AttentiveFP embeddings...")
-                
-#                 # Extract embeddings
-#                 train_emb = extract_embeddings(model, train_loader, device)
-#                 val_emb = extract_embeddings(model, val_loader, device)
-#                 test_emb = extract_embeddings(model, test_loader, device)
-                
-#                 # Save embeddings
-#                 embeddings_dir = checkpoint_path.parent / "embeddings"
-#                 embeddings_dir.mkdir(exist_ok=True)
-                
-#                 np.save(embeddings_dir / f"X_train_split_{i}.npy", train_emb)
-#                 np.save(embeddings_dir / f"X_val_split_{i}.npy", val_emb)
-#                 np.save(embeddings_dir / f"X_test_split_{i}.npy", test_emb)
-                
-#                 # Create feature mask (all features are valid for AttentiveFP embeddings)
-#                 feature_mask = np.ones(train_emb.shape[1], dtype=bool)
-#                 np.save(embeddings_dir / f"feature_mask_split_{i}.npy", feature_mask)
-                
-#                 logger.info(f"AttentiveFP embeddings saved to {embeddings_dir}")
-            
-#             # Evaluate model performance
-#             logger.info("📊 Evaluating AttentiveFP model performance...")
-            
-#             # Test evaluation - match training evaluation exactly
-#             model.eval()
-#             y_true, y_pred = [], []
-            
-#             with torch.no_grad():
-#                 for batch in test_loader:
-#                     batch = batch.to(device)
-#                     pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                    
-#                     # Handle different prediction formats - match training
-#                     if args.task_type == 'reg':
-#                         # Regression: inverse transform scaling
-#                         pred = scaler.inverse_transform(pred.view(-1,1).cpu().numpy()).reshape(-1)
-#                         y_pred.append(pred)
-#                         y_true.append(batch.y.view(-1,1).cpu().numpy().reshape(-1))  # test was NOT scaled
-#                     elif args.task_type == 'binary':
-#                         # Binary classification: apply sigmoid
-#                         pred_prob = torch.sigmoid(pred.view(-1)).cpu().numpy()
-#                         pred_class = (pred_prob >= 0.5).astype(int)
-#                         y_pred.append(pred_class)
-#                         y_true.append(batch.y.view(-1).cpu().numpy().astype(int))
-#                     elif args.task_type == 'multi':
-#                         # Multi-class classification: use argmax
-#                         pred_class = torch.argmax(pred, dim=1).cpu().numpy()
-#                         y_pred.append(pred_class)
-#                         y_true.append(batch.y.view(-1).cpu().numpy().astype(int))
-            
-#             # Concatenate results
-#             y_true = np.concatenate(y_true)
-#             y_pred = np.concatenate(y_pred)
-            
-#             # Calculate metrics
-#             from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, accuracy_score, f1_score, roc_auc_score
-            
-#             result_row = {'target': target, 'split': i}
-            
-#             if args.task_type == 'reg':
-#                 result_row['test/mae'] = mean_absolute_error(y_true, y_pred)
-#                 result_row['test/rmse'] = np.sqrt(mean_squared_error(y_true, y_pred))
-#                 result_row['test/r2'] = r2_score(y_true, y_pred)
-#             else:  # binary or multi-class
-#                 result_row['test/accuracy'] = accuracy_score(y_true, y_pred)
-#                 result_row['test/f1'] = f1_score(y_true, y_pred, average='weighted' if args.task_type == 'multi' else 'binary')
-                
-#                 # Add ROC-AUC for binary classification
-#                 if args.task_type == 'binary':
-#                     try:
-#                         # Get probabilities for ROC-AUC
-#                         y_prob = []
-#                         with torch.no_grad():
-#                             for batch in test_loader:
-#                                 batch = batch.to(device)
-#                                 pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-#                                 pred_prob = torch.sigmoid(pred.view(-1)).cpu().numpy()
-#                                 y_prob.append(pred_prob)
-#                         y_prob = np.concatenate(y_prob)
-#                         result_row['test/roc_auc'] = roc_auc_score(y_true, y_prob)
-#                     except ValueError:
-#                         result_row['test/roc_auc'] = np.nan
-            
-#             result_row['model'] = 'AttentiveFP'
-#             all_results.append(result_row)
-            
-#             logger.info(f"AttentiveFP evaluation complete for split {i}")
-    
-#     # Save results using modular function
-#     if all_results:
-#         results_df = pd.DataFrame(all_results)
-#         save_and_summarize_results(results_df, args, results_dir, model_name="AttentiveFP")
-    
-#     logger.info("🎉 AttentiveFP evaluation complete!")
-#     sys.exit(0)  # Exit after AttentiveFP evaluation
-    
-# elif args.model_name == "Graphormer":
-#     logger.error("❌ Graphormer evaluation not supported")
-#     logger.info("Graphormer requires:")
-#     logger.info("  1. DGL graph data format from train_graphormer.py")
-#     logger.info("  2. Custom collation functions")
-#     logger.info("  3. Accelerate-based model loading")
-#     logger.info("  4. Graph-level embedding extraction")
-#     logger.error("Please use DMPNN, wDMPNN, DMPNN_DiffPool, PPG, or AttentiveFP models")
-#     sys.exit(1)
-    
-# else:
-#     logger.info("🔄 Using DMPNN/Lightning-based evaluation pipeline")
+        # Baselines
+        from sklearn.preprocessing import StandardScaler
+        target_scaler = None
+        if args.task_type == "reg":
+            target_scaler = StandardScaler().fit(y_train.reshape(-1,1))
+            y_train_scaled = target_scaler.transform(y_train.reshape(-1,1)).ravel()
+            y_val_scaled   = target_scaler.transform(y_val.reshape(-1,1)).ravel()
+        else:
+            y_train_scaled, y_val_scaled = y_train, y_val
 
-# # === Continue with Standard Pipeline (works for DMPNN variants, partially for AttentiveFP) ===
+        num_classes = None if args.task_type == "reg" else int(np.unique(y_train).size)
+        specs = build_sklearn_models(args.task_type, num_classes, scaler_flag=True)
 
-# # === Load and Preprocess Data ===
-# df_input, target_columns = load_and_preprocess_data(args, setup_info)
+        fold_rows = []
+        for name, (mdl, needs_scaler) in specs.items():
+            # scale X if requested
+            Xtr = X_train; Xva = X_val; Xte = X_test
+            if needs_scaler:
+                xs = StandardScaler().fit(Xtr)
+                Xtr = xs.transform(Xtr); Xva = xs.transform(Xva); Xte = xs.transform(Xte)
 
-# # Filter target columns if specific target is provided
-# if args.target:
-#     if args.target not in target_columns:
-#         logger.error(f"Target '{args.target}' not found in dataset. Available targets: {target_columns}")
-#         sys.exit(1)
-#     target_columns = [args.target]
-#     logger.info(f"Evaluating single target: {args.target}")
+            if args.task_type == "reg":
+                if name == "XGB":
+                    mdl.set_params(early_stopping_rounds=30, eval_metric="rmse")
+                    mdl.fit(Xtr, y_train_scaled, eval_set=[(Xva, y_val_scaled)], verbose=False)
+                else:
+                    mdl.fit(Xtr, y_train_scaled)
+                yp = mdl.predict(Xte)
+                yp = target_scaler.inverse_transform(yp.reshape(-1,1)).ravel()
+                fold_rows.append(dict(target=target, split=i,
+                                      **{"test/mae": np.mean(np.abs(yp-y_test)),
+                                         "test/rmse": float(np.sqrt(np.mean((yp-y_test)**2))),
+                                         "test/r2": float(r2_score(y_test, yp))},
+                                      model=name))
+            else:
+                if name == "XGB":
+                    mdl.set_params(early_stopping_rounds=30, eval_metric=("mlogloss" if args.task_type=="multi" else "logloss"))
+                    mdl.fit(Xtr, y_train_scaled, eval_set=[(Xva, y_val_scaled)], verbose=False)
+                else:
+                    mdl.fit(Xtr, y_train_scaled)
+                yp = mdl.predict(Xte)
+                row = dict(target=target, split=i,
+                           **{"test/accuracy": float(accuracy_score(y_test, yp)),
+                              "test/f1": float(f1_score(y_test, yp, average=("macro" if args.task_type=="multi" else "binary")))},
+                           model=name)
+                if hasattr(mdl, "predict_proba"):
+                    try:
+                        proba = mdl.predict_proba(Xte)
+                        if args.task_type == "binary":
+                            # ensure both classes present
+                            if len(np.unique(y_test)) == 2 and proba.shape[1] == 2:
+                                row["test/roc_auc"] = float(roc_auc_score(y_test, proba[:, 1]))
+                        else:
+                            classes_sorted = sorted(np.unique(np.concatenate([y_train, y_test])))
+                            if len(classes_sorted) > 1:
+                                from sklearn.preprocessing import label_binarize
+                                yb = label_binarize(y_test, classes=classes_sorted)
+                                if yb.shape[1] > 1:
+                                    row["test/roc_auc"] = float(
+                                        roc_auc_score(yb, proba[:, :yb.shape[1]], average="macro", multi_class="ovr")
+                                    )
+                    except Exception:
+                        pass
 
-# # Which variant are we evaluating?
-# use_desc = bool(args.incl_desc)
-# use_rdkit = bool(args.incl_rdkit)
+                fold_rows.append(row)
+        all_results.extend(fold_rows)
 
-# variant_tokens = []
-# if use_desc:
-#     variant_tokens.append("desc")
-# if use_rdkit:
-#     variant_tokens.append("rdkit")
-
-# variant_label = "original" if not variant_tokens else "+".join(variant_tokens)
-# variant_qstattag = "" if variant_label == "original" else "_" + variant_label.replace("+", "_")
-
-# smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
-
-# # Choose featurizer based on model type
-# small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG"]
-# featurizer = (
-#     featurizers.SimpleMoleculeMolGraphFeaturizer() 
-#     if args.model_name in small_molecule_models 
-#     else featurizers.PolymerMolGraphFeaturizer()
-# )
-
-# # Prepare results list for tabular format (same as train_tabular.py)
-# all_results = []
-
-# # Initialize result storage for all targets
-# rep_model_to_row = {}
-
-# # Iterate per target
-# for target in target_columns:
-#     # Prepare data
-#     ys = df_input.loc[:, target].astype(float).values
-#     if args.task_type != 'reg':
-#         ys = ys.astype(int)
-#     ys = ys.reshape(-1, 1) # reshaping target to be 2D
-#     all_data = create_all_data(smis, ys, combined_descriptor_data, args.model_name)
-
-
-#     # Determine split strategy and generate splits
-#     n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
-    
-#     if n_splits > 1:
-#         logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
-#     else:
-#         logger.info(f"Using holdout validation with {local_reps} replicate(s)")
-
-#     # Generate data splits
-#     train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
-    
-    
-#     # Split to datasets for each replicate
-#     train_data, val_data, test_data = data.split_data_by_indices(
-#         all_data, train_indices, val_indices, test_indices
-#     )
-#     num_splits = len(train_data)  # robust for both CV and holdout
-
-#     # Apply same preprocessing as train_graph.py
-#     if combined_descriptor_data is not None:
-#         # Initial data preparation (same as train_graph.py)
-#         orig_Xd = np.asarray(combined_descriptor_data, dtype=np.float64)
-        
-#         # Replace inf with NaN
-#         inf_mask = np.isinf(orig_Xd)
-#         if np.any(inf_mask):
-#             logger.info(f"Found {np.sum(inf_mask)} infinite values, replacing with NaN")
-#             orig_Xd[inf_mask] = np.nan
-        
-#         # Extract configuration from checkpoint path if provided
-#         if args.checkpoint_path:
-#             checkpoint_config = extract_config_from_checkpoint_path(args.checkpoint_path)
-#             logger.info(f"Extracted config from checkpoint path: {checkpoint_config}")
-            
-#             # Create a temporary args object with the extracted configuration
-#             import copy
-#             temp_args = copy.deepcopy(args)
-#             temp_args.incl_rdkit = checkpoint_config['rdkit']
-#             temp_args.batch_norm = checkpoint_config['batch_norm']
-#             temp_args.train_size = checkpoint_config['train_size']
-            
-#             # Update descriptor_columns based on extracted config
-#             if checkpoint_config['descriptors'] and not descriptor_columns:
-#                 logger.warning("Checkpoint was trained with descriptors, but no descriptor columns provided!")
-#             elif not checkpoint_config['descriptors'] and descriptor_columns:
-#                 logger.info("Checkpoint was trained without descriptors, ignoring provided descriptor columns")
-#                 descriptor_columns = None
-#         else:
-#             temp_args = args
-
-#         # Load preprocessing metadata directly (same as train_graph.py)
-#         split_preprocessing_metadata = {}
-#         for i in range(REPLICATES):
-#             # Build experiment paths to get proper suffixes using extracted config
-#             checkpoint_path, auto_preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
-#                 temp_args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-#             )
-            
-#             # Use provided preprocessing path or automatic path
-#             if args.preprocessing_path:
-#                 provided_path = Path(args.preprocessing_path)
-                
-#                 # Check if the provided path is for a specific replicate (ends with __repN)
-#                 if '__rep' in provided_path.name:
-#                     # Extract the base path by removing the __repN suffix and build path for current replicate
-#                     import re
-#                     base_path_name = re.sub(r'__rep\d+$', '', provided_path.name)
-#                     base_directory = provided_path.parent
-#                     current_rep_name = f"{base_path_name}__rep{i}"
-#                     preprocessing_path = base_directory / current_rep_name
-#                     logger.info(f"Extracted base from provided path: {base_path_name}")
-#                     logger.info(f"Using preprocessing path for rep {i}: {preprocessing_path}")
-#                 else:
-#                     # Provided path is a base directory, append the full experiment name
-#                     base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
-#                     preprocessing_path = provided_path / base_name
-#                     logger.info(f"Using provided preprocessing base directory: {args.preprocessing_path}")
-#                     logger.info(f"Full preprocessing path: {preprocessing_path}")
-#             else:
-#                 preprocessing_path = auto_preprocessing_path
-#                 logger.info(f"Using automatic preprocessing path: {preprocessing_path}")
-            
-#             # Check if preprocessing files exist
-#             metadata_path = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
-#             scaler_file = preprocessing_path / "descriptor_scaler.pkl"
-#             imputer_file = preprocessing_path / "descriptor_imputer.pkl"
-#             correlation_mask_file = preprocessing_path / "correlation_mask.npy"
-            
-#             preprocessing_files_exist = (
-#                 metadata_path.exists() and 
-#                 scaler_file.exists() and
-#                 imputer_file.exists() and
-#                 correlation_mask_file.exists()
-#             )
-            
-#             if preprocessing_files_exist:
-#                 logger.info(f"✓ Found preprocessing files for split {i} at {preprocessing_path}")
-#             else:
-#                 logger.warning(f"⚠ Preprocessing files incomplete for split {i} at {preprocessing_path}")
-#                 logger.warning(f"  metadata: {metadata_path.exists()}, scaler: {scaler_file.exists()}, "
-#                              f"imputer: {imputer_file.exists()}, mask: {correlation_mask_file.exists()}")
-            
-#             # Load the metadata file directly
-#             if metadata_path.exists():
-#                 with open(metadata_path, 'r') as f:
-#                     split_preprocessing_metadata[i] = json.load(f)
-#                 logger.info(f"Loaded preprocessing metadata for split {i}")
-#             else:
-#                 logger.warning(f"No preprocessing metadata found at {metadata_path}")
-#                 split_preprocessing_metadata[i] = None
-        
-#         # Remove constant features using saved metadata (same as train_graph.py)
-#         if split_preprocessing_metadata[0] is not None:
-#             constant_features = split_preprocessing_metadata[0]['data_info']['constant_features_removed']
-#             if constant_features:
-#                 logger.info(f"Removing {len(constant_features)} constant features from full dataset")
-#                 orig_Xd = np.delete(orig_Xd, constant_features, axis=1)
-        
-#     # === Evaluation Loop ===
-#     for i in range(num_splits):
-#         logger.info(f"\n=== Replicate {i+1}/{num_splits} ===")
-        
-#         # Apply per-split preprocessing (same as train_graph.py)
-#         if combined_descriptor_data is not None:
-#             if split_preprocessing_metadata[i] is None:
-#                 logger.info(f"Warning: Skipping split {i} due to missing metadata")
-#                 continue
-                
-#             # Get preprocessing components for this split
-#             cleaning_meta = split_preprocessing_metadata[i]['cleaning']
-            
-#             # Apply imputation using saved imputer (same as train_graph.py)
-#             if args.preprocessing_path:
-#                 # Use provided base path but with proper experiment naming
-#                 base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
-#                 preprocessing_path = Path(args.preprocessing_path) / base_name
-#             else:
-#                 checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
-#                     args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-#                 )
-            
-#             from joblib import load
-#             imputer_path = preprocessing_path / "descriptor_imputer.pkl"
-#             if imputer_path.exists():
-#                 saved_imputer = load(imputer_path)
-#                 all_data_clean_i = saved_imputer.transform(orig_Xd)
-#             else:
-#                 all_data_clean_i = orig_Xd.copy()
-            
-#             # Apply clipping and conversion
-#             float32_min = cleaning_meta['float32_min']
-#             float32_max = cleaning_meta['float32_max']
-#             all_data_clean_i = np.clip(all_data_clean_i, float32_min, float32_max)
-#             all_data_clean_i = all_data_clean_i.astype(np.float32)
-            
-#             # Apply correlation mask (same as train_graph.py)
-#             mask_i = np.array(
-#                 split_preprocessing_metadata[i]['split_specific']['correlation_mask'],
-#                 dtype=bool
-#             )
-            
-#             # Apply preprocessing to datapoints (same as train_graph.py)
-#             for dp, ridx in zip(train_data[i], train_indices[i]):
-#                 dp.x_d = all_data_clean_i[ridx][mask_i]
-#             for dp, ridx in zip(val_data[i], val_indices[i]):
-#                 dp.x_d = all_data_clean_i[ridx][mask_i]
-#             for dp, ridx in zip(test_data[i], test_indices[i]):
-#                 dp.x_d = all_data_clean_i[ridx][mask_i]
-        
-#         # Create datasets after cleaning (same as train_graph.py)
-#         DS = data.MoleculeDataset if MODEL_NAME in small_molecule_models else data.PolymerDataset
-#         train = DS(train_data[i], featurizer)
-#         val = DS(val_data[i], featurizer)
-#         test = DS(test_data[i], featurizer)
-        
-#         # Apply descriptor scaling using saved scaler (same as train_graph.py)
-#         if combined_descriptor_data is not None:
-#             if args.preprocessing_path:
-#                 # Use provided base path but with proper experiment naming
-#                 base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
-#                 preprocessing_path = Path(args.preprocessing_path) / base_name
-#             else:
-#                 checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
-#                     args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-#                 )
-            
-#             # Load saved descriptor scaler
-#             from joblib import load
-#             scaler_path = preprocessing_path / "descriptor_scaler.pkl"
-#             if scaler_path.exists():
-#                 saved_descriptor_scaler = load(scaler_path)
-#                 logger.info(f"Loaded descriptor scaler for split {i}")
-                
-#                 # Apply saved scaler to datasets (same as train_graph.py)
-#                 train.normalize_inputs("X_d", saved_descriptor_scaler)
-#                 val.normalize_inputs("X_d", saved_descriptor_scaler)
-#                 test.normalize_inputs("X_d", saved_descriptor_scaler)
-#             else:
-#                 logger.info(f"Warning: No descriptor scaler found for split {i}")
-        
-#         # Target scaling (same as train_graph.py)
-#         if args.task_type == 'reg':
-#             scaler = train.normalize_targets()
-#             val.normalize_targets(scaler)
-#             # test targets intentionally left unscaled
-
-#         # Use multiprocessing only if GPU is available to avoid spawn issues on CPU-only systems
-#         import torch
-#         eval_num_workers = num_workers if torch.cuda.is_available() else 0
-#         train_loader = data.build_dataloader(train, num_workers=eval_num_workers, shuffle=False)
-#         val_loader = data.build_dataloader(val, num_workers=eval_num_workers, shuffle=False)
-#         test_loader = data.build_dataloader(test, num_workers=eval_num_workers, shuffle=False)
-        
-#         # Build checkpoint path using the same logic as training scripts
-#         if args.checkpoint_path:
-#             # Legacy support: if checkpoint_path is provided, use the existing logic
-#             # Extract the base experiment pattern from the provided checkpoint path
-#             # and build the correct path for this replicate
-#             provided_path = Path(args.checkpoint_path)
-            
-#             # Try to find the experiment directory by looking for __rep pattern in the path
-#             # Walk up the path until we find a directory with __rep in its name
-#             current_path = provided_path
-#             exp_dir = None
-            
-#             # If it's a file, start from its parent directory
-#             if provided_path.is_file():
-#                 current_path = provided_path.parent
-            
-#             # Walk up the directory tree to find the experiment directory
-#             for parent in [current_path] + list(current_path.parents):
-#                 if "__rep" in parent.name:
-#                     exp_dir = parent
-#                     break
-            
-#             if exp_dir:
-#                 exp_dir_name = exp_dir.name
-#                 # Replace any existing rep number with the current replicate number
-#                 import re
-#                 new_exp_dir_name = re.sub(r'__rep\d+', f'__rep{i}', exp_dir_name)
-#                 checkpoint_path = exp_dir.parent / new_exp_dir_name
-#                 logger.info(f"Built checkpoint path for rep {i}: {checkpoint_path}")
-#             else:
-#                 # Special case: check if the file itself has __rep pattern (e.g., AttentiveFP)
-#                 if provided_path.is_file() and "__rep" in provided_path.name:
-#                     import re
-#                     new_filename = re.sub(r'__rep\d+', f'__rep{i}', provided_path.name)
-#                     checkpoint_path = provided_path.parent / new_filename
-#                     logger.info(f"Built checkpoint file path for rep {i}: {checkpoint_path}")
-#                 else:
-#                     # Check if this is a base pattern that we need to append __rep{i} to
-#                     # This handles cases like "/checkpoints/DMPNN/htpmd__Conductivity"
-#                     base_pattern = provided_path.name
-#                     if not base_pattern.endswith(f"__rep{i}"):
-#                         # Append the replicate suffix
-#                         checkpoint_path = provided_path.parent / f"{base_pattern}__rep{i}"
-#                         logger.info(f"Built checkpoint path for rep {i}: {checkpoint_path}")
-#                     else:
-#                         # Already has rep suffix, use as-is
-#                         checkpoint_path = provided_path
-#                         logger.info(f"Using provided checkpoint path: {checkpoint_path}")
-#         else:
-#             # Use the same checkpoint path building logic as training scripts
-#             if args.model_name == "AttentiveFP":
-#                 # AttentiveFP uses a different checkpoint structure
-#                 try:
-#                     from train_attentivefp import create_checkpoint_name
-#                     checkpoint_name = create_checkpoint_name(args, target, i)
-#                     checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name / "best.pt"
-#                 except ImportError:
-#                     # Fallback: build AttentiveFP path manually
-#                     parts = [args.dataset_name, target]
-#                     if args.train_size and args.train_size != "full":
-#                         parts.append(f"size{args.train_size}")
-#                     parts.append(f"rep{i}")
-#                     checkpoint_name = "__".join(parts)
-#                     checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name / "best.pt"
-#             else:
-#                 # DMPNN, wDMPNN, DMPNN_DiffPool use build_experiment_paths
-#                 checkpoint_path, _, _, _, _, _ = build_experiment_paths(
-#                     args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-#                 )
-        
-#         # Check if embeddings already exist from train_graph.py --export_embeddings FIRST
-#         # OR if we've already extracted them in this evaluation run
-#         embeddings_dir = Path(checkpoint_path) / "embeddings"
-#         embedding_files_exist = (
-#             (embeddings_dir / f"X_train_split_{i}.npy").exists() and
-#             (embeddings_dir / f"X_val_split_{i}.npy").exists() and
-#             (embeddings_dir / f"X_test_split_{i}.npy").exists() and
-#             (embeddings_dir / f"feature_mask_split_{i}.npy").exists()
-#         )
-        
-#         # Also check for temporary embeddings from this evaluation session
-#         # Use a target-agnostic path since the same model can be used for all targets
-#         checkpoint_path_str = str(checkpoint_path)
-#         if "__rep" in checkpoint_path_str:
-#             # Remove everything between dataset and rep to get base model path
-#             # e.g., "htpmd__Conductivity__desc__rdkit__rep0" -> "htpmd__rep0"
-#             import re
-#             match = re.match(r'^(.+?)__.*?__(rep\d+)$', checkpoint_path_str)
-#             if match:
-#                 dataset_part = match.group(1)
-#                 rep_part = match.group(2)
-#                 base_path = f"{dataset_part}__{rep_part}"
-#                 base_checkpoint_path = Path(checkpoint_path_str).parent / base_path
-#             else:
-#                 base_checkpoint_path = checkpoint_path
-#         else:
-#             base_checkpoint_path = checkpoint_path
-            
-#         temp_embeddings_dir = base_checkpoint_path / "temp_embeddings"
-#         temp_embedding_files_exist = (
-#             (temp_embeddings_dir / f"X_train_split_{i}.npy").exists() and
-#             (temp_embeddings_dir / f"X_val_split_{i}.npy").exists() and
-#             (temp_embeddings_dir / f"X_test_split_{i}.npy").exists() and
-#             (temp_embeddings_dir / f"feature_mask_split_{i}.npy").exists()
-#         )
-        
-#         # Use either permanent or temporary embeddings
-#         if embedding_files_exist:
-#             use_embeddings_dir = embeddings_dir
-#         elif temp_embedding_files_exist:
-#             use_embeddings_dir = temp_embeddings_dir
-#             embedding_files_exist = True
-#         else:
-#             use_embeddings_dir = None
-        
-#         if embedding_files_exist:
-#             logger.info(f"✅ Found existing embeddings at {use_embeddings_dir} - loading directly (fast path)")
-#             X_train = np.load(use_embeddings_dir / f"X_train_split_{i}.npy")
-#             X_val = np.load(use_embeddings_dir / f"X_val_split_{i}.npy")
-#             X_test = np.load(use_embeddings_dir / f"X_test_split_{i}.npy")
-#             keep = np.load(use_embeddings_dir / f"feature_mask_split_{i}.npy")
-            
-#             logger.info(f"Loaded embeddings - kept dims: {int(keep.sum())} / {len(keep)}")
-#             logger.info(f"  - X_train: {X_train.shape}")
-#             logger.info(f"  - X_val: {X_val.shape}")
-#             logger.info(f"  - X_test: {X_test.shape}")
-#         else:
-#             logger.info("❌ No existing embeddings found, need to extract from checkpoint (slow path)")
-#             logger.info("🔄 NOTE: This script ONLY loads trained checkpoints for evaluation - NO TRAINING occurs")
-            
-#             # Use provided checkpoint file or discover best checkpoint
-#             if args.checkpoint_path:
-#                 # Always discover the best checkpoint in the replicate-specific directory
-#                 # (we've already built the correct checkpoint_path above)
-#                 last_ckpt = load_best_checkpoint(Path(checkpoint_path))
-#                 if last_ckpt is None:
-#                     logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
-#                     continue
-#                 logger.info(f"Using discovered checkpoint file for rep {i}: {last_ckpt}")
-#             else:
-#                 # Only now check for checkpoint since we need to extract embeddings
-#                 last_ckpt = load_best_checkpoint(Path(checkpoint_path))
-#                 if last_ckpt is None:
-#                     # no checkpoint → skip this replicate (leave row without this target's metrics)
-#                     logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
-#                     continue
-            
-#             # Load encoder and make fingerprints (map to CPU if CUDA not available)
-#             import torch
-#             map_location = torch.device('cpu') if not torch.cuda.is_available() else None
-            
-#             logger.info("📥 Loading trained model from checkpoint for embedding extraction...")
-            
-#             # Handle different checkpoint formats and model types
-#             # This section only handles DMPNN variants since AttentiveFP and Graphormer exit early
-#             if args.model_name == "DMPNN_DiffPool":
-#                 # DMPNN_DiffPool has different architecture - need to create model first
-#                 logger.info("Creating DMPNN_DiffPool model architecture...")
-                
-#                 # Import required modules
-#                 from chemprop import nn
-                
-#                 # Create the same architecture as in training (from utils.py)
-#                 base_mp_cls = nn.BondMessagePassing
-                
-#                 # Use same defaults as in utils.py build_model_and_trainer
-#                 depth = getattr(args, "diffpool_depth", 1)
-#                 ratio = getattr(args, "diffpool_ratio", 0.5)
-                
-#                 mp = nn.BondMessagePassingWithDiffPool(
-#                     base_mp_cls=base_mp_cls,
-#                     depth=depth,
-#                     ratio=ratio
-#                 )
-#                 agg = nn.IdentityAggregation()
-                
-#                 # Calculate input dimension for FFN (same as in utils.py)
-#                 descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
-#                 input_dim = mp.output_dim + descriptor_dim
-                
-#                 # Create predictor based on task type (same as in utils.py)
-#                 if args.task_type == 'reg':
-#                     predictor = nn.RegressionFFN(
-#                         output_transform=None,  # Will be loaded from checkpoint
-#                         n_tasks=1, 
-#                         input_dim=input_dim
-#                     )
-#                 elif args.task_type == 'binary':
-#                     predictor = nn.BinaryClassificationFFN(input_dim=input_dim)
-#                 elif args.task_type == 'multi':
-#                     # For multi-class, we need n_classes - use a reasonable default
-#                     n_classes = max(n_classes_per_target.values()) if n_classes_per_target else 2
-#                     predictor = nn.MulticlassClassificationFFN(
-#                         n_classes=n_classes, 
-#                         input_dim=input_dim
-#                     )
-#                 else:
-#                     # Default to regression
-#                     predictor = nn.RegressionFFN(
-#                         output_transform=None,
-#                         n_tasks=1, 
-#                         input_dim=input_dim
-#                     )
-                
-#                 # Create MPNN with DiffPool architecture
-#                 mpnn = models.MPNN(
-#                     message_passing=mp,
-#                     agg=agg,
-#                     predictor=predictor,
-#                     batch_norm=args.batch_norm,
-#                     metrics=[]
-#                 )
-                
-#                 # Load checkpoint manually
-#                 checkpoint = torch.load(last_ckpt, map_location=map_location)
-#                 mpnn.load_state_dict(checkpoint["state_dict"], strict=False)
-#                 mpnn.eval()
-#                 logger.info("✅ DMPNN_DiffPool model loaded in evaluation mode")
-                
-#             else:
-#                 # Standard DMPNN variants (DMPNN, wDMPNN, PPG)
-#                 logger.info(f"Loading {args.model_name} Lightning checkpoint: {last_ckpt}")
-#                 mpnn = models.MPNN.load_from_checkpoint(str(last_ckpt), map_location=map_location)
-#                 mpnn.eval()  # Ensure evaluation mode
-#                 logger.info(f"✅ {args.model_name} model loaded in evaluation mode")
-                
-#             logger.info("🧠 Extracting embeddings from trained model...")
-#             X_train = get_encodings_from_loader(mpnn, train_loader)
-#             X_val = get_encodings_from_loader(mpnn, val_loader)
-#             X_test = get_encodings_from_loader(mpnn, test_loader)
-
-#             eps = 1e-8  # or 1e-6 if you want to be stricter
-#             std_train = X_train.std(axis=0)
-#             keep = std_train > eps
-
-#             X_train = X_train[:, keep]
-#             X_val   = X_val[:, keep]
-#             X_test  = X_test[:, keep]
-
-#             logger.info(f"Extracted embeddings - kept dims: {int(keep.sum())} / {len(keep)}")
-            
-#             # Save temporary embeddings for reuse in subsequent targets
-#             # Use the same target-agnostic path as above
-#             temp_embeddings_dir = base_checkpoint_path / "temp_embeddings"
-#             temp_embeddings_dir.mkdir(parents=True, exist_ok=True)
-            
-#             np.save(temp_embeddings_dir / f"X_train_split_{i}.npy", X_train)
-#             np.save(temp_embeddings_dir / f"X_val_split_{i}.npy", X_val)
-#             np.save(temp_embeddings_dir / f"X_test_split_{i}.npy", X_test)
-#             np.save(temp_embeddings_dir / f"feature_mask_split_{i}.npy", keep)
-            
-#             logger.info(f"💾 Saved temporary embeddings to {temp_embeddings_dir} for reuse")
-
-#         # Get target data for each split
-#         y_train = df_input.loc[train_indices[i], target].to_numpy()
-#         y_val = df_input.loc[val_indices[i], target].to_numpy()
-#         y_test = df_input.loc[test_indices[i], target].to_numpy()
-        
-#         # Ensure all target arrays match the number of samples actually processed by the model
-#         # (DataLoader may drop incomplete batches)
-#         if len(y_train) != len(X_train):
-#             logger.warning(f"Truncating y_train from {len(y_train)} to {len(X_train)} samples to match processed data")
-#             y_train = y_train[:len(X_train)]
-#         if len(y_val) != len(X_val):
-#             logger.warning(f"Truncating y_val from {len(y_val)} to {len(X_val)} samples to match processed data")
-#             y_val = y_val[:len(X_val)]
-#         if len(y_test) != len(X_test):
-#             logger.warning(f"Truncating y_test from {len(y_test)} to {len(X_test)} samples to match processed data")
-#             y_test = y_test[:len(X_test)]
-        
-#         # Initialize target scaler for regression tasks (same as train_tabular.py)
-#         target_scaler = None
-#         if args.task_type == 'reg':
-#             from sklearn.preprocessing import StandardScaler
-#             target_scaler = StandardScaler()
-#             y_train_scaled = target_scaler.fit_transform(y_train.reshape(-1, 1)).flatten()
-#             y_val_scaled = target_scaler.transform(y_val.reshape(-1, 1)).flatten()
-#             # Keep y_test original for final evaluation
-#         else:
-#             y_train_scaled = y_train
-#             y_val_scaled = y_val
-
-#         # Build requested baselines with scaler info (same as train_tabular.py)
-#         num_classes = len(np.unique(y_train_scaled)) if args.task_type != "reg" else None
-#         model_specs = build_sklearn_models(args.task_type, num_classes, scaler_flag=True)
-
-#         # Initialize result rows for this replicate
-#         for name in model_specs.keys():
-#             if (i, name) not in rep_model_to_row:
-#                 rep_model_to_row[(i, name)] = {
-#                     "dataset": args.dataset_name,
-#                     "encoder": args.model_name,
-#                     "variant": variant_label,
-#                     "replicate": i,
-#                     "model": name
-#                 }
-
-#         # Train baselines following same logic as train_tabular.py
-#         for name, (model, needs_scaler) in model_specs.items():
-#             # Apply scaling for models that require it (linear/logistic)
-#             scaler = None
-#             if needs_scaler:
-#                 from sklearn.preprocessing import StandardScaler
-#                 scaler = StandardScaler()
-#                 X_train_scaled = scaler.fit_transform(X_train)
-#                 X_val_scaled = scaler.transform(X_val)
-#                 X_test_scaled = scaler.transform(X_test)
-#             else:
-#                 X_train_scaled = X_train
-#                 X_val_scaled = X_val
-#                 X_test_scaled = X_test
-
-#             if args.task_type == "reg":
-#                 if name == "XGB":
-#                     model.set_params(early_stopping_rounds=30, eval_metric="rmse")
-#                     model.fit(X_train_scaled, y_train_scaled, eval_set=[(X_val_scaled, y_val_scaled)], verbose=False)
-#                 else:
-#                     model.fit(X_train_scaled, y_train_scaled)
-                
-#                 # Get predictions and inverse transform if this is regression
-#                 y_pred = model.predict(X_test_scaled)
-#                 if target_scaler is not None:
-#                     y_pred = target_scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
-                
-#                 r2   = r2_score(y_test, y_pred)
-#                 mae  = mean_absolute_error(y_test, y_pred)
-#                 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-#                 rep_model_to_row[(i, name)][f"{target}_R2"] = r2; rep_model_to_row[(i, name)][f"{target}_MAE"] = mae; rep_model_to_row[(i, name)][f"{target}_RMSE"] = rmse
-
-#             else:
-#                 if name == "XGB":
-#                     # Use appropriate eval_metric for classification task
-#                     eval_metric = "mlogloss" if args.task_type == "multi" else "logloss"
-#                     model.set_params(early_stopping_rounds=30, eval_metric=eval_metric)
-#                     model.fit(X_train_scaled, y_train_scaled, eval_set=[(X_val_scaled, y_val_scaled)], verbose=False)
-#                 else:
-#                     model.fit(X_train_scaled, y_train_scaled)
-                
-#                 y_pred = model.predict(X_test_scaled)
-#                 acc = accuracy_score(y_test, y_pred)
-#                 avg = "macro" if args.task_type == "multi" else "binary"
-#                 f1  = f1_score(y_test, y_pred, average=avg)
-#                 rep_model_to_row[(i, name)][f"{target}_ACC"] = acc; rep_model_to_row[(i, name)][f"{target}_F1"] = f1
-
-#                 if hasattr(model, "predict_proba"):
-#                     proba = model.predict_proba(X_test_scaled)
-#                     try:
-#                         if args.task_type == "binary":
-#                             auc = roc_auc_score(y_test, proba[:, 1])
-#                         else:
-#                             from sklearn.preprocessing import label_binarize
-#                             y_bin = label_binarize(y_test, classes=list(range(n_classes_per_target[target])))
-#                             auc = roc_auc_score(y_bin, proba, average="macro", multi_class="ovr")
-#                         rep_model_to_row[(i, name)][f"{target}_ROC_AUC"] = auc
-#                     except Exception:
-#                         pass
-        
-
-# # Convert to train_graph.py format with appropriate metrics for task type
-# eval_results = []
-# for (rep_idx, model_name), row_data in rep_model_to_row.items():
-#     for target in target_columns:
-#         if args.task_type == "reg" and f"{target}_R2" in row_data:
-#             # Regression metrics
-#             eval_results.append({
-#                 'target': target,
-#                 'split': rep_idx,
-#                 'test/mae': row_data[f"{target}_MAE"],
-#                 'test/r2': row_data[f"{target}_R2"],
-#                 'test/rmse': row_data[f"{target}_RMSE"],
-#                 'model': model_name
-#             })
-#         elif args.task_type in ["binary", "multi"] and f"{target}_ACC" in row_data:
-#             # Classification metrics
-#             result_row = {
-#                 'target': target,
-#                 'split': rep_idx,
-#                 'test/accuracy': row_data[f"{target}_ACC"],
-#                 'test/f1': row_data[f"{target}_F1"],
-#                 'model': model_name
-#             }
-#             # Add ROC-AUC if available
-#             if f"{target}_ROC_AUC" in row_data:
-#                 result_row['test/roc_auc'] = row_data[f"{target}_ROC_AUC"]
-#             eval_results.append(result_row)
-
-# if eval_results:
-#     results_df = pd.DataFrame(eval_results)
-#     save_and_summarize_results(results_df, args, results_dir, descriptor_columns)
-
-# # Clean up temporary embeddings - DISABLED to preserve embeddings for reuse
-# # logger.info("🧹 Cleaning up temporary embeddings...")
-# # import shutil
-# # 
-# # # Get unique base checkpoint paths (target-agnostic) to avoid duplicate cleanup
-# # cleaned_paths = set()
-# # 
-# # for target in target_columns:
-# #     for i in range(REPLICATES):
-# #         if args.checkpoint_path:
-# #             # Use the same path building logic as above
-# #             provided_path = Path(args.checkpoint_path)
-# #             current_path = provided_path
-# #             exp_dir = None
-# #             
-# #             if provided_path.is_file():
-# #                 current_path = provided_path.parent
-# #             
-# #             for parent in [current_path] + list(current_path.parents):
-# #                 if "__rep" in parent.name:
-# #                     exp_dir = parent
-# #                     break
-# #             
-# #             if exp_dir:
-# #                 exp_dir_name = exp_dir.name
-# #                 import re
-# #                 new_exp_dir_name = re.sub(r'__rep\d+', f'__rep{i}', exp_dir_name)
-# #                 checkpoint_path = exp_dir.parent / new_exp_dir_name
-# #             else:
-# #                 if provided_path.is_file() and "__rep" in provided_path.name:
-# #                     import re
-# #                     new_filename = re.sub(r'__rep\d+', f'__rep{i}', provided_path.name)
-# #                     checkpoint_path = provided_path.parent / new_filename
-# #                 else:
-# #                     checkpoint_path = provided_path
-# #         else:
-# #             checkpoint_path, _, _, _, _, _ = build_experiment_paths(
-# #                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-# #             )
-# #         
-# #         # Convert to target-agnostic path for cleanup
-# #         checkpoint_path_str = str(checkpoint_path)
-# #         if "__rep" in checkpoint_path_str:
-# #             # Use same logic as above for consistency
-# #             import re
-# #             match = re.match(r'^(.+?)__.*?__(rep\d+)$', checkpoint_path_str)
-# #             if match:
-# #                 dataset_part = match.group(1)
-# #                 rep_part = match.group(2)
-# #                 base_path = f"{dataset_part}__{rep_part}"
-# #                 base_checkpoint_path = Path(checkpoint_path_str).parent / base_path
-# #             else:
-# #                 base_checkpoint_path = checkpoint_path
-# #         else:
-# #             base_checkpoint_path = checkpoint_path
-# #             
-# #         temp_embeddings_dir = base_checkpoint_path / "temp_embeddings"
-# #         
-# #         # Only clean each unique path once
-# #         if str(temp_embeddings_dir) not in cleaned_paths and temp_embeddings_dir.exists():
-# #             try:
-# #                 shutil.rmtree(temp_embeddings_dir)
-# #                 cleaned_paths.add(str(temp_embeddings_dir))
-# #                 logger.info(f"🗑️ Cleaned up {temp_embeddings_dir}")
-# #             except OSError:
-# #                 pass  # Ignore if cleanup fails
-
-# logger.info("✅ Evaluation complete!")
+# Save once
+if all_results:
+    results_df = pd.DataFrame(all_results)
+    out = save_and_summarize_results(results_df, args, setup_info['results_dir'],
+                                     descriptor_columns, model_name="baselines")
+    logger.info(f"Saved: {out}")

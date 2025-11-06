@@ -30,14 +30,14 @@ except Exception:
 from tabular_utils import (
     preprocess_descriptor_data,  # used by your train loop
     save_preprocessing_objects,  # used by your train loop
-    build_features,              # NOT used here for descriptors (we precompute)
-    eval_regression, eval_binary, eval_multi
+    prepare_target_data,              # NOT used here for descriptors (we precompute)
+    eval_regression, eval_binary, eval_multi,
+    group_splits
 )
 from utils import (
     set_seed, load_existing_results, save_combined_results,
-    prepare_target_data, build_sklearn_models, setup_training_environment,
-    load_and_preprocess_data,  # NOT used here (we have a custom loader)
-    determine_split_strategy, generate_data_splits, group_splits
+    build_sklearn_models, setup_training_environment,
+    determine_split_strategy, generate_data_splits,
 )
 
 # ---------------------------- Your train() (copied as-is) ----------------------------

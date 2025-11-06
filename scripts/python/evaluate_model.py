@@ -13,7 +13,7 @@ from utils import (
     build_experiment_paths,
     setup_training_environment,
     load_and_preprocess_data,
-    load_best_checkpoint,
+    pick_best_checkpoint,
     get_encodings_from_loader,
 )
 
@@ -882,14 +882,14 @@ for target in target_columns:
             if args.checkpoint_path:
                 # Always discover the best checkpoint in the replicate-specific directory
                 # (we've already built the correct checkpoint_path above)
-                last_ckpt = load_best_checkpoint(Path(checkpoint_path))
+                last_ckpt = pick_best_checkpoint(Path(checkpoint_path))
                 if last_ckpt is None:
                     logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")
                     continue
                 logger.info(f"Using discovered checkpoint file for rep {i}: {last_ckpt}")
             else:
                 # Only now check for checkpoint since we need to extract embeddings
-                last_ckpt = load_best_checkpoint(Path(checkpoint_path))
+                last_ckpt = pick_best_checkpoint(Path(checkpoint_path))
                 if last_ckpt is None:
                     # no checkpoint → skip this replicate (leave row without this target's metrics)
                     logger.warning(f"No checkpoint found at {checkpoint_path}; skipping rep {i} for target {target}.")

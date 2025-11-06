@@ -390,28 +390,58 @@ def load_attentivefp_checkpoint(checkpoint_path: Path, model, optimizer=None, de
 
 
 
-class GraphRepExtractor(nn.Module):
-    def __init__(self, attentivefp_core):
-        super().__init__()
-        self.core = attentivefp_core  # your AttentiveFP model (possibly wrapped)
-    def forward(self, x, edge_index, edge_attr, batch):
-        # NOTE: core must have .gnn; this returns the graph embedding tensor [num_graphs, hidden]
-        return self.core.gnn(x, edge_index, edge_attr, batch)
+# class GraphRepExtractor(nn.Module):
+#     def __init__(self, attentivefp_core):
+#         super().__init__()
+#         self.core = attentivefp_core  # your AttentiveFP model (possibly wrapped)
+#     def forward(self, x, edge_index, edge_attr, batch):
+#         # NOTE: core must have .gnn; this returns the graph embedding tensor [num_graphs, hidden]
+#         return self.core.gnn(x, edge_index, edge_attr, batch)
+
+
+# @torch.no_grad()
+# def extract_attentivefp_embeddings(model, loader, device):
+#     model.eval()
+#     # If you wrapped the core with EdgeGuard(... core ...), pass model.core to the extractor
+#     core = model.core if hasattr(model, "core") else model
+#     assert hasattr(core, "gnn"), "This AttentiveFP build has no `.gnn` attribute; use the hook-based fallback."
+#     rep_model = GraphRepExtractor(core).to(device).eval()
+
+#     embs = []
+#     for batch in loader:
+#         batch = batch.to(device)
+#         h = rep_model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)  # [B, hidden]
+#         embs.append(h.detach().cpu())
+#     return torch.cat(embs, dim=0).numpy()   # (N_graphs, hidden)
+
 
 
 @torch.no_grad()
 def extract_attentivefp_embeddings(model, loader, device):
+    """
+    Returns molecule-level embeddings from AttentiveFP by hooking into the
+    final linear layer (lin2). The input to lin2 is the pooled graph embedding.
+    """
     model.eval()
-    # If you wrapped the core with EdgeGuard(... core ...), pass model.core to the extractor
     core = model.core if hasattr(model, "core") else model
-    assert hasattr(core, "gnn"), "This AttentiveFP build has no `.gnn` attribute; use the hook-based fallback."
-    rep_model = GraphRepExtractor(core).to(device).eval()
 
-    embs = []
-    for batch in loader:
-        batch = batch.to(device)
-        h = rep_model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)  # [B, hidden]
-        embs.append(h.detach().cpu())
-    return torch.cat(embs, dim=0).numpy()   # (N_graphs, hidden)
+    if not hasattr(core, "lin2"):
+        raise RuntimeError("Expected AttentiveFP core to have .lin2")
 
+    captured = []
+
+    def _grab_embedding(mod, inp):
+        # inp is a 1-tuple; inp[0] is the tensor just before lin2
+        captured.append(inp[0].detach().cpu())
+
+    hook = core.lin2.register_forward_pre_hook(_grab_embedding)
+
+    try:
+        for batch in loader:
+            batch = batch.to(device)
+            _ = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)  # forward pass triggers hook
+    finally:
+        hook.remove()
+
+    return torch.cat(captured, dim=0).numpy()
 

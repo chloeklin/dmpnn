@@ -10,7 +10,7 @@ from utils import (set_seed, process_data,
                   setup_training_environment, load_and_preprocess_data, determine_split_strategy, 
                   generate_data_splits, save_aggregate_results, get_encodings_from_loader, save_predictions,
                   create_base_argument_parser, add_model_specific_args, validate_train_size_argument,
-                  setup_model_environment, save_model_results,_pick_best_checkpoint)
+                  setup_model_environment, save_model_results, pick_best_checkpoint)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -681,7 +681,7 @@ for target in target_columns:
         skip_training = False
 
         if done_flag.exists():
-            best_ckpt_path, best_val_loss = _pick_best_checkpoint(checkpoint_path)
+            best_ckpt_path, best_val_loss = pick_best_checkpoint(checkpoint_path)
             if best_ckpt_path is not None:
                 skip_training = True
                 logger.info(f"[{target}] split {i}: Found TRAINING_COMPLETE; skipping training.\n"
@@ -702,7 +702,7 @@ for target in target_columns:
             inprog_flag.touch(exist_ok=True)
             try:
                 trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
-                best_ckpt_path, best_val_loss = _pick_best_checkpoint(checkpoint_path)
+                best_ckpt_path, best_val_loss = pick_best_checkpoint(checkpoint_path)
                 if best_ckpt_path is None:
                     logger.warning(f"[{target}] split {i}: training finished but no checkpoint found.")
                 else:

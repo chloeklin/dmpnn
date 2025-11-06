@@ -457,74 +457,7 @@ def combine_descriptors(
         return np.asarray(descriptor_data, dtype=np.float32)
     return None
 
-def preprocess_classification_labels(
-    df_input: pd.DataFrame, 
-    target_columns: List[str], 
-    task_type: str,
-    verbose: bool = True
-) -> pd.DataFrame:
-    """Preprocess classification labels in a DataFrame.
-    
-    Args:
-        df_input: Input DataFrame containing the target columns
-        target_columns: List of column names containing target variables
-        task_type: Type of task - 'binary' or 'multi'
-        verbose: Whether to print information about the preprocessing
-        
-    Returns:
-        DataFrame with preprocessed labels
-        
-    Raises:
-        ValueError: If labels are invalid for the specified task type
-        TypeError: If input types are incorrect
-    """
-    if not isinstance(df_input, pd.DataFrame):
-        raise TypeError(f"Expected DataFrame, got {type(df_input).__name__}")
-    
-    if task_type not in ('binary', 'multi'):
-        raise ValueError(f"Invalid task_type: {task_type}. Must be 'binary' or 'multi'")
-    
-    df = df_input.copy()
-    
-    for tcol in target_columns:
-        if tcol not in df.columns:
-            raise ValueError(f"Target column '{tcol}' not found in DataFrame")
-        
-        # Convert string labels to integers if needed
-        if pd.api.types.is_string_dtype(df[tcol]) or pd.api.types.is_object_dtype(df[tcol]):
-            classes = sorted(df[tcol].dropna().unique().tolist())
-            class_to_idx = {c: i for i, c in enumerate(classes)}
-            df[tcol] = df[tcol].map(class_to_idx)
 
-        # Check for negative labels (use NaN for missing values)
-        if (df[tcol].dropna() < 0).any():
-            raise ValueError(
-                f"Found negative class labels in {tcol}. "
-                "Replace missing labels with NaN, not -1."
-            )
-
-        # Convert to integer type
-        df[tcol] = pd.to_numeric(df[tcol], errors='coerce').astype('Int64')
-        uniq = np.sort(df[tcol].dropna().unique())
-
-        if task_type == 'multi':
-            # Ensure labels are contiguous 0..C-1
-            expected_max = len(uniq) - 1
-            if uniq.size > 0 and (uniq.min() != 0 or uniq.max() != expected_max):
-                remap = {c: i for i, c in enumerate(uniq)}
-                df[tcol] = df[tcol].map(remap)
-                uniq = np.sort(df[tcol].dropna().unique())
-            
-            if verbose:
-                print(f"[multi] {tcol}: classes={uniq} (n={len(uniq)})")
-        else:  # binary
-            valid_binary = [np.array([0]), np.array([1]), np.array([0, 1])]
-            if not any(np.array_equal(uniq, arr) for arr in valid_binary):
-                raise ValueError(
-                    f"Binary labels in {tcol} must be 0/1. Found {uniq}."
-                )
-    
-    return df
 
 def process_data(
     df_input: pd.DataFrame,
@@ -1549,49 +1482,76 @@ def save_combined_results(detailed_csv: Path, existing_results_df: Optional[pd.D
         logger.info("No results to save")
 
 
-def prepare_target_data(y_raw: np.ndarray, task_type: str, target_name: str, logger: logging.Logger) -> np.ndarray:
-    """Prepare target data based on task type.
+
+
+def preprocess_classification_labels(
+    df_input: pd.DataFrame, 
+    target_columns: List[str], 
+    task_type: str,
+    verbose: bool = True
+) -> pd.DataFrame:
+    """Preprocess classification labels in a DataFrame.
     
     Args:
-        y_raw: Raw target values
-        task_type: Task type ('reg', 'binary', 'multi')
-        target_name: Name of target variable
-        logger: Logger instance
+        df_input: Input DataFrame containing the target columns
+        target_columns: List of column names containing target variables
+        task_type: Type of task - 'binary' or 'multi'
+        verbose: Whether to print information about the preprocessing
         
     Returns:
-        Processed target values
+        DataFrame with preprocessed labels
         
     Raises:
-        ValueError: If binary target is not actually binary or multi-class has < 3 classes
+        ValueError: If labels are invalid for the specified task type
+        TypeError: If input types are incorrect
     """
-    from sklearn.preprocessing import LabelEncoder
+    if not isinstance(df_input, pd.DataFrame):
+        raise TypeError(f"Expected DataFrame, got {type(df_input).__name__}")
     
-    if task_type == "reg":
-        # For regression, ensure numeric type
-        y_vec = y_raw.astype(float)
-        
-    elif task_type == "binary":
-        # For binary classification, handle both string and numeric labels
-        if y_raw.dtype.kind in "OUS":  # If string type
-            y_vec = LabelEncoder().fit_transform(y_raw)
-        else:
-            uniq = np.unique(y_raw)
-            # Convert to 0/1 if already binary, otherwise encode
-            y_vec = y_raw.astype(int) if set(uniq) <= {0,1} else LabelEncoder().fit_transform(y_raw)
-        # Verify binary encoding
-        if not set(np.unique(y_vec)) <= {0,1}:
-            raise ValueError(f"{target_name} is not binary.")
-        
-    else:  # multi-class classification
-        # Encode string labels to integers
-        y_vec = LabelEncoder().fit_transform(y_raw)
-        # Skip if not enough classes for multi-class
-        if len(np.unique(y_vec)) < 3:
-            raise ValueError(f"{target_name}: only {len(np.unique(y_vec))} classes; insufficient for multi-class.")
+    if task_type not in ('binary', 'multi'):
+        raise ValueError(f"Invalid task_type: {task_type}. Must be 'binary' or 'multi'")
     
-    return y_vec
+    df = df_input.copy()
+    
+    for tcol in target_columns:
+        if tcol not in df.columns:
+            raise ValueError(f"Target column '{tcol}' not found in DataFrame")
+        
+        # Convert string labels to integers if needed
+        if pd.api.types.is_string_dtype(df[tcol]) or pd.api.types.is_object_dtype(df[tcol]):
+            classes = sorted(df[tcol].dropna().unique().tolist())
+            class_to_idx = {c: i for i, c in enumerate(classes)}
+            df[tcol] = df[tcol].map(class_to_idx)
 
+        # Check for negative labels (use NaN for missing values)
+        if (df[tcol].dropna() < 0).any():
+            raise ValueError(
+                f"Found negative class labels in {tcol}. "
+                "Replace missing labels with NaN, not -1."
+            )
 
+        # Convert to integer type
+        df[tcol] = pd.to_numeric(df[tcol], errors='coerce').astype('Int64')
+        uniq = np.sort(df[tcol].dropna().unique())
+
+        if task_type == 'multi':
+            # Ensure labels are contiguous 0..C-1
+            expected_max = len(uniq) - 1
+            if uniq.size > 0 and (uniq.min() != 0 or uniq.max() != expected_max):
+                remap = {c: i for i, c in enumerate(uniq)}
+                df[tcol] = df[tcol].map(remap)
+                uniq = np.sort(df[tcol].dropna().unique())
+            
+            if verbose:
+                print(f"[multi] {tcol}: classes={uniq} (n={len(uniq)})")
+        else:  # binary
+            valid_binary = [np.array([0]), np.array([1]), np.array([0, 1])]
+            if not any(np.array_equal(uniq, arr) for arr in valid_binary):
+                raise ValueError(
+                    f"Binary labels in {tcol} must be 0/1. Found {uniq}."
+                )
+    
+    return df
 def setup_training_environment(args, model_type="graph"):
     """Common setup for both graph and tabular training scripts.
     
@@ -1910,64 +1870,6 @@ def make_groups_for_copolymer(df: pd.DataFrame):
     gids = compute_group_id(df)
     return gids.astype(str).values
 
-def group_splits(df, y, task_type, n_splits, seed, train_frac=0.8, val_frac=0.1, test_frac=0.1):
-    """
-    Produce train/val/test index lists with group integrity preserved.
-    - For CV (n_splits > 1): GroupKFold (or StratifiedGroupKFold for classification if available).
-    - For holdout (n_splits == 1): two-stage GroupShuffleSplit to get 80/10/10 by groups.
-    Returns: train_indices, val_indices, test_indices as lists (len = n_splits or 1).
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    assert abs(train_frac + val_frac + test_frac - 1.0) < 1e-8
-    
-    groups = make_groups_for_copolymer(df)
-    n = len(df)
-
-    # ---------------------- Cross-validation path ----------------------
-    if n_splits > 1:
-        if task_type != "reg" and HAVE_SGKF:
-            splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-            cv_iter = splitter.split(np.zeros(n), y, groups)
-        else:
-            splitter = GroupKFold(n_splits=n_splits)  # deterministic, no shuffle
-            cv_iter = splitter.split(np.zeros(n), groups=groups)
-
-        tr_list, va_list, te_list = [], [], []
-        # proportion actually available for training folds in CV (rest is test)
-        train_total = 1.0 - 1.0 / n_splits
-        # inner val fraction relative to TRAIN so that global val ≈ val_frac
-        inner_val = min(max(val_frac / train_total, 0.0), 1.0)
-
-        for k, (tr_idx, te_idx) in enumerate(cv_iter):
-            # carve validation from training by groups
-            inner = GroupShuffleSplit(n_splits=1, train_size=1.0 - inner_val,
-                                      random_state=seed + k)
-            tr2_rel, va_rel = next(inner.split(tr_idx, groups=groups[tr_idx]))
-            tr2_idx = tr_idx[tr2_rel]
-            va_idx = tr_idx[va_rel]
-
-            tr_list.append(tr2_idx)
-            va_list.append(va_idx)
-            te_list.append(te_idx)
-
-        return tr_list, va_list, te_list
-
-    # ---------------------- Holdout path (80/10/10 by default) ----------------------
-    outer = GroupShuffleSplit(n_splits=1, train_size=train_frac, random_state=seed)
-    tr_idx, temp_idx = next(outer.split(np.zeros(n), groups=groups))
-
-    temp_groups = groups[temp_idx]
-    # fraction of TEMP that should become VAL (so VAL:TEST ≈ val_frac:test_frac)
-    inner_train_size = val_frac / (val_frac + test_frac)
-    inner = GroupShuffleSplit(n_splits=1, train_size=inner_train_size, random_state=seed + 1)
-    va_rel, te_rel = next(inner.split(temp_idx, groups=temp_groups))
-
-    va_idx = temp_idx[va_rel]
-    te_idx = temp_idx[te_rel]
-
-    return [tr_idx], [va_idx], [te_idx]
 
 def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger):
     """Save results using target-specific filenames to prevent overwriting.
@@ -2024,79 +1926,6 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
         # Skip combined file since targets run in parallel
 
 
-def load_best_checkpoint(ckpt_dir: Path):
-    import os
-    if not ckpt_dir.exists():
-        return None
-    
-    # Check for .pt files first (AttentiveFP)
-    pt_files = [f for f in os.listdir(ckpt_dir) if f.endswith(".pt")]
-    if pt_files:
-        # For AttentiveFP, look for best.pt
-        if "best.pt" in pt_files:
-            return ckpt_dir / "best.pt"
-        # Fallback to any .pt file
-        return ckpt_dir / pt_files[0]
-    
-    # For Lightning-based models, follow priority order:
-    # 1. Legacy format: best.ckpt (highest priority)
-    # 2. Legacy format: best-XXX.ckpt 
-    # 3. Lightning format: logs/checkpoints/epoch=XX-step=YYY.ckpt
-    # 4. Fallback: last.ckpt (lowest priority)
-    
-    # Priority 1: Check for simple best.ckpt in root directory
-    root_ckpts = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
-    if "best.ckpt" in root_ckpts:
-        return ckpt_dir / "best.ckpt"
-    
-    # Priority 2: Check for legacy best-XXX.ckpt files in root directory
-    best_ckpts = [f for f in root_ckpts if f.startswith("best-")]
-    
-    if best_ckpts:
-        # Parse validation loss from checkpoint names and select the one with lowest loss
-        import re
-        best_checkpoint = None
-        lowest_val_loss = float('inf')
-        
-        for ckpt_name in best_ckpts:
-            # Extract validation loss from filename: best-[epoch]-[val_loss].ckpt
-            val_loss_match = re.search(r'(?:val_loss=|-)([0-9]+\.?[0-9]*)(?:\.ckpt|$)', ckpt_name)
-            if val_loss_match:
-                try:
-                    val_loss = float(val_loss_match.group(1))
-                    if val_loss < lowest_val_loss:
-                        lowest_val_loss = val_loss
-                        best_checkpoint = ckpt_name
-                except ValueError:
-                    continue
-        
-        if best_checkpoint:
-            return ckpt_dir / best_checkpoint
-        else:
-            # Fallback to alphabetical sorting if parsing fails
-            best_ckpts.sort()
-            return ckpt_dir / best_ckpts[-1]
-    
-    # Priority 2: Check for Lightning format in logs/checkpoints/ subdirectory
-    lightning_ckpt_dir = ckpt_dir / "logs" / "checkpoints"
-    if lightning_ckpt_dir.exists():
-        lightning_ckpts = [f for f in os.listdir(lightning_ckpt_dir) if f.endswith(".ckpt")]
-        if lightning_ckpts:
-            # Sort by modification time (newest first) for Lightning checkpoints
-            lightning_ckpts_with_time = [(f, os.path.getmtime(lightning_ckpt_dir / f)) for f in lightning_ckpts]
-            lightning_ckpts_with_time.sort(key=lambda x: x[1], reverse=True)  # Newest first
-            return lightning_ckpt_dir / lightning_ckpts_with_time[0][0]
-    
-    # Priority 3: Fallback to last.ckpt in root directory
-    if "last.ckpt" in root_ckpts:
-        return ckpt_dir / "last.ckpt"
-    
-    # Final fallback: any .ckpt file in root directory
-    if root_ckpts:
-        root_ckpts.sort()
-        return ckpt_dir / root_ckpts[-1]
-    
-    return None
 
 
 def get_encodings_from_loader(model, loader):
@@ -2466,7 +2295,7 @@ def _find_best_ckpt_in_dir(ckpt_dir: Path):
     return str(ckpt_dir / newest), None
 
 
-def _pick_best_checkpoint(checkpoint_path: Path):
+def pick_best_checkpoint(checkpoint_path: Path):
     """
     Find a 'best' checkpoint in either:
       - the checkpoint root (legacy 'best-*.ckpt')
