@@ -412,6 +412,9 @@ for target in target_columns:
     if combined_descriptor_data is not None:
             
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
             # Try to load cached preprocessing BEFORE doing any heavy work
             preprocessing_reused, cached_scaler, cached_mask, cache_meta = manage_preprocessing_cache(
                 preprocessing_path, i, combined_descriptor_data, None, None, logger
@@ -579,7 +582,7 @@ for target in target_columns:
         checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
-        
+
         if combined_descriptor_data is not None:
             imputer = split_imputers[i]
             if imputer is not None:
