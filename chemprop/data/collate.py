@@ -103,32 +103,56 @@ class BatchMolGraph:
 
     __size: int = field(init=False)
 
-    def __post_init__(self, mgs: Sequence[MolGraph]):
+    
+    def __post_init__(self, mgs: Sequence["MolGraph"]):
         self.__size = len(mgs)
 
-        Vs = []
-        Es = []
-        edge_indexes = []
-        rev_edge_indexes = []
-        batch_indexes = []
+        if self.__size == 0:
+            # Create empty tensors with correct ranks
+            self.V = torch.empty((0, 0), dtype=torch.float32)
+            self.E = torch.empty((0, 0), dtype=torch.float32)
+            self.edge_index = torch.empty((2, 0), dtype=torch.long)
+            self.rev_edge_index = torch.empty((0,), dtype=torch.long)
+            self.batch = torch.empty((0,), dtype=torch.long)
+            return
+
+        Vs, Es, edge_indexes, rev_edge_indexes, batch_indexes = [], [], [], [], []
 
         num_nodes = 0
         num_edges = 0
         for i, mg in enumerate(mgs):
-            Vs.append(mg.V)
-            Es.append(mg.E)
-            edge_indexes.append(mg.edge_index + num_nodes)
-            rev_edge_indexes.append(mg.rev_edge_index + num_edges)
-            batch_indexes.append([i] * len(mg.V))
+            # Defensive casts to expected numpy dtypes
+            V_np = np.asarray(mg.V, dtype=np.float32)
+            E_np = np.asarray(mg.E, dtype=np.float32)
+            ei_np = np.asarray(mg.edge_index, dtype=np.int64)   # shape (2, E_i)
+            rei_np = np.asarray(mg.rev_edge_index, dtype=np.int64)
 
-            num_nodes += mg.V.shape[0]
-            num_edges += mg.edge_index.shape[1]
+            # Offsets for concatenation
+            ei_np = ei_np + np.array([[num_nodes], [num_nodes]], dtype=np.int64)
+            rei_np = rei_np + num_edges
 
-        self.V = torch.from_numpy(np.concatenate(Vs)).float()
-        self.E = torch.from_numpy(np.concatenate(Es)).float()
-        self.edge_index = torch.from_numpy(np.hstack(edge_indexes)).long()
-        self.rev_edge_index = torch.from_numpy(np.concatenate(rev_edge_indexes)).long()
-        self.batch = torch.tensor(np.concatenate(batch_indexes)).long()
+            Vs.append(V_np)
+            Es.append(E_np)
+            edge_indexes.append(ei_np)
+            rev_edge_indexes.append(rei_np)
+            batch_indexes.append(np.full((V_np.shape[0],), i, dtype=np.int64))
+
+            num_nodes += V_np.shape[0]
+            num_edges += ei_np.shape[1]
+
+        # Concatenate and convert to tensors (float32/long)
+        self.V = torch.from_numpy(np.concatenate(Vs, axis=0))          # (sum V_i, d_v)
+        self.E = torch.from_numpy(np.concatenate(Es, axis=0))          # (sum E_i, d_e)
+        self.edge_index = torch.from_numpy(np.hstack(edge_indexes))    # (2, sum E_i)
+        self.rev_edge_index = torch.from_numpy(np.concatenate(rev_edge_indexes))
+        self.batch = torch.from_numpy(np.concatenate(batch_indexes))
+
+        # Final dtypes
+        self.V = self.V.to(torch.float32)
+        self.E = self.E.to(torch.float32)
+        self.edge_index = self.edge_index.to(torch.long)
+        self.rev_edge_index = self.rev_edge_index.to(torch.long)
+        self.batch = self.batch.to(torch.long)
 
     def __len__(self) -> int:
         """the number of individual :class:`MolGraph`\s in this batch"""
