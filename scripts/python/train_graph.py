@@ -426,8 +426,13 @@ for target in target_columns:
                     imputer_stats = ((cache_meta.get("cleaning") or {}).get("imputer_statistics"))
                 imputer = None
                 if imputer_stats is not None:
+                    stats = np.asarray(imputer_stats, dtype=float)
                     imputer = SimpleImputer(strategy="median")
-                    imputer.statistics_ = np.array(imputer_stats, dtype=float)
+                    # Required attributes for transform():
+                    imputer.statistics_ = stats
+                    imputer.n_features_in_ = stats.shape[0]
+                    # Use the post-constant-drop basis for dtype kind
+                    imputer._fit_dtype = np.asarray(orig_Xd).dtype.kind
 
                 base = orig_Xd.copy()
                 if imputer is not None:
