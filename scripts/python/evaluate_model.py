@@ -170,6 +170,13 @@ def save_and_summarize_results(results_df: pd.DataFrame, args, results_dir: Path
     
     return out_csv
 
+def has_embedding(embeddings_dir: Path, split, args, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix):
+    embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
+            
+    have_perm = all((embeddings_dir / f"{embedding_prefix}__{k}_split_{split}.npy").exists()
+                    for k in ["X_train", "X_val", "X_test", "feature_mask"])
+    return have_perm
+
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Train a Chemprop model for regression or classification')
 parser.add_argument('--dataset_name', type=str, required=True,
@@ -190,16 +197,11 @@ parser.add_argument('--checkpoint_path', type=str, default=None,
                     help='Path to specific checkpoint file to evaluate (overrides automatic checkpoint discovery)')
 parser.add_argument('--preprocessing_path', type=str, default=None,
                     help='Path to preprocessing directory (overrides automatic preprocessing path discovery)')
-parser.add_argument('--batch_norm', action='store_true',
-                    help='Use batch normalization models for evaluation')
 parser.add_argument('--train_size', type=str, default=None,
                     help='Training size used during model training (for path matching)')
 parser.add_argument('--export_embeddings', action='store_true',
                     help='Load pre-exported embeddings if available (speeds up evaluation)')
-parser.add_argument('--save_predictions', action='store_true',
-                    help='Save predictions during evaluation')
-parser.add_argument('--pretrain_monomer', action='store_true',
-                    help='Evaluate pretrained monomer multitask model')
+
 
 args = parser.parse_args()
 
@@ -258,6 +260,7 @@ PATIENCE = setup_info['PATIENCE']
 num_workers = setup_info['num_workers']
 DATASET_DESCRIPTORS = setup_info['DATASET_DESCRIPTORS']
 MODEL_NAME = args.model_name
+embeddings_dir = results_dir / "embeddings"
 
 # Check model configuration
 model_config = config['MODELS'].get(args.model_name, {})
@@ -270,203 +273,7 @@ set_seed(SEED)
 # === Model-Specific Pipeline Routing ===
 if args.model_name == "AttentiveFP":
     logger.info("🔄 AttentiveFP evaluation pipeline")
-    
-    # Import AttentiveFP utilities
-    from attentivefp_utils import GraphCSV, create_attentivefp_model, extract_embeddings
-    from torch_geometric.loader import DataLoader
-    from sklearn.preprocessing import StandardScaler
-    
-    # Load and preprocess data
-    df_input, target_columns = load_and_preprocess_data(args, setup_info)
-    
-    # Filter target columns if specific target is provided
-    if args.target:
-        if args.target not in target_columns:
-            logger.error(f"Target '{args.target}' not found in dataset. Available targets: {target_columns}")
-            sys.exit(1)
-        target_columns = [args.target]
-        logger.info(f"Evaluating single target: {args.target}")
-    
-    # Results storage
-    all_results = []
-    
-    # Process each target
-    for target in target_columns:
-        logger.info(f"\n=== Evaluating target: {target} ===")
-        
-        # Determine split strategy
-        ys = df_input.loc[:, target].astype(float).values
-        n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
-        
-        # Generate data splits
-        train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
-        
-        for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-            logger.info(f"\n--- Split {i+1}/{len(train_indices)} ---")
-            
-            # Build checkpoint path for AttentiveFP  ✅ directory + best.pt
-            checkpoint_stem = f"{args.dataset_name}__{target}"
-            if args.train_size and args.train_size != "full":
-                checkpoint_stem += f"__size{args.train_size}"
-            checkpoint_stem += f"__rep{i}"
-
-            # If setup_info already pointed checkpoint_dir at ".../checkpoints/AttentiveFP",
-            # use it as-is; otherwise append "AttentiveFP".
-            attn_root = checkpoint_dir if checkpoint_dir.name == "AttentiveFP" else (checkpoint_dir / "AttentiveFP")
-            checkpoint_path = attn_root / checkpoint_stem / "best.pt"
-
-            
-            if not checkpoint_path.exists():
-                logger.warning(f"AttentiveFP checkpoint not found: {checkpoint_path}")
-                continue
-            
-            logger.info(f"✅ Found AttentiveFP checkpoint: {checkpoint_path}")
-            
-            # Create datasets using AttentiveFP format
-            df_tr = df_input.iloc[tr].reset_index(drop=True)
-            df_va = df_input.iloc[va].reset_index(drop=True)
-            df_te = df_input.iloc[te].reset_index(drop=True)
-            
-            # Create AttentiveFP datasets
-            train_dataset = GraphCSV(df_tr, smiles_column, target, task_type=args.task_type)
-            val_dataset = GraphCSV(df_va, smiles_column, target, task_type=args.task_type)
-            test_dataset = GraphCSV(df_te, smiles_column, target, task_type=args.task_type)
-            
-            # Setup scaling for regression (match training)
-            scaler = None
-            if args.task_type == 'reg':
-                scaler = StandardScaler()
-                train_dataset.y = scaler.fit_transform(train_dataset.y)
-                val_dataset.y = scaler.transform(val_dataset.y)
-                # Keep test targets unscaled for evaluation
-            
-            # Create data loaders
-            train_loader = DataLoader(train_dataset, batch_size=64, shuffle=False)
-            val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
-            test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
-            
-            # Load AttentiveFP model
-            import torch
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            
-            # Get number of classes for multi-class tasks
-            n_classes = None
-            if args.task_type == 'multi':
-                n_classes = df_input[target].dropna().nunique()
-            
-            # Create model with same architecture as training
-            model = create_attentivefp_model(
-                task_type=args.task_type,
-                n_classes=n_classes,
-                hidden_channels=200,  # Default from training
-                num_layers=2,
-                num_timesteps=2,
-                dropout=0.0
-            ).to(device)
-            
-            # Load checkpoint (AttentiveFP format)
-            checkpoint = torch.load(checkpoint_path, map_location=device)
-            model.load_state_dict({k: v.to(device) for k, v in checkpoint["state_dict"].items()})
-            model.eval()
-            
-            logger.info("✅ AttentiveFP model loaded successfully")
-            
-            # Extract embeddings if requested
-            if args.export_embeddings:
-                logger.info("🧠 Extracting AttentiveFP embeddings...")
-                
-                # Extract embeddings
-                train_emb = extract_embeddings(model, train_loader, device)
-                val_emb = extract_embeddings(model, val_loader, device)
-                test_emb = extract_embeddings(model, test_loader, device)
-                
-                # Save embeddings
-                embeddings_dir = checkpoint_path.parent / "embeddings"
-                embeddings_dir.mkdir(exist_ok=True)
-                
-                np.save(embeddings_dir / f"X_train_split_{i}.npy", train_emb)
-                np.save(embeddings_dir / f"X_val_split_{i}.npy", val_emb)
-                np.save(embeddings_dir / f"X_test_split_{i}.npy", test_emb)
-                
-                # Create feature mask (all features are valid for AttentiveFP embeddings)
-                feature_mask = np.ones(train_emb.shape[1], dtype=bool)
-                np.save(embeddings_dir / f"feature_mask_split_{i}.npy", feature_mask)
-                
-                logger.info(f"AttentiveFP embeddings saved to {embeddings_dir}")
-            
-            # Evaluate model performance
-            logger.info("📊 Evaluating AttentiveFP model performance...")
-            
-            # Test evaluation - match training evaluation exactly
-            model.eval()
-            y_true, y_pred = [], []
-            
-            with torch.no_grad():
-                for batch in test_loader:
-                    batch = batch.to(device)
-                    pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                    
-                    # Handle different prediction formats - match training
-                    if args.task_type == 'reg':
-                        # Regression: inverse transform scaling
-                        pred = scaler.inverse_transform(pred.view(-1,1).cpu().numpy()).reshape(-1)
-                        y_pred.append(pred)
-                        y_true.append(batch.y.view(-1,1).cpu().numpy().reshape(-1))  # test was NOT scaled
-                    elif args.task_type == 'binary':
-                        # Binary classification: apply sigmoid
-                        pred_prob = torch.sigmoid(pred.view(-1)).cpu().numpy()
-                        pred_class = (pred_prob >= 0.5).astype(int)
-                        y_pred.append(pred_class)
-                        y_true.append(batch.y.view(-1).cpu().numpy().astype(int))
-                    elif args.task_type == 'multi':
-                        # Multi-class classification: use argmax
-                        pred_class = torch.argmax(pred, dim=1).cpu().numpy()
-                        y_pred.append(pred_class)
-                        y_true.append(batch.y.view(-1).cpu().numpy().astype(int))
-            
-            # Concatenate results
-            y_true = np.concatenate(y_true)
-            y_pred = np.concatenate(y_pred)
-            
-            # Calculate metrics
-            from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, accuracy_score, f1_score, roc_auc_score
-            
-            result_row = {'target': target, 'split': i}
-            
-            if args.task_type == 'reg':
-                result_row['test/mae'] = mean_absolute_error(y_true, y_pred)
-                result_row['test/rmse'] = np.sqrt(mean_squared_error(y_true, y_pred))
-                result_row['test/r2'] = r2_score(y_true, y_pred)
-            else:  # binary or multi-class
-                result_row['test/accuracy'] = accuracy_score(y_true, y_pred)
-                result_row['test/f1'] = f1_score(y_true, y_pred, average='weighted' if args.task_type == 'multi' else 'binary')
-                
-                # Add ROC-AUC for binary classification
-                if args.task_type == 'binary':
-                    try:
-                        # Get probabilities for ROC-AUC
-                        y_prob = []
-                        with torch.no_grad():
-                            for batch in test_loader:
-                                batch = batch.to(device)
-                                pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-                                pred_prob = torch.sigmoid(pred.view(-1)).cpu().numpy()
-                                y_prob.append(pred_prob)
-                        y_prob = np.concatenate(y_prob)
-                        result_row['test/roc_auc'] = roc_auc_score(y_true, y_prob)
-                    except ValueError:
-                        result_row['test/roc_auc'] = np.nan
-            
-            result_row['model'] = 'AttentiveFP'
-            all_results.append(result_row)
-            
-            logger.info(f"AttentiveFP evaluation complete for split {i}")
-    
-    # Save results using modular function
-    if all_results:
-        results_df = pd.DataFrame(all_results)
-        save_and_summarize_results(results_df, args, results_dir, model_name="AttentiveFP")
-    
+ 
     logger.info("🎉 AttentiveFP evaluation complete!")
     sys.exit(0)  # Exit after AttentiveFP evaluation
     
@@ -1018,92 +825,11 @@ for target in target_columns:
             logger.warning(f"Truncating y_test from {len(y_test)} to {len(X_test)} samples to match processed data")
             y_test = y_test[:len(X_test)]
         
-        # Initialize target scaler for regression tasks (same as train_tabular.py)
-        target_scaler = None
-        if args.task_type == 'reg':
-            from sklearn.preprocessing import StandardScaler
-            target_scaler = StandardScaler()
-            y_train_scaled = target_scaler.fit_transform(y_train.reshape(-1, 1)).flatten()
-            y_val_scaled = target_scaler.transform(y_val.reshape(-1, 1)).flatten()
-            # Keep y_test original for final evaluation
-        else:
-            y_train_scaled = y_train
-            y_val_scaled = y_val
+       
 
         # Build requested baselines with scaler info (same as train_tabular.py)
         num_classes = len(np.unique(y_train_scaled)) if args.task_type != "reg" else None
-        model_specs = build_sklearn_models(args.task_type, num_classes, scaler_flag=True)
-
-        # Initialize result rows for this replicate
-        for name in model_specs.keys():
-            if (i, name) not in rep_model_to_row:
-                rep_model_to_row[(i, name)] = {
-                    "dataset": args.dataset_name,
-                    "encoder": args.model_name,
-                    "variant": variant_label,
-                    "replicate": i,
-                    "model": name
-                }
-
-        # Train baselines following same logic as train_tabular.py
-        for name, (model, needs_scaler) in model_specs.items():
-            # Apply scaling for models that require it (linear/logistic)
-            scaler = None
-            if needs_scaler:
-                from sklearn.preprocessing import StandardScaler
-                scaler = StandardScaler()
-                X_train_scaled = scaler.fit_transform(X_train)
-                X_val_scaled = scaler.transform(X_val)
-                X_test_scaled = scaler.transform(X_test)
-            else:
-                X_train_scaled = X_train
-                X_val_scaled = X_val
-                X_test_scaled = X_test
-
-            if args.task_type == "reg":
-                if name == "XGB":
-                    model.set_params(early_stopping_rounds=30, eval_metric="rmse")
-                    model.fit(X_train_scaled, y_train_scaled, eval_set=[(X_val_scaled, y_val_scaled)], verbose=False)
-                else:
-                    model.fit(X_train_scaled, y_train_scaled)
-                
-                # Get predictions and inverse transform if this is regression
-                y_pred = model.predict(X_test_scaled)
-                if target_scaler is not None:
-                    y_pred = target_scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
-                
-                r2   = r2_score(y_test, y_pred)
-                mae  = mean_absolute_error(y_test, y_pred)
-                rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-                rep_model_to_row[(i, name)][f"{target}_R2"] = r2; rep_model_to_row[(i, name)][f"{target}_MAE"] = mae; rep_model_to_row[(i, name)][f"{target}_RMSE"] = rmse
-
-            else:
-                if name == "XGB":
-                    # Use appropriate eval_metric for classification task
-                    eval_metric = "mlogloss" if args.task_type == "multi" else "logloss"
-                    model.set_params(early_stopping_rounds=30, eval_metric=eval_metric)
-                    model.fit(X_train_scaled, y_train_scaled, eval_set=[(X_val_scaled, y_val_scaled)], verbose=False)
-                else:
-                    model.fit(X_train_scaled, y_train_scaled)
-                
-                y_pred = model.predict(X_test_scaled)
-                acc = accuracy_score(y_test, y_pred)
-                avg = "macro" if args.task_type == "multi" else "binary"
-                f1  = f1_score(y_test, y_pred, average=avg)
-                rep_model_to_row[(i, name)][f"{target}_ACC"] = acc; rep_model_to_row[(i, name)][f"{target}_F1"] = f1
-
-                if hasattr(model, "predict_proba"):
-                    proba = model.predict_proba(X_test_scaled)
-                    try:
-                        if args.task_type == "binary":
-                            auc = roc_auc_score(y_test, proba[:, 1])
-                        else:
-                            from sklearn.preprocessing import label_binarize
-                            y_bin = label_binarize(y_test, classes=list(range(n_classes_per_target[target])))
-                            auc = roc_auc_score(y_bin, proba, average="macro", multi_class="ovr")
-                        rep_model_to_row[(i, name)][f"{target}_ROC_AUC"] = auc
-                    except Exception:
-                        pass
+        rep_model_to_row = fit_and_score_baselines(X_train, y_train, X_val, y_val, X_test, y_test, args.task_type, num_classes)
         
 
 # Convert to train_graph.py format with appropriate metrics for task type

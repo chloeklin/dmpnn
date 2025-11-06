@@ -37,18 +37,21 @@ def combine_results(results_dir: str):
         'gap_extrapolated'
     }
     
-    # Group files by their base name (everything before the last underscore)
+    # Group files by their base name (everything before "__target_")
     file_groups = defaultdict(list)
-    
-    # Pattern to match target-specific result files
-    pattern = re.compile(r'(.+_results)_.+\.csv$')
-    
-    # Check for existing _results_ pattern files
-    for file_path in results_dir.glob('*_results_*.csv'):
-        match = pattern.search(file_path.name)
+
+    # Pattern to match your filenames like:
+    #   insulator__size1024__target_bandgap_chain_results.csv
+    #   opv_camb3lyp__target_spectral_overlap_results.csv
+    pattern = re.compile(r'(.+?)__target_(.+)_results\.csv$')
+
+    # Find all __target_..._results.csv files
+    for file_path in results_dir.glob('*__target_*_results.csv'):
+        match = pattern.match(file_path.name)
         if match:
-            base_name = match.group(1)
+            base_name = match.group(1)  # e.g., "insulator__size1024"
             file_groups[base_name].append(file_path)
+
     
     # Also check for _baseline pattern files  
     pattern_baseline = re.compile(r'(.+)__.+_baseline\.csv$')
@@ -69,13 +72,15 @@ def combine_results(results_dir: str):
         
         for file_path in file_paths:
             # Extract target name from filename
+            # inside: for file_path in file_paths:
             if '_baseline.csv' in file_path.name:
-                # For baseline files: dataset__target_baseline.csv -> target
                 target = file_path.stem.split('__')[-1].replace('_baseline', '')
             else:
-                # For results files: dataset_results_target.csv -> target
-                target = file_path.stem.split('_results_')[-1]
-            
+                m = pattern.match(file_path.name)
+                if not m:
+                    continue
+                _, target = m.group(1), m.group(2)   # don't overwrite group key
+
             # Check if this is an OPV dataset and filter targets
             is_opv_dataset = 'opv' in file_path.name.lower()
             if is_opv_dataset and target not in opv_allowed_targets:
@@ -101,7 +106,7 @@ def combine_results(results_dir: str):
         
         if not combined_df.empty:
             # Save combined results
-            output_path = results_dir / f"{base_name}.csv"
+            output_path = results_dir / f"{base_name}_results.csv"
             combined_df.to_csv(output_path, index=False)
             print(f"Saved combined results to: {output_path}")
             

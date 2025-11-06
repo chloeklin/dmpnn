@@ -20,6 +20,7 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from rdkit import Chem
 from rdkit.Chem.rdchem import HybridizationType, BondStereo, BondType
+from __future__ import annotations
 
 
 # AttentiveFP paper features (Table 1) - exact implementation from original
@@ -390,32 +391,6 @@ def load_attentivefp_checkpoint(checkpoint_path: Path, model, optimizer=None, de
 
 
 
-# class GraphRepExtractor(nn.Module):
-#     def __init__(self, attentivefp_core):
-#         super().__init__()
-#         self.core = attentivefp_core  # your AttentiveFP model (possibly wrapped)
-#     def forward(self, x, edge_index, edge_attr, batch):
-#         # NOTE: core must have .gnn; this returns the graph embedding tensor [num_graphs, hidden]
-#         return self.core.gnn(x, edge_index, edge_attr, batch)
-
-
-# @torch.no_grad()
-# def extract_attentivefp_embeddings(model, loader, device):
-#     model.eval()
-#     # If you wrapped the core with EdgeGuard(... core ...), pass model.core to the extractor
-#     core = model.core if hasattr(model, "core") else model
-#     assert hasattr(core, "gnn"), "This AttentiveFP build has no `.gnn` attribute; use the hook-based fallback."
-#     rep_model = GraphRepExtractor(core).to(device).eval()
-
-#     embs = []
-#     for batch in loader:
-#         batch = batch.to(device)
-#         h = rep_model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)  # [B, hidden]
-#         embs.append(h.detach().cpu())
-#     return torch.cat(embs, dim=0).numpy()   # (N_graphs, hidden)
-
-
-
 @torch.no_grad()
 def extract_attentivefp_embeddings(model, loader, device):
     """
@@ -445,3 +420,67 @@ def extract_attentivefp_embeddings(model, loader, device):
 
     return torch.cat(captured, dim=0).numpy()
 
+
+
+
+def export_attentivefp_embeddings(
+    model: torch.nn.Module,
+    train_loader,
+    val_loader,
+    test_loader,
+    emb_dir: Path,
+    embedding_prefix: str,
+    split_idx: int,
+    logger=None,
+    overwrite: bool = True,
+) -> None:
+    """Compute & save AttentiveFP pooled graph embeddings with a train-derived mask.
+
+    Saves:
+      - {prefix}__feature_mask_split_{i}.npy
+      - {prefix}__X_{train|val|test}_split_{i}.npy
+    """
+    from utils import embedding_files, have_all_embeddings
+    emb_dir.mkdir(parents=True, exist_ok=True)
+    mask_f, Xtr_f, Xva_f, Xte_f = embedding_files(emb_dir, embedding_prefix, split_idx)
+
+    if not overwrite and have_all_embeddings(mask_f, Xtr_f, Xva_f, Xte_f):
+        if logger:
+            logger.info(f"[split {split_idx}] embeddings already exist; skipping (overwrite=False)")
+        return
+
+    # Ensure eval mode
+    model.eval()
+
+    # Helper to write one split
+    def _dump(X: np.ndarray, split_name: str):
+        if split_name == "train":
+            std_train = X.std(axis=0)
+            keep = std_train > 1e-8
+            np.save(mask_f, keep)
+            Xf = X[:, keep]
+            np.save(Xtr_f, Xf)
+            if logger:
+                logger.info(f"[split {split_idx}] saved train embeddings {Xf.shape} and mask -> {mask_f.name}")
+        else:
+            if mask_f.exists():
+                keep = np.load(mask_f)
+            else:
+                if logger:
+                    logger.warning(f"[split {split_idx}] feature mask missing; keeping all features for {split_name}")
+                keep = np.ones(X.shape[1], dtype=bool)
+            Xf = X[:, keep]
+            out_map = {"val": Xva_f, "test": Xte_f}
+            np.save(out_map[split_name], Xf)
+            if logger:
+                logger.info(f"[split {split_idx}] saved {split_name} embeddings {Xf.shape}")
+
+    # Compute embeddings via your extractor
+    X_tr = extract_attentivefp_embeddings(model, train_loader, model.device if hasattr(model, 'device') else next(model.parameters()).device)
+    _dump(X_tr, "train")
+
+    X_va = extract_attentivefp_embeddings(model, val_loader, model.device if hasattr(model, 'device') else next(model.parameters()).device)
+    _dump(X_va, "val")
+
+    X_te = extract_attentivefp_embeddings(model, test_loader, model.device if hasattr(model, 'device') else next(model.parameters()).device)
+    _dump(X_te, "test")

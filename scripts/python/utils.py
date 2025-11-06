@@ -2353,3 +2353,17 @@ def pick_best_checkpoint(checkpoint_path: Path):
         return min(with_vals, key=lambda x: x[1])
     # else both None -> just keep the first (arbitrary but deterministic enough)
     return candidates[0]
+
+
+
+def embedding_files(emb_dir: Path, prefix: str, split_idx: int) -> Tuple[Path, Path, Path, Path]:
+    mask = emb_dir / f"{prefix}__feature_mask_split_{split_idx}.npy"
+    X_tr = emb_dir / f"{prefix}__X_train_split_{split_idx}.npy"
+    X_va = emb_dir / f"{prefix}__X_val_split_{split_idx}.npy"
+    X_te = emb_dir / f"{prefix}__X_test_split_{split_idx}.npy"
+    return mask, X_tr, X_va, X_te
+
+
+def have_all_embeddings(mask: Path, X_tr: Path, X_va: Path, X_te: Path) -> bool:
+    return mask.exists() and X_tr.exists() and X_va.exists() and X_te.exists()
+
