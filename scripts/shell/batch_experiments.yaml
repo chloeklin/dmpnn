@@ -46,9 +46,23 @@ eaip_targets: &eaip_targets
 experiments:
   # Polyinfo dataset experiments    
   # - <<: *polyinfo_base
-  #   model: DMPNN_DiffPool
+  #   model: AttentiveFP
+  #   walltime: "5:30:00"
+  # - <<: *insulator_base
+  #   model: AttentiveFP
+  #   walltime: "1:30:00"
+  
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
   #   walltime: "5:30:00"
 
+  - <<: *tc_base
+    model: AttentiveFP
+    walltime: "1:30:00"
+
+  # - <<: *opv_base
+  #   model: AttentiveFP
+  #   walltime: "5:30:00"
 
 #     incl_rdkit: true
 
@@ -139,7 +153,7 @@ experiments:
   #   incl_rdkit: true
   #   incl_desc: true
   #   walltime: "1:00:00"
-  - <<: *tc_base
-    model: AttentiveFP
-    walltime: "1:00:00"
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   walltime: "1:00:00"
 
