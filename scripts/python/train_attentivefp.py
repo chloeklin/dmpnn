@@ -23,7 +23,7 @@ from attentivefp_utils import (
     create_attentivefp_model,
     build_attentivefp_loaders,
     evaluate_model,
-    extract_attentivefp_embeddings,
+    export_attentivefp_embeddings,
     train_epoch,
     eval_loss,
     save_attentivefp_checkpoint

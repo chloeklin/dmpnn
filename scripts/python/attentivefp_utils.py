@@ -5,6 +5,8 @@ This module provides clean, dedicated functions for AttentiveFP training and eva
 separate from the DMPNN/Lightning infrastructure.
 """
 
+from __future__ import annotations
+
 import math
 import numpy as np
 import pandas as pd
@@ -20,7 +22,6 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from rdkit import Chem
 from rdkit.Chem.rdchem import HybridizationType, BondStereo, BondType
-from __future__ import annotations
 
 
 # AttentiveFP paper features (Table 1) - exact implementation from original

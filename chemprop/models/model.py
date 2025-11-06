@@ -377,7 +377,7 @@ class MPNN(pl.LightningModule):
         state_dict = cls._add_metric_task_weights_to_state_dict(state_dict, hparams)
 
         # --- DIFFPOOL-SPECIFIC CLEANUP (scoped) ---
-        mp = submods_in.get("message_passing", None)
+        mp = submodules.get("message_passing", None)
         is_diffpool = getattr(mp, "_is_diffpool", False)
         if is_diffpool:
             # 1) remove dynamic assignment head params whose shape depends on batch graph sizes

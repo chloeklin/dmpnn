@@ -12,6 +12,9 @@ import numpy as np
 from pathlib import Path
 import argparse
 from typing import Dict, List, Tuple, Any
+import matplotlib.pyplot as plt
+import matplotlib.patheffects
+import seaborn as sns
 
 def is_tabular_model(row: pd.Series) -> bool:
     """Determine if a model is tabular based on the 'method' column."""
@@ -229,12 +232,156 @@ def print_summary(all_results: List[Dict[str, Any]]):
     else:
         print("🏆 Overall winner: TIE")
 
+def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: str = 'graph_vs_tabular_improvement.png'):
+    """Create a bar plot showing % improvement of graph over tabular models."""
+    
+    # Define the desired dataset order
+    dataset_order = ['tc', 'insulator', 'htpmd', 'polyinfo', 'camb3lyp']
+    
+    # Map opv_camb3lyp to camb3lyp for display
+    dataset_mapping = {'opv_camb3lyp': 'camb3lyp'}
+    
+    # Collect improvement data
+    plot_data = []
+    
+    for result in all_results:
+        if not result or not result['comparisons']:
+            continue
+            
+        dataset = result['dataset']
+        task_type = result['task_type']
+        
+        # Apply dataset mapping for display
+        display_dataset = dataset_mapping.get(dataset, dataset)
+        
+        # Determine which metric to use based on task type
+        if task_type == 'classification' and dataset == 'polyinfo':
+            # Use accuracy for polyinfo (classification)
+            metric_key = 'acc'
+        else:
+            # Use RMSE for regression tasks
+            metric_key = 'rmse'
+        
+        # Find the appropriate comparison
+        if metric_key in result['comparisons']:
+            comp = result['comparisons'][metric_key]
+            improvement_pct = comp['improvement_pct']
+            
+            # For graph improvement, positive values mean graph is better
+            if comp['better_model'] == 'tabular':
+                improvement_pct = -abs(improvement_pct)  # Make negative if tabular is better
+            
+            plot_data.append({
+                'dataset': display_dataset,
+                'improvement_pct': improvement_pct,
+                'task_type': task_type,
+                'metric': metric_key.upper()
+            })
+    
+    if not plot_data:
+        print("❌ No data available for plotting")
+        return
+    
+    # Convert to DataFrame and sort by desired order
+    df_plot = pd.DataFrame(plot_data)
+    
+    # Filter to only include datasets in our desired order that we have data for
+    available_datasets = df_plot['dataset'].unique()
+    ordered_datasets = [ds for ds in dataset_order if ds in available_datasets]
+    
+    # Filter and reorder
+    df_plot = df_plot[df_plot['dataset'].isin(ordered_datasets)]
+    df_plot['dataset'] = pd.Categorical(df_plot['dataset'], categories=ordered_datasets, ordered=True)
+    df_plot = df_plot.sort_values('dataset')
+    
+    # Create the plot with modern styling
+    plt.style.use('default')  # Use default style to preserve colors
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Add custom grid
+    ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5, color='#E0E0E0')
+    ax.set_axisbelow(True)
+    
+    # Define a beautiful color palette
+    colors = []
+    for x in df_plot['improvement_pct']:
+        if x >= 30:
+            colors.append('#2E8B57')  # Sea Green for high improvement
+        elif x >= 15:
+            colors.append('#32CD32')  # Lime Green for good improvement
+        elif x >= 5:
+            colors.append('#90EE90')  # Light Green for moderate improvement
+        elif x >= 0:
+            colors.append('#98FB98')  # Pale Green for small improvement
+        else:
+            colors.append('#FF6B6B')  # Coral Red for tabular better
+    
+    # Create gradient bars with rounded edges
+    bars = ax.bar(df_plot['dataset'], df_plot['improvement_pct'], 
+                  color=colors, alpha=0.8, edgecolor='white', linewidth=2,
+                  capsize=5, width=0.6)
+    
+    # Add subtle shadow effect
+    for bar in bars:
+        bar.set_path_effects([plt.matplotlib.patheffects.SimplePatchShadow(offset=(1, -1), 
+                                                                           shadow_rgbFace='gray', alpha=0.3)])
+    
+    # Customize the plot with modern styling
+    ax.axhline(y=0, color='#2C3E50', linestyle='-', linewidth=1.5, alpha=0.8)
+    ax.set_xlabel('Dataset', fontsize=14, fontweight='bold', color='#2C3E50', labelpad=15)
+    ax.set_ylabel('% Improvement of Graph over Tabular Models', fontsize=14, fontweight='bold', color='#2C3E50', labelpad=15)
+    ax.set_title('🚀 Graph vs Tabular Model Performance Comparison', 
+                fontsize=18, fontweight='bold', color='#2C3E50', pad=25)
+    
+    # Style the axes
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color('#BDC3C7')
+    ax.spines['bottom'].set_color('#BDC3C7')
+    ax.tick_params(colors='#2C3E50', labelsize=12)
+    
+    # Add value labels on bars with better styling
+    for bar, value in zip(bars, df_plot['improvement_pct']):
+        height = bar.get_height()
+        label_y = height + (2 if height >= 0 else -4)
+        ax.text(bar.get_x() + bar.get_width()/2., label_y,
+                f'{value:.1f}%', ha='center', va='bottom' if height >= 0 else 'top',
+                fontweight='bold', fontsize=12, color='#2C3E50',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='none'))
+    
+    # Add metric information with better styling
+    for i, (dataset, metric) in enumerate(zip(df_plot['dataset'], df_plot['metric'])):
+        ax.text(i, min(df_plot['improvement_pct']) - 8, f'({metric})', 
+                ha='center', va='top', fontsize=11, style='italic', color='#7F8C8D',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='#ECF0F1', alpha=0.7, edgecolor='none'))
+    
+    # Add a subtle background gradient
+    ax.set_facecolor('#FAFAFA')
+    
+    plt.tight_layout()
+    
+    # Save the plot
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"📊 Bar plot saved to: {output_path}")
+    
+    # Show summary
+    print(f"\n📊 IMPROVEMENT SUMMARY:")
+    for _, row in df_plot.iterrows():
+        status = "✅ Graph better" if row['improvement_pct'] >= 0 else "⚠️ Tabular better"
+        print(f"   {row['dataset']}: {row['improvement_pct']:+.1f}% ({row['metric']}) - {status}")
+    
+    plt.show()
+
 def main():
     parser = argparse.ArgumentParser(description='Compare tabular vs graph model performance')
     parser.add_argument('--combined_dir', type=str, default='plots/combined',
                        help='Directory containing consolidated results CSV files')
     parser.add_argument('--dataset', type=str, nargs='+', default=[],
                        help='Only analyze specific datasets')
+    parser.add_argument('--plot', action='store_true',
+                       help='Create bar plot showing improvement percentages')
+    parser.add_argument('--output', type=str, default='graph_vs_tabular_improvement.png',
+                       help='Output path for the bar plot')
     args = parser.parse_args()
     
     # Find all consolidated results files
@@ -265,6 +412,10 @@ def main():
     
     # Print summary
     print_summary(all_results)
+    
+    # Create bar plot if requested
+    if args.plot:
+        create_improvement_bar_plot(all_results, args.output)
 
 if __name__ == '__main__':
     main()
