@@ -297,6 +297,7 @@ def extract_embeddings_for_rep(args, setup_info, target, rep, tr, va, te,
         if not ckpt or not ckpt.exists():
             logger.warning(f"[rep {rep}] missing AttentiveFP ckpt: {ckpt}")
             return None
+        logger.info(f"[rep {rep}] checkpoint: {ckpt}")
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         hidden = getattr(args, "hidden", 200)
         n_classes = None if args.task_type != 'multi' else int(df_input[target].dropna().nunique())
@@ -316,6 +317,7 @@ def extract_embeddings_for_rep(args, setup_info, target, rep, tr, va, te,
         if not ckpt:
             logger.warning(f"[rep {rep}] missing checkpoint dir")
             return None
+        logger.info(f"[rep {rep}] checkpoint: {ckpt}")
         map_location = None if torch.cuda.is_available() else torch.device('cpu')
         if args.model_name == "DMPNN_DiffPool":
             # If you’ve got a helper in utils to instantiate, call that; otherwise leave as-is.
@@ -385,6 +387,18 @@ def save_cached_embeddings(d: Path, names: tuple[str,str,str,str], X_tr, X_va, X
     f_tr, f_va, f_te, f_mask = names
     np.save(d / f_tr, X_tr); np.save(d / f_va, X_va); np.save(d / f_te, X_te); np.save(d / f_mask, keep)
 
+def make_base_ckpt_dir(ckpt_dir: Path) -> Path:
+    """
+    Convert /.../checkpoints/<MODEL>/<dataset>__<target>...__repN
+    ->     /.../checkpoints/<MODEL>/<dataset>__repN
+    """
+    name = ckpt_dir.name
+    m = re.match(r'^([^_]+)__.*__(rep\d+)$', name)  # group1=dataset, group2=repN
+    if m:
+        dataset, rep = m.groups()
+        return ckpt_dir.parent / f"{dataset}__{rep}"
+    # fallback: keep original dir
+    return ckpt_dir
 
 
 
@@ -480,15 +494,10 @@ for target in target_columns:
     for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
         ckpt_dir, preproc_dir, emb_dir, emb_prefix = paths_from_base(args, setup_info, base, i)
 
-        # Embedding cache
-        # Build a target-agnostic base ckpt dir (dataset__repN)
-        import re
-        rep_token = re.search(r"__rep\d+$", ckpt_dir.name)
-        if rep_token:
-            base_ckpt_dir = ckpt_dir.parent / rep_token.group(0).lstrip("_")
-        else:
-            base_ckpt_dir = ckpt_dir  # fallback
-        use_dir, have = resolve_embeddings_for_rep(i, emb_dir, base_ckpt_dir)
+        base_ckpt_dir = make_base_ckpt_dir(ckpt_dir)
+
+        use_dir, have, fnames = resolve_embeddings_for_rep(i, emb_dir, base_ckpt_dir, prefix=emb_prefix)
+
         if have:
             X_train, X_val, X_test, keep = load_cached_embeddings(i, use_dir)
         else:

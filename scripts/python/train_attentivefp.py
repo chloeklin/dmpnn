@@ -61,7 +61,8 @@ def main():
     # Validate arguments
     validate_train_size_argument(args, parser)
     
-    device =  torch.device("cpu") if not torch.cuda.is_available() else None
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
     # ===== setup (same as your D-MPNN script) =====
     setup_info = setup_training_environment(args, model_type="graph")
