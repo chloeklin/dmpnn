@@ -417,7 +417,7 @@ for target in target_columns:
             )
             # Try to load cached preprocessing BEFORE doing any heavy work
             preprocessing_reused, cached_scaler, cached_mask, cache_meta = manage_preprocessing_cache(
-                preprocessing_path, i, combined_descriptor_data, None, None, logger
+                preprocessing_path, i, orig_Xd, None, None, logger
             )
 
             if preprocessing_reused and cached_mask is not None:
@@ -432,7 +432,7 @@ for target in target_columns:
                     imputer.statistics_ = stats
                     imputer.n_features_in_ = stats.shape[0]
                     # Use the post-constant-drop basis for dtype kind
-                    imputer._fit_dtype = np.asarray(orig_Xd).dtype.kind
+                    imputer._fit_dtype = np.asarray(orig_Xd, dtype=np.float64).dtype
 
                 base = orig_Xd.copy()
                 if imputer is not None:
@@ -638,7 +638,7 @@ for target in target_columns:
         
         # 1) Try to load cached scaler & masks BEFORE normalization
         preprocessing_reused, cached_scaler, correlation_mask, constant_features = manage_preprocessing_cache(
-            preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, None, logger
+            preprocessing_path, i, orig_Xd, split_preprocessing_metadata, None, logger
         )
         
         # Safety check: ensure cached correlation_mask matches local computation (only if descriptors exist)
@@ -661,7 +661,7 @@ for target in target_columns:
                 test.normalize_inputs("X_d", descriptor_scaler)
                 # persist the fitted scaler
                 _ = manage_preprocessing_cache(
-                    preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, descriptor_scaler, logger
+                    preprocessing_path, i, orig_Xd, split_preprocessing_metadata, descriptor_scaler, logger
                 )
             
             # No need to re-apply zero mask since dp.x_d is already sliced to kept features only
