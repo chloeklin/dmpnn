@@ -45,25 +45,25 @@ eaip_targets: &eaip_targets
 
 experiments:
   # AttentiveFP    
-  # - <<: *polyinfo_base
-  #   model: AttentiveFP
-  #   walltime: "0:25:00"
+  - <<: *polyinfo_base
+    model: AttentiveFP
+    walltime: "0:25:00"
   
-  # - <<: *insulator_base
-  #   model: AttentiveFP
-  #   walltime: "0:10:00"
+  - <<: *insulator_base
+    model: AttentiveFP
+    walltime: "0:10:00"
   
-  # - <<: *htpmd_base
-  #   model: AttentiveFP
-  #   walltime: "0:45:00"
+  - <<: *htpmd_base
+    model: AttentiveFP
+    walltime: "0:45:00"
   
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   walltime: "0:30:00"
+  - <<: *tc_base
+    model: AttentiveFP
+    walltime: "0:30:00"
 
   # - <<: *opv_base
   #   model: AttentiveFP
-  #   walltime: "2:00:00"
+  #   walltime: "1:00:00"
   #   targets: *opv_targets
 
 
@@ -87,66 +87,66 @@ experiments:
 
 
 # DMPNN
-  - <<: *tc_base
-    model: DMPNN
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "1:10:00"
-  - <<: *tc_base
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "1:10:00"
-  - <<: *tc_base
-    model: DMPNN
-    incl_desc: true
-    walltime: "1:10:00"
-  - <<: *tc_base
-    model: DMPNN
-    walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   incl_desc: true
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   walltime: "1:10:00"
 
 
+  # - <<: *polyinfo_base
+  #   model: DMPNN
+  #   walltime: "1:30:00"
   - <<: *polyinfo_base
     model: DMPNN
-    walltime: "1:30:00"
-  - <<: *polyinfo_base
-    model: DMPNN
     incl_rdkit: true
     walltime: "1:30:00"
 
     
-  - <<: *insulator_base
-    model: DMPNN
-    walltime: "1:30:00"
-  - <<: *insulator_base
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "1:30:00"
+  # - <<: *insulator_base
+  #   model: DMPNN
+  #   walltime: "1:30:00"
+  # - <<: *insulator_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "1:30:00"
 
     
-  - <<: *htpmd_base
-    model: DMPNN
-    walltime: "1:30:00"
-  - <<: *htpmd_base
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "1:30:00"
-  - <<: *htpmd_base
-    model: DMPNN
-    incl_desc: true
-    walltime: "1:30:00"
-  - <<: *htpmd_base
-    model: DMPNN
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "1:30:00"
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   walltime: "1:30:00"
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "1:30:00"
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   incl_desc: true
+  #   walltime: "1:30:00"
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "1:30:00"
 
     
-  - <<: *opv_base
-    model: DMPNN
-    walltime: "2:30:00"
-    targets: *opv_targets
-  - <<: *opv_base
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "2:30:00"
-    targets: *opv_targets
+  # - <<: *opv_base
+  #   model: DMPNN
+  #   walltime: "2:30:00"
+  #   targets: *opv_targets
+  # - <<: *opv_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "2:30:00"
+  #   targets: *opv_targets

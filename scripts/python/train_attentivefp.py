@@ -301,6 +301,8 @@ def main():
 
             # test evaluation with appropriate metrics
             m, y_pred, y_true = evaluate_model(model, test_loader, device, args.task_type, scaler)
+            m["target"] = target
+            m["split"] = i
             all_results.append(pd.DataFrame([m]))
 
             # optional predictions save (same helper you use)
