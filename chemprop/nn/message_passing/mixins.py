@@ -54,11 +54,19 @@ class _WeightedBondMessagePassingMixin:
             H = self.update(M, H0)
 
         # weighted EDGE->NODE aggregation (still inside MP)
-        H_weighted = H * bmg.edge_weights.unsqueeze(-1)             # [num_bonds, hidden]
-        idx = bmg.edge_index[1].unsqueeze(1).expand(-1, H.shape[1])
-        Mv  = torch.zeros(len(bmg.V), H.shape[1], dtype=H.dtype, device=H.device) \
-                .scatter_reduce_(0, idx, H_weighted, reduce="sum", include_self=False)
+        w = bmg.edge_weights
+        if w.dtype != H.dtype:
+            w = w.to(H.dtype)                                  # ① match dtypes
 
+        H_weighted = H * w.unsqueeze(-1)                       # keeps H_weighted in H.dtype
+        idx = bmg.edge_index[1].to(torch.long)                 # ③ index must be long
+        idx = idx.unsqueeze(1).expand(-1, H.shape[1])
+
+        Mv = torch.zeros(                                      # ② accumulator matches src
+            len(bmg.V), H.shape[1],
+            device=H_weighted.device,
+            dtype=H_weighted.dtype
+        ).scatter_reduce_(0, idx, H_weighted, reduce="sum", include_self=False)
         # node readout; RETURN NODE EMBEDDINGS (no graph pooling here)
         H_v = super().finalize(Mv, bmg.V, V_d)                      # [num_atoms, d_out]
         return H_v
