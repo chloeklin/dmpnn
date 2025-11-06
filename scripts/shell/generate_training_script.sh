@@ -5,38 +5,37 @@
 # Takes dataset name, model type, and optional flags for RDKit descriptors and additional descriptors.
 #
 # Usage:
-#   ./generate_training_script.sh <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type] [--no-submit]
+#   ./generate_training_script.sh <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type] [--no-submit] [key=value...]
 #
 # Examples:
 #   ./generate_training_script.sh insulator DMPNN 2:00:00
 #   ./generate_training_script.sh insulator tabular 1:30:00 incl_rdkit incl_ab
 #   ./generate_training_script.sh htpmd wDMPNN 4:00:00 incl_rdkit incl_desc
-#   ./generate_training_script.sh insulator PPG 2:00:00 incl_rdkit incl_ab
-#   ./generate_training_script.sh insulator PPG 2:00:00 incl_rdkit incl_desc
-#   ./generate_training_script.sh insulator PPG 2:00:00 incl_ab incl_desc incl_rdkit
-#   ./generate_training_script.sh insulator PPG 2:00:00 --no-submit  # Create script only, don't submit
 #   ./generate_training_script.sh polyinfo DMPNN 3:00:00 incl_rdkit incl_desc multi
-#   ./generate_training_script.sh insulator tabular 2:00:00 incl_ab incl_desc incl_rdkit
-#   ./generate_training_script.sh insulator DMPNN 2:00:00 --no-submit  # Create script only, don't submit
+#   ./generate_training_script.sh opv_camb3lyp AttentiveFP 12:30:00 export_embeddings target=gap
+#   ./generate_training_script.sh opv_camb3lyp AttentiveFP 12:30:00 export_embeddings target=gap --no-submit
+#
+# Recognized key=value extras:
+#   target=<name>          # single prediction target/column
+#   train_size=<float>     # e.g., 0.8
+#   polymer_type=<string>  # e.g., copolymer
 
-# Check if dataset name, model, and walltime are provided
+# Check args
 if [ $# -lt 3 ]; then
-    echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type]"
+    echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type] [--no-submit] [key=value...]"
     echo ""
     echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG"
-    echo "Walltime format: HH:MM:SS (e.g., 2:00:00 for 2 hours)"
     echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi, pretrain_monomer, save_checkpoint, save_predictions, export_embeddings"
-    echo ""
-    echo "Examples:"
-    echo "  $0 insulator DMPNN 2:00:00"
-    echo "  $0 insulator tabular 1:30:00 incl_rdkit incl_ab"
+    echo "Extra key=value: target=..., train_size=..., polymer_type=..."
     exit 1
 fi
 
-# Parse arguments
+# Parse required
 DATASET="$1"
 MODEL="$2"
 WALLTIME="$3"
+
+# Option flags
 INCL_RDKIT=""
 INCL_DESC=""
 INCL_AB=""
@@ -45,136 +44,99 @@ PRETRAIN_MONOMER=""
 SAVE_CHECKPOINT=""
 SAVE_PREDICTIONS=""
 EXPORT_EMBEDDINGS=""
-BATCH_SIZE=""
-DIFFPOOL_RATIO=""
 TASK_TYPE="reg"
-
-# Validate model type
-case $MODEL in
-    tabular|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG)
-        ;;
-    *)
-        echo "Error: Invalid model '$MODEL'. Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG"
-        exit 1
-        ;;
-esac
-
-# Parse optional arguments
 SUBMIT_JOB=true
 
+# Extra key=value
+TARGET=""
+TRAIN_SIZE=""
+POLYMER_TYPE=""
+
+# Validate model
+case $MODEL in
+  tabular|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG) ;;
+  *)
+    echo "Error: Invalid model '$MODEL'. Available: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG"
+    exit 1
+    ;;
+esac
+
+# Parse optional args
 for arg in "${@:4}"; do
-    case $arg in
-        incl_rdkit)
-            INCL_RDKIT="--incl_rdkit"
-            ;;
-        incl_desc)
-            INCL_DESC="--incl_desc"
-            ;;
-        incl_ab)
-            INCL_AB="--incl_ab"
-            ;;
-        batch_norm)
-            BATCH_NORM="--batch_norm"
-            ;;
-        pretrain_monomer)
-            PRETRAIN_MONOMER="--pretrain_monomer"
-            ;;
-        save_checkpoint)
-            SAVE_CHECKPOINT="--save_checkpoint"
-            ;;
-        save_predictions)
-            SAVE_PREDICTIONS="--save_predictions"
-            ;;
-        export_embeddings)
-            EXPORT_EMBEDDINGS="--export_embeddings"
-            ;;
-        binary|multi)
-            TASK_TYPE=$arg
-            ;;
-        --no-submit)
-            SUBMIT_JOB=false
-            ;;
-        *)
-            echo "Warning: Unknown argument '$arg' ignored"
-            ;;
-    esac
+  case $arg in
+    incl_rdkit)         INCL_RDKIT="--incl_rdkit" ;;
+    incl_desc)          INCL_DESC="--incl_desc" ;;
+    incl_ab)            INCL_AB="--incl_ab" ;;
+    batch_norm)         BATCH_NORM="--batch_norm" ;;
+    pretrain_monomer)   PRETRAIN_MONOMER="--pretrain_monomer" ;;
+    save_checkpoint)    SAVE_CHECKPOINT="--save_checkpoint" ;;
+    save_predictions)   SAVE_PREDICTIONS="--save_predictions" ;;
+    export_embeddings)  EXPORT_EMBEDDINGS="--export_embeddings" ;;
+    binary|multi)       TASK_TYPE=$arg ;;
+    --no-submit)        SUBMIT_JOB=false ;;
+    target=*)           TARGET="${arg#target=}" ;;
+    train_size=*)       TRAIN_SIZE="${arg#train_size=}" ;;
+    polymer_type=*)     POLYMER_TYPE="${arg#polymer_type=}" ;;
+    *)
+      echo "Warning: Unknown argument '$arg' ignored"
+      ;;
+  esac
 done
 
-# Build suffix for filenames
-SUFFIX="_${MODEL}"
-if [ -n "$INCL_DESC" ]; then
-    SUFFIX="${SUFFIX}_desc"
-fi
-if [ -n "$INCL_RDKIT" ]; then
-    SUFFIX="${SUFFIX}_rdkit"
-fi
-if [ -n "$INCL_AB" ]; then
-    SUFFIX="${SUFFIX}_ab"
-fi
-if [ -n "$BATCH_NORM" ]; then
-    SUFFIX="${SUFFIX}_batch_norm"
-fi
-if [ -n "$PRETRAIN_MONOMER" ]; then
-    SUFFIX="${SUFFIX}_pretrain"
-fi
-if [ "$TASK_TYPE" != "reg" ]; then
-    SUFFIX="${SUFFIX}_${TASK_TYPE}"
-fi
-
-# Build command arguments based on model type
+# Base ARGS and script mapping
 if [ "$MODEL" = "tabular" ]; then
-    ARGS="--dataset_name $DATASET"
-    SCRIPT_NAME="train_tabular.py"
-    OUTPUT_PREFIX="tabular"
+  ARGS="--dataset_name $DATASET"
+  SCRIPT_NAME="train_tabular.py"
+  OUTPUT_PREFIX="tabular"
 elif [ "$MODEL" = "AttentiveFP" ]; then
-    ARGS="--dataset_name $DATASET"
-    SCRIPT_NAME="train_attentivefp.py"
-    OUTPUT_PREFIX="AttentiveFP"
+  ARGS="--dataset_name $DATASET"
+  SCRIPT_NAME="train_attentivefp.py"
+  OUTPUT_PREFIX="AttentiveFP"
 else
-    # For DMPNN, wDMPNN, DMPNN_DiffPool, PPG
-    ARGS="--dataset_name $DATASET --model_name $MODEL"
-    SCRIPT_NAME="train_graph.py"
-    OUTPUT_PREFIX="$MODEL"
+  # DMPNN, wDMPNN, DMPNN_DiffPool, PPG
+  ARGS="--dataset_name $DATASET --model_name $MODEL"
+  SCRIPT_NAME="train_graph.py"
+  OUTPUT_PREFIX="$MODEL"
 fi
 
+# Task type
 if [ "$TASK_TYPE" != "reg" ]; then
-    ARGS="$ARGS --task_type $TASK_TYPE"
-fi
-if [ -n "$INCL_DESC" ]; then
-    ARGS="$ARGS $INCL_DESC"
-fi
-if [ -n "$INCL_RDKIT" ]; then
-    ARGS="$ARGS $INCL_RDKIT"
-fi
-if [ -n "$INCL_AB" ]; then
-    ARGS="$ARGS $INCL_AB"
-fi
-if [ -n "$BATCH_NORM" ]; then
-    ARGS="$ARGS $BATCH_NORM"
-fi
-if [ -n "$PRETRAIN_MONOMER" ]; then
-    ARGS="$ARGS $PRETRAIN_MONOMER"
-fi
-if [ -n "$SAVE_CHECKPOINT" ]; then
-    ARGS="$ARGS $SAVE_CHECKPOINT"
-fi
-if [ -n "$SAVE_PREDICTIONS" ]; then
-    ARGS="$ARGS $SAVE_PREDICTIONS"
-fi
-if [ -n "$EXPORT_EMBEDDINGS" ]; then
-    ARGS="$ARGS $EXPORT_EMBEDDINGS"
+  ARGS="$ARGS --task_type $TASK_TYPE"
 fi
 
-# Output script filename
+# Append flags to ARGS
+[ -n "$INCL_DESC" ]          && ARGS="$ARGS $INCL_DESC"
+[ -n "$INCL_RDKIT" ]         && ARGS="$ARGS $INCL_RDKIT"
+[ -n "$INCL_AB" ]            && ARGS="$ARGS $INCL_AB"
+[ -n "$BATCH_NORM" ]         && ARGS="$ARGS $BATCH_NORM"
+[ -n "$PRETRAIN_MONOMER" ]   && ARGS="$ARGS $PRETRAIN_MONOMER"
+[ -n "$SAVE_CHECKPOINT" ]    && ARGS="$ARGS $SAVE_CHECKPOINT"
+[ -n "$SAVE_PREDICTIONS" ]   && ARGS="$ARGS $SAVE_PREDICTIONS"
+[ -n "$EXPORT_EMBEDDINGS" ]  && ARGS="$ARGS $EXPORT_EMBEDDINGS"
+[ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
+[ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
+[ -n "$TARGET" ]             && ARGS="$ARGS --target $TARGET"
+
+# Filename/jobname suffix
+SUFFIX="_${MODEL}"
+[ -n "$INCL_DESC" ]        && SUFFIX="${SUFFIX}_desc"
+[ -n "$INCL_RDKIT" ]       && SUFFIX="${SUFFIX}_rdkit"
+[ -n "$INCL_AB" ]          && SUFFIX="${SUFFIX}_ab"
+[ -n "$BATCH_NORM" ]       && SUFFIX="${SUFFIX}_batch_norm"
+[ -n "$PRETRAIN_MONOMER" ] && SUFFIX="${SUFFIX}_pretrain"
+[ "$TASK_TYPE" != "reg" ]  && SUFFIX="${SUFFIX}_${TASK_TYPE}"
+[ -n "$POLYMER_TYPE" ]     && SUFFIX="${SUFFIX}_$POLYMER_TYPE"
+[ -n "$TRAIN_SIZE" ]       && SUFFIX="${SUFFIX}_ts${TRAIN_SIZE}"
+[ -n "$TARGET" ]           && SUFFIX="${SUFFIX}_$TARGET"
+
 OUTPUT_SCRIPT="train_${DATASET}${SUFFIX}.sh"
 
-# Create output directory if it doesn't exist
+# Ensure output dir
 mkdir -p scripts/shell
 
-# Generate the PBS script
+# Emit PBS script
 cat > "$OUTPUT_SCRIPT" << EOF
 #!/bin/bash
-
 #PBS -q gpuvolta
 #PBS -P um09
 #PBS -l ncpus=12
@@ -190,36 +152,28 @@ module load python3/3.12.1 cuda/12.0.0
 source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
-
 # ${MODEL} training
-python3 scripts/python/$SCRIPT_NAME $ARGS 
-
-
-##TODO
-
-# Add additional experiments here as needed
-
+python3 scripts/python/$SCRIPT_NAME $ARGS
 EOF
 
-# Make the generated script executable
 chmod +x "$OUTPUT_SCRIPT"
 
 echo "Generated training script: $OUTPUT_SCRIPT"
 
-# Submit job automatically unless --no-submit flag is used
+# Submit
 if [ "$SUBMIT_JOB" = true ]; then
-    echo "Submitting job to PBS queue..."
-    JOB_ID=$(qsub "$OUTPUT_SCRIPT")
-    if [ $? -eq 0 ]; then
-        echo "Job submitted successfully: $JOB_ID"
-        echo "Monitor with: qstat -u $USER"
-    else
-        echo "Error: Failed to submit job"
-        exit 1
-    fi
+  echo "Submitting job to PBS queue..."
+  JOB_ID=$(qsub "$OUTPUT_SCRIPT")
+  if [ $? -eq 0 ]; then
+    echo "Job submitted successfully: $JOB_ID"
+    echo "Monitor with: qstat -u \$USER"
+  else
+    echo "Error: Failed to submit job"
+    exit 1
+  fi
 else
-    echo "Script created but not submitted (--no-submit flag used)"
-    echo "To submit manually, run: qsub $OUTPUT_SCRIPT"
+  echo "Script created but not submitted (--no-submit used)"
+  echo "To submit manually, run: qsub $OUTPUT_SCRIPT"
 fi
 
 echo ""

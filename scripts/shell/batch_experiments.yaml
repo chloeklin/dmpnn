@@ -30,11 +30,11 @@ eaip_base: &eaip_base
   export_embeddings: true
 
 opv_targets: &opv_targets
-  # - optical_lumo
-  # - gap
-  # - homo
-  # - lumo
-  # - spectral_overlap
+  - optical_lumo
+  - gap
+  - homo
+  - lumo
+  - spectral_overlap
   - delta_optical_lumo
   - homo_extrapolated
   - gap_extrapolated
@@ -44,58 +44,29 @@ eaip_targets: &eaip_targets
   - IP vs SHE (eV)
 
 experiments:
-  # Polyinfo dataset experiments    
+  # AttentiveFP    
   # - <<: *polyinfo_base
   #   model: AttentiveFP
-  #   walltime: "5:30:00"
+  #   walltime: "0:25:00"
+  
   # - <<: *insulator_base
   #   model: AttentiveFP
-  #   walltime: "1:30:00"
+  #   walltime: "0:10:00"
   
   # - <<: *htpmd_base
   #   model: AttentiveFP
-  #   walltime: "5:30:00"
-
-  - <<: *tc_base
-    model: AttentiveFP
-    walltime: "1:30:00"
+  #   walltime: "0:45:00"
+  
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   walltime: "0:30:00"
 
   # - <<: *opv_base
   #   model: AttentiveFP
-  #   walltime: "5:30:00"
-
-#     incl_rdkit: true
-
-
-
-  # - <<: *insulator_base
-  #   model: AttentiveFP
-  #   walltime: "1:40:00"
-
-
-
-  # HTPMD dataset experiments
-    
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "4:00:00"
-  #   incl_desc: true
-  #   incl_rdkit: true
-
-
-
-
-
-  # OPV CAM-B3LYP experiments
-    
-  # - <<: *opv_base
-  #   model: DMPNN
-  #   walltime: "25:00:00"
-  #   # incl_rdkit: true
+  #   walltime: "2:00:00"
   #   targets: *opv_targets
-  # #   
 
-    
+
 
 
   # EA IP experiments
@@ -103,21 +74,6 @@ experiments:
 #     model: tabular
 #     walltime: "1:30:00"
 #     incl_rdkit: true
-
-#   - <<: *eaip_base
-#     model: tabular
-#     walltime: "1:30:00"
-
-#   - <<: *eaip_base
-#     model: tabular
-#     walltime: "1:30:00"
-#     incl_rdkit: true
-#     incl_ab: true
-
-#   - <<: *eaip_base
-#     model: tabular
-#     walltime: "1:30:00"
-#     incl_ab: true
 
   # - <<: *eaip_base
   #   model: wDMPNN
@@ -129,31 +85,68 @@ experiments:
   #   walltime: "12:30:00"
 
 
-#   - <<: *eaip_base
-#     model: tabular
-#     walltime: "1:30:00"
-#     incl_rdkit: true
-#     incl_ab: true
+
+# DMPNN
+  - <<: *tc_base
+    model: DMPNN
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "1:10:00"
+  - <<: *tc_base
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "1:10:00"
+  - <<: *tc_base
+    model: DMPNN
+    incl_desc: true
+    walltime: "1:10:00"
+  - <<: *tc_base
+    model: DMPNN
+    walltime: "1:10:00"
 
 
+  - <<: *polyinfo_base
+    model: DMPNN
+    walltime: "1:30:00"
+  - <<: *polyinfo_base
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "1:30:00"
 
-  # PAE TG experiments
-  # - <<: *pae_tg_base
-  #   model: tabular
-  #   walltime: "12:00:00"
-  #   incl_rdkit: true
+    
+  - <<: *insulator_base
+    model: DMPNN
+    walltime: "1:30:00"
+  - <<: *insulator_base
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "1:30:00"
 
+    
+  - <<: *htpmd_base
+    model: DMPNN
+    walltime: "1:30:00"
+  - <<: *htpmd_base
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "1:30:00"
+  - <<: *htpmd_base
+    model: DMPNN
+    incl_desc: true
+    walltime: "1:30:00"
+  - <<: *htpmd_base
+    model: DMPNN
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "1:30:00"
 
-
-
-
-# TC dataset experiments
-  # - <<: *tc_base
-  #   model: DMPNN
-  #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "1:00:00"
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   walltime: "1:00:00"
-
+    
+  - <<: *opv_base
+    model: DMPNN
+    walltime: "2:30:00"
+    targets: *opv_targets
+  - <<: *opv_base
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "2:30:00"
+    targets: *opv_targets
