@@ -499,7 +499,7 @@ for target in target_columns:
         use_dir, have, fnames = resolve_embeddings_for_rep(i, emb_dir, base_ckpt_dir, prefix=emb_prefix)
 
         if have:
-            X_train, X_val, X_test, keep = load_cached_embeddings(i, use_dir)
+            X_train, X_val, X_test, keep = load_cached_embeddings(use_dir, fnames)
         else:
             extracted = extract_embeddings_for_rep(
                 args, setup_info, target, i, tr, va, te, smis, df_input,
@@ -509,7 +509,10 @@ for target in target_columns:
                 logger.warning(f"[rep {i}] skipped (no checkpoint)")
                 continue
             X_train, X_val, X_test, keep = extracted
-            save_cached_embeddings(i, use_dir, X_train, X_val, X_test, keep)
+            save_cached_embeddings(use_dir, fnames, X_train, X_val, X_test, keep)
+
+        logger.info(f"[rep {i}] X: train {X_train.shape}, val {X_val.shape}, test {X_test.shape}; kept {keep.sum()}/{keep.size}")
+
 
         # Targets aligned with possibly shorter loader outputs
         y_train = df_input.loc[tr, target].to_numpy()[:len(X_train)]
