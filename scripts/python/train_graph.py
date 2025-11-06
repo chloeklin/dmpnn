@@ -622,20 +622,8 @@ for target in target_columns:
             assert m_local.shape == cm.shape and np.all(m_local == cm), \
                 "Local correlation mask != cached correlation mask (split consistency issue)"
 
-            if cached_scaler is not None:
-                descriptor_scaler = cached_scaler
-                train.normalize_inputs("X_d", descriptor_scaler)
-                val.normalize_inputs("X_d", descriptor_scaler)
-                test.normalize_inputs("X_d", descriptor_scaler)
-            else:
-                descriptor_scaler = train.normalize_inputs("X_d")
-                val.normalize_inputs("X_d", descriptor_scaler)
-                test.normalize_inputs("X_d", descriptor_scaler)
-                # persist the fitted scaler
-                _ = manage_preprocessing_cache(
-                    preprocessing_path, i, orig_Xd, split_preprocessing_metadata, descriptor_scaler, logger
-                )
             processed_descriptor_data = orig_Xd[:, mask_i]
+            descriptor_scaler = cached_scaler  # Will be used after dataset creation
         else:
             preprocessing_reused = False
             descriptor_scaler = None
@@ -646,6 +634,23 @@ for target in target_columns:
         train = DS(train_data[i], featurizer)
         val = DS(val_data[i], featurizer)
         test = DS(test_data[i], featurizer)
+        
+        # Now normalize inputs if we have descriptors
+        if combined_descriptor_data is not None:
+            if descriptor_scaler is not None:
+                # Use cached scaler
+                train.normalize_inputs("X_d", descriptor_scaler)
+                val.normalize_inputs("X_d", descriptor_scaler)
+                test.normalize_inputs("X_d", descriptor_scaler)
+            else:
+                # Fit new scaler on training data
+                descriptor_scaler = train.normalize_inputs("X_d")
+                val.normalize_inputs("X_d", descriptor_scaler)
+                test.normalize_inputs("X_d", descriptor_scaler)
+                # persist the fitted scaler
+                _ = manage_preprocessing_cache(
+                    preprocessing_path, i, orig_Xd, split_preprocessing_metadata, descriptor_scaler, logger
+                )
 
         # Chemprop convention:
         # - Fit scaler on train, apply to train/val targets (for training stability)

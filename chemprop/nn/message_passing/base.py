@@ -419,7 +419,9 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
 
             # ---- block-diagonal masking across graphs ----
             # Use -1e4 instead of -1e9 to avoid FP16 overflow (max FP16 ≈ ±65504)
-            S_logits = Z.new_full((Z.size(0), C_total), -1e4)
+            with torch.cuda.amp.autocast(enabled=False):
+                s_full = torch.full((Z.size(0), C_total), -1e9, device=Z.device, dtype=torch.float32)
+            S_logits = s_full.to(dtype=Z.dtype)
             for g in range(G):
                 mask = (batch == g)
                 start, end = int(col_offsets[g]), int(col_offsets[g] + c_per_g[g])
@@ -470,13 +472,23 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
                 lp_sum += lp_g
                 ent_sum += ent_g
 
-                # ---- core: sparse A' = Sᵀ A S ----
-                ASg = torch.sparse.mm(Ag, Sg)               # (N_g, C_g)
-                Ap_g = Sg.transpose(0, 1) @ ASg             # (C_g, C_g)
-                Ap_g.fill_diagonal_(0)
 
-                # pooled node features V' = Sᵀ Z
-                Vp_g = Sg.transpose(0, 1) @ Zg              # (C_g, d_z)
+                with torch.cuda.amp.autocast(enabled=False):
+                    Ag32  = Ag.float()
+                    Sg32  = Sg.float()
+                    Zg32  = Zg.float()
+                    # ---- core: sparse A' = Sᵀ A S ----
+                    ASg   = torch.sparse.mm(Ag32, Sg32)     # (N_g, C_g)
+                    Ap_g  = Sg32.transpose(0, 1) @ ASg      # (C_g, C_g)
+                    Ap_g.fill_diagonal_(0)
+                    # pooled node features V' = Sᵀ Z
+                    Vp_g  = Sg32.transpose(0, 1) @ Zg32     # (C_g, d_z)
+
+                # cast back to model dtype
+                Ap_g = Ap_g.to(dtype=Z.dtype)
+                Vp_g = Vp_g.to(dtype=Z.dtype) 
+
+
 
                 # build pooled edges from Ap_g (threshold > 0; weights from Ap_g)
                 edge_index_p, E_p, rev_p = self._ap_to_edges(Ap_g)
@@ -500,7 +512,7 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
                 break
 
             cur_bmg = BatchMolGraph(mgs_next)
-            cur_bmg.to(Z.device)
+            cur_bmg.to(Z.device, dtype=Z.dtype)
 
             # Prepare next-level encoder if needed (d_v = current Z dim; d_e = coarsened E dim)
             if level + 1 < self.depth and len(self.encoders) <= level + 1:
