@@ -59,6 +59,8 @@ if not model_config:
 
 # === Set Random Seed ===
 set_seed(SEED)
+import lightning.pytorch as pl
+pl.seed_everything(SEED, workers=True)
 
 # === Load and Preprocess Data ===
 df_input, target_columns = load_and_preprocess_data(args, setup_info)
