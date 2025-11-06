@@ -2,6 +2,8 @@ import logging
 import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
+import os, json
+import torch
 
 from chemprop import data, featurizers
 from utils import (set_seed, process_data, 
@@ -222,9 +224,9 @@ if args.pretrain_monomer:
     )
 
     # Train one model (no per-target loop)
-    trainer.fit(mpnn, data.build_dataloader(train, batch_size=args.batch_size, num_workers=num_workers),
-                      data.build_dataloader(val, batch_size=args.batch_size, num_workers=num_workers, shuffle=False))
-    _ = trainer.test(dataloaders=data.build_dataloader(test, batch_size=args.batch_size, num_workers=num_workers, shuffle=False))
+    trainer.fit(mpnn, data.build_dataloader(train, batch_size=args.batch_size, num_workers=num_workers,pin_memory=True),
+                      data.build_dataloader(val, batch_size=args.batch_size, num_workers=num_workers, shuffle=False, pin_memory=True))
+    _ = trainer.test(dataloaders=data.build_dataloader(test, batch_size=args.batch_size, num_workers=num_workers, shuffle=False, pin_memory=True))
 
     # Optionally export embeddings for all monomers now
     if args.export_embeddings:
@@ -433,13 +435,14 @@ for target in target_columns:
                         dp.x_d = base[ridx][mask]
                 _apply(train_data[i], tr); _apply(val_data[i], va); _apply(test_data[i], te)
 
+                split_preprocessing_metadata[i] = cache_meta or {}
+                # Ensure correlation_mask reflects what we actually used
+                split_preprocessing_metadata[i].setdefault("split_specific", {})
+                split_preprocessing_metadata[i]["split_specific"].update({
+                    "split_id": i,
+                    "correlation_mask": mask.tolist(),
+                })
                 split_imputers[i] = imputer
-                split_preprocessing_metadata[i] = {
-                    "split_specific": {
-                        "split_id": i,
-                        "correlation_mask": mask.tolist(),
-                    }
-                }
                 logger.info(f"Split {i}: reused cached preprocessing (imputer+mask).")
             else:    
                 # Initialize default values
@@ -729,8 +732,11 @@ for target in target_columns:
         if skip_training and best_ckpt_path:
             logger.info(f"Loading checkpoint for evaluation: {best_ckpt_path}")
             from chemprop import models
-            map_location = torch.device("cpu") if not torch.cuda.is_available() else None
+            use_cuda = torch.cuda.is_available()
+            map_location = None if use_cuda else torch.device("cpu")
             mpnn = models.MPNN.load_from_checkpoint(best_ckpt_path, map_location=map_location)
+            if use_cuda:
+                mpnn = mpnn.to(torch.device("cuda"))
             mpnn.eval()
         else:
             inprog_flag.touch(exist_ok=True)

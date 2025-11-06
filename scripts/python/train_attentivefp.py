@@ -322,44 +322,42 @@ def main():
                 emb_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Some PyG versions don't expose .gnn on AttentiveFP; avoid crashing.
-                if not hasattr(model.core, "gnn"):
-                    logger.warning("Embeddings export skipped: this AttentiveFP version does not expose `.gnn`.")
-                else:
-                    def dump(loader, split_name):
-                        """Extract and save embeddings using the same format as train_graph.py"""
-                        X = extract_attentivefp_embeddings(model, loader, device)
-                        
-                        # Apply same filtering as train_graph.py and evaluate_model.py
-                        eps = 1e-8
-                        if split_name == "train":
-                            std_train = X.std(axis=0)
-                            keep = std_train > eps
-                            # Save feature mask for reproducibility
-                            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{bn_suffix}{size_suffix}"
-                            np.save(emb_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy", keep)
-                            logger.info(f"Split {i}: Kept {int(keep.sum())} / {len(keep)} embedding dimensions")
-                        else:
-                            # Use the feature mask from train split
-                            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{bn_suffix}{size_suffix}"
-                            feature_mask_file = emb_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy"
-                            if feature_mask_file.exists():
-                                keep = np.load(feature_mask_file)
-                            else:
-                                # Fallback: keep all features if mask not found
-                                keep = np.ones(X.shape[1], dtype=bool)
-                                logger.warning(f"Feature mask not found for split {i}, keeping all features")
-                        
-                        # Apply filtering
-                        X_filtered = X[:, keep]
-                        
-                        # Save embeddings with consistent naming
-                        np.save(emb_dir / f"{embedding_prefix}__X_{split_name}_split_{i}.npy", X_filtered)
-                        logger.info(f"Split {i}: Saved {split_name} embeddings: {X_filtered.shape}")
+                
+                def dump(loader, split_name):
+                    """Extract and save embeddings using the same format as train_graph.py"""
+                    X = extract_attentivefp_embeddings(model, loader, device)
                     
-                    # Extract embeddings for train/val/test
-                    dump(train_loader, "train")
-                    dump(val_loader,   "val") 
-                    dump(test_loader,  "test")
+                    # Apply same filtering as train_graph.py and evaluate_model.py
+                    eps = 1e-8
+                    if split_name == "train":
+                        std_train = X.std(axis=0)
+                        keep = std_train > eps
+                        # Save feature mask for reproducibility
+                        embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{bn_suffix}{size_suffix}"
+                        np.save(emb_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy", keep)
+                        logger.info(f"Split {i}: Kept {int(keep.sum())} / {len(keep)} embedding dimensions")
+                    else:
+                        # Use the feature mask from train split
+                        embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{bn_suffix}{size_suffix}"
+                        feature_mask_file = emb_dir / f"{embedding_prefix}__feature_mask_split_{i}.npy"
+                        if feature_mask_file.exists():
+                            keep = np.load(feature_mask_file)
+                        else:
+                            # Fallback: keep all features if mask not found
+                            keep = np.ones(X.shape[1], dtype=bool)
+                            logger.warning(f"Feature mask not found for split {i}, keeping all features")
+                    
+                    # Apply filtering
+                    X_filtered = X[:, keep]
+                    
+                    # Save embeddings with consistent naming
+                    np.save(emb_dir / f"{embedding_prefix}__X_{split_name}_split_{i}.npy", X_filtered)
+                    logger.info(f"Split {i}: Saved {split_name} embeddings: {X_filtered.shape}")
+                    
+                # Extract embeddings for train/val/test
+                dump(train_loader, "train")
+                dump(val_loader,   "val") 
+                dump(test_loader,  "test")
     # aggregate + save using modular function
     results_df = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
     save_model_results(results_df, args, "AttentiveFP", results_dir, logger)

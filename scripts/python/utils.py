@@ -800,6 +800,17 @@ def build_model_and_trainer(
             "Install with: pip install chemprop pytorch_lightning"
         ) from e
 
+    gpu = torch.cuda.is_available()
+
+    # Provide defaults only if caller didn't specify them via **trainer_kwargs
+    trainer_kwargs.setdefault("accelerator", "gpu" if gpu else "cpu")
+    trainer_kwargs.setdefault("devices", 1 if gpu else None)
+    # V100s: "16-mixed" is fine; A100/H100: you can switch to "bf16-mixed"
+    trainer_kwargs.setdefault("precision", "16-mixed" if gpu else 32)
+    # Determinism vs speed: if you care about speed, set deterministic=False and allow cudnn.benchmark
+    trainer_kwargs.setdefault("deterministic", False if gpu else True)
+    trainer_kwargs.setdefault("benchmark", True if gpu else False)
+
     # Validate inputs
     if not hasattr(args, 'task_type'):
         raise ValueError("args must have 'task_type' attribute")
@@ -921,12 +932,8 @@ def build_model_and_trainer(
             enable_progress_bar=True,
             enable_model_summary=True,
             log_every_n_steps=1,
-            accelerator='gpu',
-            devices=1,
-            precision="16-mixed",      # fp16 AMP on V100
-            deterministic=False,       # let cuDNN choose fast kernels
-            benchmark=True,            # cudnn.benchmark
             default_root_dir=str(checkpoint_path),
+            **trainer_kwargs
         )
         
         return model, trainer
