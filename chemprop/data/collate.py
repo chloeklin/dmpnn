@@ -158,9 +158,14 @@ class BatchMolGraph:
         """the number of individual :class:`MolGraph`\s in this batch"""
         return self.__size
 
-    def to(self, device: str | torch.device):
-        self.V = self.V.to(device)
-        self.E = self.E.to(device)
+    def to(self, device: str | torch.device, dtype: torch.dtype | None = None):
+        if device is not None or dtype is not None:
+            self.V = self.V.to(device=device, dtype=dtype, non_blocking=non_blocking)
+            self.E = self.E.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        else:
+            self.V = self.V.clone()
+            self.E = self.E.clone()
+
         self.edge_index = self.edge_index.to(device)
         self.rev_edge_index = self.rev_edge_index.to(device)
         self.batch = self.batch.to(device)
