@@ -428,15 +428,19 @@ for target in target_columns:
                 if imputer_stats is not None:
                     stats = np.asarray(imputer_stats, dtype=float)
                     imputer = SimpleImputer(strategy="median")
-                    # Required attributes for transform():
                     imputer.statistics_ = stats
                     imputer.n_features_in_ = stats.shape[0]
-                    # Use the post-constant-drop basis for dtype kind
                     imputer._fit_dtype = np.asarray(orig_Xd, dtype=np.float64).dtype
 
                 base = orig_Xd.copy()
                 if imputer is not None:
                     base = imputer.transform(base)
+                elif np.isnan(base).any():
+                    # cache didn’t have stats => fit on TRAIN ONLY for this split
+                    tmp_imputer = SimpleImputer(strategy="median")
+                    tmp_imputer.fit(orig_Xd[tr])
+                    base = tmp_imputer.transform(base)
+                    imputer = tmp_imputer
                 base = np.clip(base, float32_min, float32_max).astype(np.float32)
                 mask = np.array(cached_mask, dtype=bool)
 
@@ -609,6 +613,34 @@ for target in target_columns:
             for dp, ridx in zip(test_data[i],  test_indices[i]):
                 dp.x_d = all_data_clean_i[ridx][mask_i]
 
+            # ---- cache/scaler handling (descriptor-only) ----
+            preprocessing_reused, cached_scaler, correlation_mask, constant_features = manage_preprocessing_cache(
+                preprocessing_path, i, orig_Xd, split_preprocessing_metadata, None, logger
+            )
+            m_local = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
+            cm = np.array(correlation_mask, dtype=bool)
+            assert m_local.shape == cm.shape and np.all(m_local == cm), \
+                "Local correlation mask != cached correlation mask (split consistency issue)"
+
+            if cached_scaler is not None:
+                descriptor_scaler = cached_scaler
+                train.normalize_inputs("X_d", descriptor_scaler)
+                val.normalize_inputs("X_d", descriptor_scaler)
+                test.normalize_inputs("X_d", descriptor_scaler)
+            else:
+                descriptor_scaler = train.normalize_inputs("X_d")
+                val.normalize_inputs("X_d", descriptor_scaler)
+                test.normalize_inputs("X_d", descriptor_scaler)
+                # persist the fitted scaler
+                _ = manage_preprocessing_cache(
+                    preprocessing_path, i, orig_Xd, split_preprocessing_metadata, descriptor_scaler, logger
+                )
+            processed_descriptor_data = orig_Xd[:, mask_i]
+        else:
+            preprocessing_reused = False
+            descriptor_scaler = None
+            processed_descriptor_data = None
+
         # Create datasets after cleaning
         DS = data.MoleculeDataset if args.model_name in small_molecule_models else data.PolymerDataset
         train = DS(train_data[i], featurizer)
@@ -635,40 +667,6 @@ for target in target_columns:
         batch_norm = args.batch_norm
         
         
-        
-        # 1) Try to load cached scaler & masks BEFORE normalization
-        preprocessing_reused, cached_scaler, correlation_mask, constant_features = manage_preprocessing_cache(
-            preprocessing_path, i, orig_Xd, split_preprocessing_metadata, None, logger
-        )
-        
-        # Safety check: ensure cached correlation_mask matches local computation (only if descriptors exist)
-        if combined_descriptor_data is not None and i in split_preprocessing_metadata:
-            m_local = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
-            cm = np.array(correlation_mask, dtype=bool)
-            assert m_local.shape == cm.shape and np.all(m_local == cm), \
-                "Local correlation mask != cached correlation mask (split consistency issue)"
-
-        # 2) Normalize using the decided scaler
-        if combined_descriptor_data is not None:
-            if cached_scaler is not None:
-                descriptor_scaler = cached_scaler
-                train.normalize_inputs("X_d", descriptor_scaler)
-                val.normalize_inputs("X_d", descriptor_scaler)
-                test.normalize_inputs("X_d", descriptor_scaler)
-            else:
-                descriptor_scaler = train.normalize_inputs("X_d")
-                val.normalize_inputs("X_d", descriptor_scaler)
-                test.normalize_inputs("X_d", descriptor_scaler)
-                # persist the fitted scaler
-                _ = manage_preprocessing_cache(
-                    preprocessing_path, i, orig_Xd, split_preprocessing_metadata, descriptor_scaler, logger
-                )
-            
-            # No need to re-apply zero mask since dp.x_d is already sliced to kept features only
-            logger.debug(f"Descriptor features already filtered to kept features only for split {i}")
-        else:
-            descriptor_scaler = None
-        
         # Create dataloaders
         train_loader = data.build_dataloader(train, batch_size=args.batch_size, num_workers=num_workers, pin_memory=True)
         val_loader = data.build_dataloader(val, batch_size=args.batch_size, num_workers=num_workers, shuffle=False, pin_memory=True)
@@ -681,19 +679,7 @@ for target in target_columns:
             shutil.rmtree(checkpoint_path)
             logger.info(f"Removed incompatible checkpoint directory: {checkpoint_path}")
             checkpoint_path.mkdir(parents=True, exist_ok=True)
-        
-        # Create processed descriptor data for model building (with constant features dropped)
-        if combined_descriptor_data is not None:
-            # Use orig_Xd (constants already removed)
-            processed_descriptor_data = orig_Xd.copy()
-            mask_i = np.array(
-                split_preprocessing_metadata[i]['split_specific']['correlation_mask'],
-                dtype=bool
-            )
-            processed_descriptor_data = processed_descriptor_data[:, mask_i]
-            logger.info(f"Model input descriptor shape: {processed_descriptor_data.shape} (after constant removal and correlation filtering)")
-        else:
-            processed_descriptor_data = None
+
         
         # Assertion to prevent descriptor dimension regression
         desc_len_seen = len(train[0].x_d) if getattr(train[0], "x_d", None) is not None else 0

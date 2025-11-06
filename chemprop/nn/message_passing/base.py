@@ -418,7 +418,8 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
             raw = pool_head(Z)                           # (N, C_total)
 
             # ---- block-diagonal masking across graphs ----
-            S_logits = Z.new_full((Z.size(0), C_total), -1e9)
+            # Use -1e4 instead of -1e9 to avoid FP16 overflow (max FP16 ≈ ±65504)
+            S_logits = Z.new_full((Z.size(0), C_total), -1e4)
             for g in range(G):
                 mask = (batch == g)
                 start, end = int(col_offsets[g]), int(col_offsets[g] + c_per_g[g])
