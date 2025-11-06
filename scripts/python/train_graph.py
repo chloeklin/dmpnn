@@ -575,7 +575,11 @@ for target in target_columns:
     results_all = []
     num_splits = len(train_data)  # robust for both CV and holdout
     for i in range(num_splits):
-
+        # Build experiment paths
+        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+            args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+        )
+        
         if combined_descriptor_data is not None:
             imputer = split_imputers[i]
             if imputer is not None:
@@ -622,10 +626,7 @@ for target in target_columns:
         )
         batch_norm = args.batch_norm
         
-        # Build experiment paths
-        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
-            args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-        )
+        
         
         # 1) Try to load cached scaler & masks BEFORE normalization
         preprocessing_reused, cached_scaler, correlation_mask, constant_features = manage_preprocessing_cache(
