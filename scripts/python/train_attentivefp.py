@@ -296,10 +296,7 @@ def main():
             else:
                 # Load existing checkpoint
                 logger.info(f"[{target}] split {i}: Loading checkpoint from {checkpoint_file}")
-                from torch.serialization import add_safe_globals
-                from sklearn.preprocessing import StandardScaler
-                add_safe_globals([StandardScaler])
-                checkpoint = torch.load(checkpoint_file, map_location=device)
+                checkpoint = torch.load(checkpoint_file, map_location=device, weights_only=False)
                 model.load_state_dict({k: v.to(device) for k, v in checkpoint["state_dict"].items()})
 
             # test evaluation with appropriate metrics

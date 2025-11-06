@@ -1221,97 +1221,125 @@ def build_sklearn_models(task_type, n_classes=None, scaler_flag=False):
 
 
 
+def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data,
+                              split_preprocessing_metadata, descriptor_scaler, logger):
+    """
+    Load/save preprocessing cache for split i.
 
-def manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, split_preprocessing_metadata, 
-                             descriptor_scaler, logger):
-    """Handle loading/saving of preprocessing cache."""
+    Returns:
+        (reused: bool,
+         descriptor_scaler_or_None,
+         correlation_mask_or_empty_bool_array,
+         metadata_dict_or_None)
+    """
     import json
     from joblib import load, dump
-    
-    # If no descriptors, return defaults
+
+    # No descriptors -> nothing to cache
     if combined_descriptor_data is None:
-        return False, None, np.array([]), np.array([])
-    
-    # Define file paths
+        return False, None, np.array([], dtype=bool), None
+
+    preprocessing_path.mkdir(parents=True, exist_ok=True)
+
+    # File paths
     metadata_file = preprocessing_path / f"preprocessing_metadata_split_{i}.json"
     scaler_file = preprocessing_path / "descriptor_scaler.pkl"
     correlation_mask_file = preprocessing_path / "correlation_mask.npy"
     constant_features_file = preprocessing_path / "constant_features_removed.npy"
-    
-    preprocessing_path.mkdir(parents=True, exist_ok=True)
-    
-    # If descriptor_scaler is provided, this is a save operation
+
+    # Helper: load everything if present
+    def _try_load_all():
+        meta = None
+        mask = None
+        scaler = None
+        if metadata_file.exists():
+            with open(metadata_file, "r") as f:
+                meta = json.load(f)
+        if correlation_mask_file.exists():
+            mask = np.load(correlation_mask_file).astype(bool)
+        if scaler_file.exists():
+            try:
+                scaler = load(scaler_file)
+                logger.info(f"Loaded descriptor scaler from {scaler_file}")
+            except Exception as e:
+                logger.warning(f"Failed to load descriptor scaler: {e}")
+        return meta, mask, scaler
+
+    # --- SAVE SCALER ONLY PATH -------------------------------------------------
+    # If descriptor_scaler is provided, we just persist it and return.
     if descriptor_scaler is not None:
-        # Save scaler and return (don't re-save metadata)
-        dump(descriptor_scaler, scaler_file)
-        logger.info(f"Saved descriptor scaler to {scaler_file}")
-        return False, descriptor_scaler, np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool), np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed'])
-    
-    # Check if preprocessing can be reused (load operation)
-    preprocessing_exists = (
-        metadata_file.exists() and 
-        correlation_mask_file.exists() and 
-        constant_features_file.exists()
-    )
-    
-    if preprocessing_exists:
         try:
-            with open(metadata_file, 'r') as f:
-                existing_metadata = json.load(f)
-            
-            # Get current preprocessing parameters for comparison
-            current_constant_features = split_preprocessing_metadata[i]['data_info']['constant_features_removed']
-            current_correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
-            current_n_features_final = np.sum(current_correlation_mask)
-            
-            # Get saved preprocessing parameters
-            saved_constant_features = existing_metadata.get('data_info', {}).get('constant_features_removed', [])
-            saved_n_features_final = existing_metadata.get('data_info', {}).get('n_features_after_preprocessing', 0)
-            
-            # Load saved masks for detailed comparison
-            saved_correlation_mask = np.load(correlation_mask_file).astype(bool)
-            saved_constant_features_array = np.load(constant_features_file)
-            
-            # Deterministic reuse: require exact match of preprocessing parameters
-            masks_match = np.array_equal(current_correlation_mask, saved_correlation_mask)
-            constants_match = (current_constant_features == saved_constant_features or 
-                             np.array_equal(np.array(current_constant_features), saved_constant_features_array))
-            counts_match = (current_n_features_final == saved_n_features_final)
-            
-            if masks_match and constants_match and counts_match:
-                # Load existing preprocessing objects with type safety
-                correlation_mask = saved_correlation_mask
-                constant_features = saved_constant_features
-                
-                # Only load scaler if we don't already have one
-                if descriptor_scaler is None and scaler_file.exists():
-                    descriptor_scaler = load(scaler_file)
-                    logger.info(f"Loaded existing descriptor scaler from {scaler_file}")
-                
-                logger.info(f"Reusing existing preprocessing for split {i} with {current_n_features_final} final features")
-                return True, descriptor_scaler, correlation_mask, constant_features
-            else:
-                logger.info(f"Preprocessing parameters changed (masks_match={masks_match}, constants_match={constants_match}, counts_match={counts_match}), recomputing...")
-                
+            dump(descriptor_scaler, scaler_file)
+            logger.info(f"Saved descriptor scaler to {scaler_file}")
         except Exception as e:
-            logger.warning(f"Could not load existing preprocessing: {e}, recomputing...")
-    
-    # Save new preprocessing - add n_features_after_preprocessing to metadata
-    correlation_mask = np.array(split_preprocessing_metadata[i]['split_specific']['correlation_mask'], dtype=bool)
-    n_features_final = np.sum(correlation_mask)
-    
-    # Add the missing field to metadata
-    split_preprocessing_metadata[i]['data_info']['n_features_after_preprocessing'] = int(n_features_final)
-    
-    # Save preprocessing files
-    np.save(correlation_mask_file, correlation_mask)
-    np.save(constant_features_file, np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed']))
-    
-    with open(metadata_file, 'w') as f:
-        json.dump(split_preprocessing_metadata[i], f, indent=2)
-    
-    logger.info(f"Saved preprocessing metadata for split {i} with {n_features_final} final features")
-    return False, None, correlation_mask, np.array(split_preprocessing_metadata[i]['data_info']['constant_features_removed'])
+            logger.warning(f"Could not save descriptor scaler: {e}")
+        # Try to also return any existing mask/metadata if they already exist
+        meta, mask, _loaded_scaler = _try_load_all()
+        return False, descriptor_scaler, (mask if mask is not None else np.array([], dtype=bool)), meta
+
+    # --- LOAD-ONLY PATH --------------------------------------------------------
+    # If split_preprocessing_metadata is None, caller is asking to load cached data
+    if split_preprocessing_metadata is None:
+        meta, mask, scaler = _try_load_all()
+        if meta is not None and mask is not None:
+            n_final = int((meta.get("data_info") or {}).get("n_features_after_preprocessing", mask.sum()))
+            logger.info(f"Reusing cached preprocessing for split {i} with {n_final} final features")
+            return True, scaler, mask, meta
+        else:
+            logger.info(f"No cached preprocessing found for split {i}")
+            return False, scaler, (mask if mask is not None else np.array([], dtype=bool)), meta
+
+    # --- COMPARE-AND-REUSE or SAVE NEW ----------------------------------------
+    # We have fresh metadata computed by caller; check if on-disk cache matches.
+    try:
+        current_meta = split_preprocessing_metadata[i]
+        current_mask = np.array(current_meta["split_specific"]["correlation_mask"], dtype=bool)
+        current_consts = np.array(current_meta["data_info"]["constant_features_removed"])
+        current_n_final = int(current_mask.sum())
+    except Exception as e:
+        logger.warning(f"Malformed split_preprocessing_metadata for split {i}: {e}")
+        # Fall back to saving whatever we can
+        current_mask = np.array([], dtype=bool)
+        current_consts = np.array([], dtype=int)
+        current_n_final = 0
+
+    # If existing cache is present, compare
+    if metadata_file.exists() and correlation_mask_file.exists() and constant_features_file.exists():
+        try:
+            with open(metadata_file, "r") as f:
+                saved_meta = json.load(f)
+            saved_mask = np.load(correlation_mask_file).astype(bool)
+            saved_consts = np.load(constant_features_file)
+            saved_n_final = int((saved_meta.get("data_info") or {}).get("n_features_after_preprocessing",
+                                  int(saved_mask.sum())))
+            masks_match = np.array_equal(current_mask, saved_mask)
+            consts_match = np.array_equal(current_consts, saved_consts)
+            counts_match = (current_n_final == saved_n_final)
+            if masks_match and consts_match and counts_match:
+                # Reuse
+                _, _, scaler = _try_load_all()
+                logger.info(f"Reusing existing preprocessing for split {i} with {saved_n_final} final features")
+                return True, scaler, saved_mask, saved_meta
+            else:
+                logger.info(f"Preprocessing changed for split {i} "
+                            f"(mask={masks_match}, consts={consts_match}, count={counts_match}); will overwrite.")
+        except Exception as e:
+            logger.warning(f"Could not verify existing preprocessing for split {i}: {e}; will overwrite.")
+
+    # Save NEW metadata/mask/constants
+    # Ensure the final-feature count is stored
+    current_meta.setdefault("data_info", {}).update({"n_features_after_preprocessing": int(current_n_final)})
+
+    try:
+        np.save(correlation_mask_file, current_mask)
+        np.save(constant_features_file, current_consts)
+        with open(metadata_file, "w") as f:
+            json.dump(current_meta, f, indent=2)
+        logger.info(f"Saved preprocessing metadata for split {i} with {current_n_final} final features")
+    except Exception as e:
+        logger.warning(f"Failed to save preprocessing for split {i}: {e}")
+
+    return False, None, current_mask, current_meta
 
 
 def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i):

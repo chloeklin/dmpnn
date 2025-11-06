@@ -408,126 +408,160 @@ for target in target_columns:
     if combined_descriptor_data is not None:
             
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-            # Initialize default values
-            correlated_features = []
-            # Per-split data cleaning: fit imputer on training data only
-            
-            # Get training data for this split (after constant removal)
-            train_data_split = orig_Xd[tr]
-            
-            # Fit imputer on training data only
-            imputer = None
-            if np.any(nan_mask):
-                imputer = SimpleImputer(strategy='median')
-                train_data_clean = imputer.fit_transform(train_data_split)
-            else:
-                train_data_clean = train_data_split.copy()
-            
-            # Apply imputation to all splits using training-fitted imputer
-            if imputer is not None:
-                all_data_clean = imputer.transform(orig_Xd)
-            else:
-                all_data_clean = orig_Xd.copy()
-            
-            # Clip and convert to float32
-            all_data_clean = np.clip(all_data_clean, float32_min, float32_max)
-            all_data_clean = all_data_clean.astype(np.float32)
-            
-            # Create DataFrame for correlation analysis
-            train_df = pd.DataFrame(all_data_clean[tr])
-            
-            # Find highly correlated features in training set
-            if train_df.shape[1] > 1:
-                corr_matrix = train_df.corr(method="pearson" if args.task_type == "reg" else "spearman").abs()
-                upper_tri = corr_matrix.where(
-                    np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
-                )
-                correlated_features = [column for column in upper_tri.columns if any(upper_tri[column] >= 0.90)]
+            # Try to load cached preprocessing BEFORE doing any heavy work
+            preprocessing_reused, cached_scaler, cached_mask, cache_meta = manage_preprocessing_cache(
+                preprocessing_path, i, combined_descriptor_data, None, None, logger
+            )
+
+            if preprocessing_reused and cached_mask is not None:
+                imputer_stats = None
+                if cache_meta is not None:
+                    imputer_stats = ((cache_meta.get("cleaning") or {}).get("imputer_statistics"))
+                imputer = None
+                if imputer_stats is not None:
+                    imputer = SimpleImputer(strategy="median")
+                    imputer.statistics_ = np.array(imputer_stats, dtype=float)
+
+                base = orig_Xd.copy()
+                if imputer is not None:
+                    base = imputer.transform(base)
+                base = np.clip(base, float32_min, float32_max).astype(np.float32)
+                mask = np.array(cached_mask, dtype=bool)
+
+                def _apply(datapoints, row_indices):
+                    for dp, ridx in zip(datapoints, row_indices):
+                        dp.x_d = base[ridx][mask]
+                _apply(train_data[i], tr); _apply(val_data[i], va); _apply(test_data[i], te)
+
+                split_imputers[i] = imputer
+                split_preprocessing_metadata[i] = {
+                    "split_specific": {
+                        "split_id": i,
+                        "correlation_mask": mask.tolist(),
+                    }
+                }
+                logger.info(f"Split {i}: reused cached preprocessing (imputer+mask).")
+            else:    
+                # Initialize default values
+                correlated_features = []
+                # Per-split data cleaning: fit imputer on training data only
                 
-                if correlated_features:
-                    logger.info(f"Split {i}: Removing {len(correlated_features)} correlated features based on training set")
-                    keep_features = [col for col in range(train_df.shape[1]) if col not in correlated_features]
+                # Get training data for this split (after constant removal)
+                train_data_split = orig_Xd[tr]
+                
+                # Fit imputer on training data only
+                imputer = None
+                if np.any(nan_mask):
+                    imputer = SimpleImputer(strategy='median')
+                    train_data_clean = imputer.fit_transform(train_data_split)
+                else:
+                    train_data_clean = train_data_split.copy()
+                
+                # Apply imputation to all splits using training-fitted imputer
+                if imputer is not None:
+                    all_data_clean = imputer.transform(orig_Xd)
+                else:
+                    all_data_clean = orig_Xd.copy()
+                
+                # Clip and convert to float32
+                all_data_clean = np.clip(all_data_clean, float32_min, float32_max)
+                all_data_clean = all_data_clean.astype(np.float32)
+                
+                # Create DataFrame for correlation analysis
+                train_df = pd.DataFrame(all_data_clean[tr])
+                
+                # Find highly correlated features in training set
+                if train_df.shape[1] > 1:
+                    corr_matrix = train_df.corr(method="pearson" if args.task_type == "reg" else "spearman").abs()
+                    upper_tri = corr_matrix.where(
+                        np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+                    )
+                    correlated_features = [column for column in upper_tri.columns if any(upper_tri[column] >= 0.90)]
+                    
+                    if correlated_features:
+                        logger.info(f"Split {i}: Removing {len(correlated_features)} correlated features based on training set")
+                        keep_features = [col for col in range(train_df.shape[1]) if col not in correlated_features]
+                    else:
+                        keep_features = list(range(train_df.shape[1]))
                 else:
                     keep_features = list(range(train_df.shape[1]))
-            else:
-                keep_features = list(range(train_df.shape[1]))
-            
-            # Create mask for features to keep after correlation removal
-            mask = np.zeros(all_data_clean.shape[1], dtype=bool)
-            mask[keep_features] = True
-            
-            # Update cleaning metadata with per-split imputer statistics
-            cleaning_metadata = base_cleaning_metadata.copy()
-            cleaning_metadata["imputer_statistics"] = imputer.statistics_.tolist() if imputer is not None else None
+                
+                # Create mask for features to keep after correlation removal
+                mask = np.zeros(all_data_clean.shape[1], dtype=bool)
+                mask[keep_features] = True
+                
+                # Update cleaning metadata with per-split imputer statistics
+                cleaning_metadata = base_cleaning_metadata.copy()
+                cleaning_metadata["imputer_statistics"] = imputer.statistics_.tolist() if imputer is not None else None
 
-            # Store split-specific preprocessing metadata
-            preprocessing_metadata = {
-                "cleaning": cleaning_metadata,
-                "data_info": data_metadata,
-                "splits": split_metadata,
-                "split_specific": {
-                    "split_id": i,
-                    "correlated_features": correlated_features,
-                    "keep_features": keep_features,
-                    "correlation_mask": mask.tolist()
-                },
-                "target": target,
-                "task_type": args.task_type
-            }
-            
-            # Store metadata and imputer for later saving (after checkpoint_path is created)
-            split_preprocessing_metadata[i] = preprocessing_metadata
-            split_imputers[i] = imputer
+                # Store split-specific preprocessing metadata
+                preprocessing_metadata = {
+                    "cleaning": cleaning_metadata,
+                    "data_info": data_metadata,
+                    "splits": split_metadata,
+                    "split_specific": {
+                        "split_id": i,
+                        "correlated_features": correlated_features,
+                        "keep_features": keep_features,
+                        "correlation_mask": mask.tolist()
+                    },
+                    "target": target,
+                    "task_type": args.task_type
+                }
+                
+                # Store metadata and imputer for later saving (after checkpoint_path is created)
+                split_preprocessing_metadata[i] = preprocessing_metadata
+                split_imputers[i] = imputer
 
-            # Apply preprocessing and masking to datapoints
-            def _apply_preprocessing_and_mask(datapoints, row_indices):
-                for dp, ridx in zip(datapoints, row_indices):
-                    # Get cleaned data for this row
-                    row_clean = all_data_clean[ridx]  # Already imputed, clipped, and converted
-                    # Apply correlation mask (keep only non-correlated features)
-                    dp.x_d = row_clean[mask].astype(np.float32)
-            
-            _apply_preprocessing_and_mask(train_data[i], tr)
-            _apply_preprocessing_and_mask(val_data[i], va)
-            _apply_preprocessing_and_mask(test_data[i], te)
+                # Apply preprocessing and masking to datapoints
+                def _apply_preprocessing_and_mask(datapoints, row_indices):
+                    for dp, ridx in zip(datapoints, row_indices):
+                        # Get cleaned data for this row
+                        row_clean = all_data_clean[ridx]  # Already imputed, clipped, and converted
+                        # Apply correlation mask (keep only non-correlated features)
+                        dp.x_d = row_clean[mask].astype(np.float32)
+                
+                _apply_preprocessing_and_mask(train_data[i], tr)
+                _apply_preprocessing_and_mask(val_data[i], va)
+                _apply_preprocessing_and_mask(test_data[i], te)
 
-            # Enhanced sanity check with more detailed debugging
-            logger.debug(f"Split {i}: Applied preprocessing - shape: {all_data_clean.shape}")
-            logger.debug(f"Split {i}: Features kept: {np.sum(mask)} out of {len(mask)}")
-            logger.debug(f"Split {i}: Imputer fitted on {len(tr)} training samples")
-            def _check(dps):
-                arrs = []
-                for dp in dps:
-                    x = np.asarray(dp.x_d, dtype=np.float32)
-                    if not np.isfinite(x).all():
-                        nan_mask = ~np.isfinite(x)
-                        logger.debug(f"Found {nan_mask.sum()} non-finite values in a datapoint")
-                        logger.debug(f"Non-finite indices: {np.where(nan_mask)[0]}")
-                        logger.debug(f"Non-finite values: {x[nan_mask]}")
-                    arrs.append(x)
-                
-                X = np.stack(arrs, axis=0)   # will fail if lengths differ
-                logger.debug(f"Final tabular data - shape: {X.shape}, dtype: {X.dtype}")
-                logger.debug(f"Final tabular data - finite values: {np.isfinite(X).all()}")
-                logger.debug(f"Final tabular data - NaN count: {np.isnan(X).sum()}")
-                logger.debug(f"Final tabular data - Inf count: {np.isinf(X).sum()}")
-                
-                if not np.isfinite(X).all():
-                    # Print some statistics about the non-finite values
-                    nan_mask = ~np.isfinite(X)
-                    logger.debug("\nNon-finite value statistics:")
-                    logger.debug(f"Total non-finite values: {nan_mask.sum()}")
-                    logger.debug(f"Non-finite values per feature: {np.sum(nan_mask, axis=0)}")
-                    logger.debug(f"Samples with non-finite values: {np.any(nan_mask, axis=1).sum()}")
-                
-                return X
-                
-            logger.debug("\n=== Training Data Check ===")
-            _check(train_data[i])
-            logger.debug("\n=== Validation Data Check ===")
-            _check(val_data[i])
-            logger.debug("\n=== Test Data Check ===")
-            _check(test_data[i])
+                # Enhanced sanity check with more detailed debugging
+                logger.debug(f"Split {i}: Applied preprocessing - shape: {all_data_clean.shape}")
+                logger.debug(f"Split {i}: Features kept: {np.sum(mask)} out of {len(mask)}")
+                logger.debug(f"Split {i}: Imputer fitted on {len(tr)} training samples")
+                def _check(dps):
+                    arrs = []
+                    for dp in dps:
+                        x = np.asarray(dp.x_d, dtype=np.float32)
+                        if not np.isfinite(x).all():
+                            nan_mask = ~np.isfinite(x)
+                            logger.debug(f"Found {nan_mask.sum()} non-finite values in a datapoint")
+                            logger.debug(f"Non-finite indices: {np.where(nan_mask)[0]}")
+                            logger.debug(f"Non-finite values: {x[nan_mask]}")
+                        arrs.append(x)
+                    
+                    X = np.stack(arrs, axis=0)   # will fail if lengths differ
+                    logger.debug(f"Final tabular data - shape: {X.shape}, dtype: {X.dtype}")
+                    logger.debug(f"Final tabular data - finite values: {np.isfinite(X).all()}")
+                    logger.debug(f"Final tabular data - NaN count: {np.isnan(X).sum()}")
+                    logger.debug(f"Final tabular data - Inf count: {np.isinf(X).sum()}")
+                    
+                    if not np.isfinite(X).all():
+                        # Print some statistics about the non-finite values
+                        nan_mask = ~np.isfinite(X)
+                        logger.debug("\nNon-finite value statistics:")
+                        logger.debug(f"Total non-finite values: {nan_mask.sum()}")
+                        logger.debug(f"Non-finite values per feature: {np.sum(nan_mask, axis=0)}")
+                        logger.debug(f"Samples with non-finite values: {np.any(nan_mask, axis=1).sum()}")
+                    
+                    return X
+                    
+                logger.debug("\n=== Training Data Check ===")
+                _check(train_data[i])
+                logger.debug("\n=== Validation Data Check ===")
+                _check(val_data[i])
+                logger.debug("\n=== Test Data Check ===")
+                _check(test_data[i])
 
 
 
