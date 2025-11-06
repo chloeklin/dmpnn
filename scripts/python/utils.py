@@ -93,12 +93,6 @@ def add_model_specific_args(parser, model_type):
         parser.add_argument('--lr', type=float, default=1e-3)
         parser.add_argument('--epochs', type=int, default=300)
         parser.add_argument('--patience', type=int, default=30)
-        try:
-            import torch
-            device_default='cuda' if torch.cuda.is_available() else 'cpu'
-        except ImportError:
-            device_default='cpu'
-        parser.add_argument('--device', default=device_default)
         
     elif model_type == "graphormer":
         parser.add_argument("--model_name", type=str, default="Graphormer", help="Model name for config lookup")
@@ -2105,40 +2099,6 @@ def load_best_checkpoint(ckpt_dir: Path):
     return None
 
 
-# def get_encodings_from_loader(model, loader):
-#     import torch
-#     encs = []
-#     device = next(model.parameters()).device
-#     with torch.no_grad():
-#         for batch in loader:
-#             # 1) Get the graph object
-#             bmg = getattr(batch, "bmg", None)
-#             if bmg is None:
-#                 raise ValueError(f"Batch has no 'bmg': {batch}")
-
-#             # 2) Move it to the right device
-#             if hasattr(bmg, "to") and callable(getattr(bmg, "to")):
-#                 # Many Chemprop BatchMolGraph versions implement .to(device)
-#                 bmg = bmg.to(device)
-#             else:
-#                 # Fallback: move known tensor fields manually
-#                 for name in ("V", "E", "edge_index", "batch"):
-#                     t = getattr(bmg, name, None)
-#                     if isinstance(t, torch.Tensor):
-#                         setattr(bmg, name, t.to(device, non_blocking=True))
-
-#             # 3) Move optional descriptor tensors
-#             V_d = getattr(batch, "V_d", None)
-#             if isinstance(V_d, torch.Tensor):
-#                 V_d = V_d.to(device, non_blocking=True)
-
-#             X_d = getattr(batch, "X_d", None)
-#             if isinstance(X_d, torch.Tensor):
-#                 X_d = X_d.to(device, non_blocking=True)
-            
-#             enc = model.fingerprint(bmg,V_d,X_d)
-#             encs.append(enc)
-#     return torch.cat(encs, dim=0).cpu().numpy()
 def get_encodings_from_loader(model, loader):
     import torch  # Local import for heavy dependency
     encs = []
@@ -2476,3 +2436,57 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
     
     logger.info(f"Saved predictions -> {pred_file}")
 
+from pathlib import Path
+import os, re, json, time
+
+def _find_best_ckpt_in_dir(ckpt_dir: Path):
+    """Return (best_path, best_val) from files with 'val_loss=' in name; else newest file."""
+    if not ckpt_dir.exists():
+        return None, None
+    files = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
+    if not files:
+        return None, None
+
+    best_path, best_val = None, float("inf")
+    found_metric = False
+    for f in files:
+        m = re.search(r"val_loss(?:=|_)([0-9]+(?:\.[0-9]+)?)", f)
+        if m:
+            found_metric = True
+            v = float(m.group(1))
+            if v < best_val:
+                best_val = v
+                best_path = ckpt_dir / f
+
+    if found_metric:
+        return str(best_path), best_val
+
+    # fallback: newest file by mtime
+    newest = max(files, key=lambda n: os.path.getmtime(ckpt_dir / n))
+    return str(ckpt_dir / newest), None
+
+
+def _pick_best_checkpoint(checkpoint_path: Path):
+    """
+    Find a 'best' checkpoint in either:
+      - the checkpoint root (legacy 'best-*.ckpt')
+      - lightning logs/checkpoints/ subdir
+    Returns (best_ckpt_path or None, best_val or None)
+    """
+    # Legacy pattern in root dir
+    best_root, best_root_val = _find_best_ckpt_in_dir(checkpoint_path)
+    # Lightning pattern under logs/checkpoints
+    best_lit, best_lit_val = _find_best_ckpt_in_dir(checkpoint_path / "logs" / "checkpoints")
+
+    # Choose the lower val if both present; else prefer one that has a val; else any
+    candidates = []
+    if best_root: candidates.append((best_root, best_root_val))
+    if best_lit:  candidates.append((best_lit,  best_lit_val))
+    if not candidates:
+        return None, None
+
+    with_vals = [c for c in candidates if c[1] is not None]
+    if with_vals:
+        return min(with_vals, key=lambda x: x[1])
+    # else both None -> just keep the first (arbitrary but deterministic enough)
+    return candidates[0]

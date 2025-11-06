@@ -10,7 +10,7 @@ from utils import (set_seed, process_data,
                   setup_training_environment, load_and_preprocess_data, determine_split_strategy, 
                   generate_data_splits, save_aggregate_results, get_encodings_from_loader, save_predictions,
                   create_base_argument_parser, add_model_specific_args, validate_train_size_argument,
-                  setup_model_environment, save_model_results)
+                  setup_model_environment, save_model_results,_pick_best_checkpoint)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -49,8 +49,6 @@ REPLICATES = setup_info['REPLICATES']
 EPOCHS = setup_info['EPOCHS']
 PATIENCE = setup_info['PATIENCE']
 num_workers = setup_info['num_workers']
-DATASET_DESCRIPTORS = setup_info['DATASET_DESCRIPTORS']
-MODEL_NAME = args.model_name
 
 # Check model configuration
 model_config = config['MODELS'].get(args.model_name, {})
@@ -72,8 +70,6 @@ logger.info(f"DataFrame shape: {df_input.shape}")
 for col in df_input.columns:
     if df_input[col].dtype == 'object':
         logger.warning(f"Column '{col}' still has object dtype after preprocessing")
-
-
 
 
 if args.pretrain_monomer:
@@ -192,7 +188,7 @@ if args.pretrain_monomer:
     if reg_idx:  # Only normalize if there are regression columns
         ys_norm[:, reg_idx] = (ys_norm[:, reg_idx] - mu) / sd
 
-    all_data = create_all_data(smis, ys_norm, combined_descriptor_data, MODEL_NAME)
+    all_data = create_all_data(smis, ys_norm, combined_descriptor_data, args.model_name)
 
     train_data, val_data, test_data = data.split_data_by_indices(all_data, train_indices, val_indices, test_indices)
 
@@ -244,7 +240,7 @@ if args.pretrain_monomer:
         }).assign(idx=np.arange(len(all_data))).to_csv(emb_dir / f"{args.dataset_name}__{args.model_name}__monomer_index.csv", index=False)
 
     # Exit after pretraining (we don’t do per-target loops in this mode)
-    save_aggregate_results([], results_dir, MODEL_NAME, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
+    save_aggregate_results([], results_dir, args.model_name, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
     raise SystemExit(0)
 
 
@@ -264,13 +260,11 @@ logger.info(f"Task type        : {args.task_type}")
 logger.info(f"Model            : {args.model_name}")
 logger.info(f"SMILES column    : {smiles_column}")
 logger.info(f"Descriptor cols  : {descriptor_columns}")
+logger.info(f"Ignore cols      : {ignore_columns}")
 logger.info(f"Target columns   : {target_columns}")
 logger.info(f"Descriptors      : {'Enabled' if args.incl_desc else 'Disabled'}")
 logger.info(f"RDKit desc.      : {'Enabled' if args.incl_rdkit else 'Disabled'}")
-logger.info(f"Epochs           : {EPOCHS}")
-logger.info(f"Replicates       : {REPLICATES}")
-logger.info(f"Workers          : {num_workers}")
-logger.info(f"Random seed      : {SEED}")
+
 if args.target:
     logger.info(f"Single target    : {args.target}")
 if args.train_size is not None:
@@ -303,7 +297,7 @@ for target in target_columns:
     if args.task_type != 'reg':
         ys = ys.astype(int)
     ys = ys.reshape(-1, 1) # reshaping target to be 2D
-    all_data = create_all_data(smis, ys, combined_descriptor_data, MODEL_NAME)
+    all_data = create_all_data(smis, ys, combined_descriptor_data, args.model_name)
 
     # Determine split strategy and generate splits
     n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
@@ -565,7 +559,7 @@ for target in target_columns:
                 dp.x_d = all_data_clean_i[ridx][mask_i]
 
         # Create datasets after cleaning
-        DS = data.MoleculeDataset if MODEL_NAME in small_molecule_models else data.PolymerDataset
+        DS = data.MoleculeDataset if args.model_name in small_molecule_models else data.PolymerDataset
         train = DS(train_data[i], featurizer)
         val = DS(val_data[i], featurizer)
         test = DS(test_data[i], featurizer)
@@ -679,86 +673,48 @@ for target in target_columns:
         last_ckpt = validate_checkpoint_compatibility(
             checkpoint_path, preprocessing_path, i, descriptor_dim, logger
         )
+        # ---- Skip training logic (align with AttentiveFP semantics) ----
+        inprog_flag = checkpoint_path / "TRAINING_IN_PROGRESS"
+        done_flag   = checkpoint_path / "TRAINING_COMPLETE"
 
-        # Check if we should skip training (checkpoint exists and training is complete)
+        best_ckpt_path, best_val_loss = None, None
         skip_training = False
-        best_ckpt_path = None
-        
-        if last_ckpt is not None:
-            # Check for completed training indicators
-            import os
-            
-            # Pattern 1: Direct best-*.ckpt files (older format)
-            best_ckpt_files = [f for f in os.listdir(checkpoint_path) if f.startswith("best-") and f.endswith(".ckpt")]
-            
-            # Pattern 2: Lightning checkpoints in logs/checkpoints/ subdirectory
-            lightning_ckpt_dir = checkpoint_path / "logs" / "checkpoints"
-            lightning_ckpt_files = []
-            if lightning_ckpt_dir.exists():
-                lightning_ckpt_files = [f for f in os.listdir(lightning_ckpt_dir) if f.startswith("epoch=") and f.endswith(".ckpt")]
-            
-            if best_ckpt_files:
-                # Use direct best-*.ckpt files
+
+        if done_flag.exists():
+            best_ckpt_path, best_val_loss = _pick_best_checkpoint(checkpoint_path)
+            if best_ckpt_path is not None:
                 skip_training = True
-                logger.info(f"[{target}] split {i}: Found completed checkpoint (best-*.ckpt), skipping training")
-                
-                # Find best checkpoint by validation loss
-                import re
-                best_ckpt = None
-                lowest_val_loss = float('inf')
-                
-                for ckpt_name in best_ckpt_files:
-                    val_loss_match = re.search(r'(?:val_loss=|-)([0-9]+\.?[0-9]*)(?:\.ckpt|$)', ckpt_name)
-                    if val_loss_match:
-                        val_loss = float(val_loss_match.group(1))
-                        if val_loss < lowest_val_loss:
-                            lowest_val_loss = val_loss
-                            best_ckpt = ckpt_name
-                
-                if best_ckpt:
-                    best_ckpt_path = str(checkpoint_path / best_ckpt)
-                    
-            elif lightning_ckpt_files:
-                # Use Lightning checkpoints - assume training completed if any checkpoint exists
-                skip_training = True
-                logger.info(f"[{target}] split {i}: Found Lightning checkpoint, skipping training")
-                
-                # Use the most recent Lightning checkpoint
-                lightning_ckpt_files_with_time = [(f, os.path.getmtime(lightning_ckpt_dir / f)) for f in lightning_ckpt_files]
-                lightning_ckpt_files_with_time.sort(key=lambda x: x[1], reverse=True)
-                latest_lightning_ckpt = lightning_ckpt_files_with_time[0][0]
-                best_ckpt_path = str(lightning_ckpt_dir / latest_lightning_ckpt)
-                
-            else:
-                logger.info(f"[{target}] split {i}: Found checkpoint but no completion indicators, will resume training")
+                logger.info(f"[{target}] split {i}: Found TRAINING_COMPLETE; skipping training.\n"
+                            f"  -> best_ckpt: {best_ckpt_path}"
+                            + (f" (val_loss={best_val_loss:.6f})" if best_val_loss is not None else ""))
+        else:
+            logger.info(f"[{target}] split {i}: No TRAINING_COMPLETE flag; will (re)train.")
+
 
         # Train or skip
         if skip_training and best_ckpt_path:
             logger.info(f"Loading checkpoint for evaluation: {best_ckpt_path}")
-            
-            # Load the model from checkpoint for evaluation
             from chemprop import models
-            import torch
-            map_location = torch.device('cpu') if not torch.cuda.is_available() else None
+            map_location = torch.device("cpu") if not torch.cuda.is_available() else None
             mpnn = models.MPNN.load_from_checkpoint(best_ckpt_path, map_location=map_location)
             mpnn.eval()
-            
-            # Create a dummy trainer for testing (no training needed)
-            trainer = build_model_and_trainer(
-                train, val, test,
-                combined_descriptor_data=processed_descriptor_data,
-                n_classes=n_classes_arg,
-                scaler=scaler_arg,
-                checkpoint_path=checkpoint_path,
-                batch_norm=batch_norm,
-                metric_list=metric_list,
-                early_stopping_patience=PATIENCE,
-                max_epochs=EPOCHS,
-                save_checkpoint=args.save_checkpoint,
-            )[1]  # Only get trainer
         else:
-            # Normal training path
-            trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
+            inprog_flag.touch(exist_ok=True)
+            try:
+                trainer.fit(mpnn, train_loader, val_loader, ckpt_path=last_ckpt)
+                best_ckpt_path, best_val_loss = _pick_best_checkpoint(checkpoint_path)
+                if best_ckpt_path is None:
+                    logger.warning(f"[{target}] split {i}: training finished but no checkpoint found.")
+                else:
+                    with open(checkpoint_path / "best.json", "w") as f:
+                        json.dump({"best_ckpt": best_ckpt_path, "best_val_loss": best_val_loss}, f, indent=2)
+                    done_flag.touch()
+            finally:
+                if inprog_flag.exists():
+                    inprog_flag.unlink(missing_ok=True)
+
+
+
         results = trainer.test(dataloaders=test_loader)
         test_metrics = results[0]
         test_metrics['split'] = i  # Add split index to metrics
@@ -794,7 +750,7 @@ for target in target_columns:
             
             # Save predictions with IDs
             save_predictions(
-                y_true, y_pred, predictions_dir, args.dataset_name, target, MODEL_NAME,
+                y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
                 desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, i, logger,
                 test_ids=test_ids
             )
@@ -860,4 +816,4 @@ for target in target_columns:
 # Save final results using modular function
 if all_results:
     combined_results = pd.concat(all_results, ignore_index=True)
-    save_model_results(combined_results, args, MODEL_NAME, results_dir, logger)
+    save_model_results(combined_results, args, args.model_name, results_dir, logger)

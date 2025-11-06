@@ -5,8 +5,7 @@ This module provides clean, dedicated functions for AttentiveFP training and eva
 separate from the DMPNN/Lightning infrastructure.
 """
 
-import json
-import logging
+import math
 import numpy as np
 import pandas as pd
 import torch
@@ -90,17 +89,13 @@ def smiles_to_graph(smiles: str) -> Optional[Data]:
     edge_attr  = torch.stack(ea, 0) if ea else torch.empty((0,10), dtype=torch.float)
     return Data(x=x, edge_index=edge_index, edge_attr=edge_attr, smiles=smiles)
 
-
-# Remove old atom_features and bond_features functions
-def atom_features(atom):
-    """DEPRECATED: Use atom_features_attfp instead."""
-    return atom_features_attfp(atom)
-
-
-def bond_features(bond):
-    """DEPRECATED: Use bond_features_attfp instead."""
-    return bond_features_attfp(bond)
-
+def compute_reg_metrics(y_true, y_pred):
+    mae = float(np.mean(np.abs(y_pred - y_true)))
+    rmse = float(math.sqrt(np.mean((y_pred - y_true)**2)))
+    ss_res = float(np.sum((y_true - y_pred)**2))
+    ss_tot = float(np.sum((y_true - np.mean(y_true))**2) + 1e-12)
+    r2 = 1 - ss_res/ss_tot
+    return {"mae": mae, "rmse": rmse, "r2": r2}
 
 class GraphCSV(torch.utils.data.Dataset):
     """Dataset class for AttentiveFP that converts SMILES to graphs - matches original name."""
@@ -145,6 +140,28 @@ class EdgeGuard(nn.Module):
             edge_attr = x.new_zeros((edge_index.size(1), self.edge_dim))
         return self.core(x, edge_index, edge_attr, batch)
 
+
+def build_attentivefp_loaders(args, df_tr, df_va, df_te, smiles_col, target, eval=False):
+    from attentivefp_utils import GraphCSV
+    from torch_geometric.loader import DataLoader
+    from sklearn.preprocessing import StandardScaler
+
+    ds_tr = GraphCSV(df_tr, smiles_col, target, task_type=args.task_type)
+    ds_va = GraphCSV(df_va, smiles_col, target, task_type=args.task_type)
+    ds_te = GraphCSV(df_te, smiles_col, target, task_type=args.task_type)
+
+    scaler = None
+    if args.task_type == 'reg':
+        scaler = StandardScaler().fit(ds_tr.y)
+        ds_tr.y = scaler.transform(ds_tr.y)
+        ds_va.y = scaler.transform(ds_va.y)  # test left unscaled
+    if eval:
+        train_loader = DataLoader(ds_tr, batch_size=args.batch_size, shuffle=False)
+    else:
+        train_loader = DataLoader(ds_tr, batch_size=args.batch_size, shuffle=True)
+    val_loader   = DataLoader(ds_va, batch_size=args.batch_size, shuffle=False)
+    test_loader  = DataLoader(ds_te, batch_size=args.batch_size, shuffle=False)
+    return train_loader, val_loader, test_loader, scaler
 
 def create_attentivefp_model(task_type: str, n_classes: Optional[int] = None, 
                            hidden_channels: int = 200, num_layers: int = 2, 
@@ -239,131 +256,162 @@ def train_epoch(model, loader, optimizer, device, task_type: str):
 
 
 def evaluate_model(model, loader, device, task_type: str, scaler=None):
-    """Evaluate AttentiveFP model - matches original forward pass."""
+    """
+    AttentiveFP evaluation matching Version 2 semantics:
+
+    - Regression: inverse-transform predictions only (test targets are NOT scaled).
+    - Binary: return hard classes; compute metrics with sigmoid probs via eval_binary.
+    - Multi-class: return hard classes; compute metrics with softmax probs via eval_multi.
+    - Single pass over the loader (we collect probs during the same pass).
+
+    Returns:
+        metrics: dict
+        y_pred: np.ndarray (continuous for reg; class labels for cls)
+        y_true: np.ndarray (gold labels, unscaled)
+    """
+    import numpy as np
+    import torch
+    from tabular_utils import eval_binary, eval_multi
+
+    # These must be available in the scope (as in your script)
+    # from tabular_utils import eval_binary, eval_multi
+    # from your module: compute_reg_metrics
+
     model.eval()
-    predictions = []
-    targets = []
-    
+
+    y_true_list = []
+    y_pred_list = []
+    prob_list   = []  # y_probs (binary) or y_proba (multi)
+
     with torch.no_grad():
         for batch in loader:
             batch = batch.to(device)
-            
-            # Use original forward pass style
             out = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-            
+
             if task_type == 'reg':
-                pred = out.cpu().numpy()
-                target = batch.y.view(-1, 1).cpu().numpy()
+                # raw preds
+                pred = out.view(-1, 1).cpu().numpy().reshape(-1)
+                # inverse-transform predictions ONLY (test targets were not scaled)
+                if scaler is not None:
+                    pred = scaler.inverse_transform(pred.reshape(-1, 1)).reshape(-1)
+                y_pred_list.append(pred)
+                # ground-truth (already unscaled)
+                y_true_list.append(batch.y.view(-1, 1).cpu().numpy().reshape(-1))
+
             elif task_type == 'binary':
-                pred = torch.sigmoid(out).cpu().numpy()
-                target = batch.y.cpu().numpy()
-            else:  # multi-class
-                pred = torch.softmax(out, dim=1).cpu().numpy()
-                target = batch.y.cpu().numpy()
-            
-            predictions.append(pred)
-            targets.append(target)
-    
-    predictions = np.concatenate(predictions, axis=0)
-    targets = np.concatenate(targets, axis=0)
-    
-    # Unscale predictions for regression
-    if task_type == 'reg' and scaler is not None:
-        predictions = scaler.inverse_transform(predictions)
-        targets = scaler.inverse_transform(targets.reshape(-1, 1))
-    
-    # Calculate metrics
-    metrics = {}
+                # probs for metrics; hard classes for y_pred
+                probs = torch.sigmoid(out.view(-1)).cpu().numpy()
+                pred_class = (probs >= 0.5).astype(int)
+                y_pred_list.append(pred_class)
+                prob_list.append(probs)
+                y_true_list.append(batch.y.view(-1).cpu().numpy().astype(int))
+
+            elif task_type == 'multi':
+                # class-probabilities and class labels
+                proba = torch.softmax(out, dim=1).cpu().numpy()
+                pred_class = np.argmax(proba, axis=1)
+                y_pred_list.append(pred_class)
+                prob_list.append(proba)
+                y_true_list.append(batch.y.view(-1).cpu().numpy().astype(int))
+
+            else:
+                raise ValueError(f"Unsupported task_type: {task_type}")
+
+    y_true = np.concatenate(y_true_list)
+    y_pred = np.concatenate(y_pred_list)
+
+    # Compute metrics to match Version 2
     if task_type == 'reg':
-        metrics['mae'] = mean_absolute_error(targets, predictions)
-        metrics['rmse'] = np.sqrt(mean_squared_error(targets, predictions))
-        metrics['r2'] = r2_score(targets, predictions)
+        metrics = compute_reg_metrics(y_true, y_pred)
+
     elif task_type == 'binary':
-        pred_binary = (predictions > 0.5).astype(int)
-        metrics['accuracy'] = accuracy_score(targets, pred_binary)
-        metrics['f1'] = f1_score(targets, pred_binary)
-        try:
-            metrics['roc_auc'] = roc_auc_score(targets, predictions)
-        except ValueError:
-            metrics['roc_auc'] = np.nan
-    else:  # multi-class
-        pred_classes = np.argmax(predictions, axis=1)
-        metrics['accuracy'] = accuracy_score(targets, pred_classes)
-        metrics['f1'] = f1_score(targets, pred_classes, average='weighted')
-    
-    return metrics, predictions, targets
+        y_probs = np.concatenate(prob_list) if prob_list else None
+        metrics = eval_binary(y_true, y_pred, y_probs)
+
+    else:  # 'multi'
+        y_proba = np.concatenate(prob_list) if prob_list else None
+        metrics = eval_multi(y_true, y_pred, y_proba)
+
+    return metrics, y_pred, y_true
 
 
-def save_attentivefp_checkpoint(model, optimizer, scaler, epoch, metrics, checkpoint_path: Path):
-    """Save AttentiveFP checkpoint."""
-    checkpoint = {
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scaler': scaler,
-        'epoch': epoch,
-        'metrics': metrics
+
+from pathlib import Path
+import os, tempfile, torch
+
+def save_attentivefp_checkpoint(
+    best_state: dict,
+    checkpoint_file: Path,   # full path to .../best.pt
+    *,
+    epoch: int,
+    best_val: float,
+    metrics: dict | None = None,
+    optimizer=None,
+    target_scaler=None,
+    complete: bool = False
+):
+    checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "state_dict": best_state,
+        "best_val": float(best_val),
+        "best_epoch": int(epoch),
+        "epochs_seen": int(epoch),
+        "complete": bool(complete),
+        "metrics": metrics or {}
     }
-    torch.save(checkpoint, checkpoint_path)
+    if optimizer is not None:
+        payload["optimizer_state_dict"] = optimizer.state_dict()
+    if target_scaler is not None:
+        payload["target_scaler"] = target_scaler
+
+    import tempfile, os, torch
+    with tempfile.NamedTemporaryFile(dir=str(checkpoint_file.parent), delete=False) as tmp:
+        tmp_name = tmp.name
+    try:
+        torch.save(payload, tmp_name)
+        os.replace(tmp_name, checkpoint_file)  # atomic on POSIX
+    finally:
+        try:
+            if os.path.exists(tmp_name):
+                os.remove(tmp_name)
+        except OSError:
+            pass
+
 
 
 def load_attentivefp_checkpoint(checkpoint_path: Path, model, optimizer=None, device='cpu'):
-    """Load AttentiveFP checkpoint."""
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    
-    if optimizer is not None:
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    
-    return checkpoint.get('scaler'), checkpoint.get('epoch', 0), checkpoint.get('metrics', {})
+    ckpt = torch.load(checkpoint_path, map_location=device)
+    state_key = 'state_dict' if 'state_dict' in ckpt else 'model_state_dict'
+    model.load_state_dict(ckpt[state_key])
+    if optimizer is not None and 'optimizer_state_dict' in ckpt:
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+    return ckpt.get('target_scaler'), ckpt.get('best_epoch', 0), ckpt.get('metrics', {})
 
 
-def extract_embeddings(model, loader, device):
-    """Extract embeddings from AttentiveFP model - matches original forward pass."""
+
+class GraphRepExtractor(nn.Module):
+    def __init__(self, attentivefp_core):
+        super().__init__()
+        self.core = attentivefp_core  # your AttentiveFP model (possibly wrapped)
+    def forward(self, x, edge_index, edge_attr, batch):
+        # NOTE: core must have .gnn; this returns the graph embedding tensor [num_graphs, hidden]
+        return self.core.gnn(x, edge_index, edge_attr, batch)
+
+
+@torch.no_grad()
+def extract_attentivefp_embeddings(model, loader, device):
     model.eval()
-    embeddings = []
-    
-    with torch.no_grad():
-        for batch in loader:
-            batch = batch.to(device)
-            
-            # Get embeddings from the core model before final prediction layer
-            # Use original forward pass style
-            if hasattr(model.core, 'gnn'):
-                # If the model has a separate GNN component
-                emb = model.core.gnn(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-            else:
-                # Extract from intermediate layers (this might need adjustment based on model structure)
-                emb = model.core(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-            
-            embeddings.append(emb.cpu().numpy())
-    
-    return np.concatenate(embeddings, axis=0)
+    # If you wrapped the core with EdgeGuard(... core ...), pass model.core to the extractor
+    core = model.core if hasattr(model, "core") else model
+    assert hasattr(core, "gnn"), "This AttentiveFP build has no `.gnn` attribute; use the hook-based fallback."
+    rep_model = GraphRepExtractor(core).to(device).eval()
+
+    embs = []
+    for batch in loader:
+        batch = batch.to(device)
+        h = rep_model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)  # [B, hidden]
+        embs.append(h.detach().cpu())
+    return torch.cat(embs, dim=0).numpy()   # (N_graphs, hidden)
 
 
-def create_data_splits(df: pd.DataFrame, target_col: str, n_splits: int = 5, 
-                      test_size: float = 0.2, random_state: int = 42):
-    """Create train/val/test splits for AttentiveFP."""
-    from sklearn.model_selection import train_test_split
-    
-    # Remove rows with NaN targets
-    valid_df = df.dropna(subset=[target_col]).reset_index(drop=True)
-    
-    splits = []
-    for i in range(n_splits):
-        # Create train/test split
-        train_val_idx, test_idx = train_test_split(
-            range(len(valid_df)), 
-            test_size=test_size, 
-            random_state=random_state + i
-        )
-        
-        # Create train/val split from train_val
-        train_idx, val_idx = train_test_split(
-            train_val_idx, 
-            test_size=test_size, 
-            random_state=random_state + i + 1000
-        )
-        
-        splits.append((train_idx, val_idx, test_idx))
-    
-    return splits, valid_df
