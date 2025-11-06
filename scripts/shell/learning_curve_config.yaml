@@ -22,9 +22,9 @@ datasets:
       - 8000
       - 12000
     models:
-      - DMPNN
+      # - DMPNN
       # - tabular
-      - AttentiveFP
+      # - AttentiveFP
       - DMPNN_DiffPool
     walltime: "01:00:00"
     
