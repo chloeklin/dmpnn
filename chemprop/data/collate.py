@@ -160,8 +160,8 @@ class BatchMolGraph:
 
     def to(self, device: str | torch.device, dtype: torch.dtype | None = None):
         if device is not None or dtype is not None:
-            self.V = self.V.to(device=device, dtype=dtype, non_blocking=non_blocking)
-            self.E = self.E.to(device=device, dtype=dtype, non_blocking=non_blocking)
+            self.V = self.V.to(device=device, dtype=dtype)
+            self.E = self.E.to(device=device, dtype=dtype)
         else:
             self.V = self.V.clone()
             self.E = self.E.clone()
