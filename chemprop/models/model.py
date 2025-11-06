@@ -374,8 +374,25 @@ class MPNN(pl.LightningModule):
         }
         submodules, state_dict, hparams = cls._load(checkpoint_path, map_location, **submodules)
         kwargs.update(submodules)
-
         state_dict = cls._add_metric_task_weights_to_state_dict(state_dict, hparams)
+
+        # --- DIFFPOOL-SPECIFIC CLEANUP (scoped) ---
+        mp = submods_in.get("message_passing", None)
+        is_diffpool = getattr(mp, "_is_diffpool", False)
+        if is_diffpool:
+            # 1) remove dynamic assignment head params whose shape depends on batch graph sizes
+            drop_prefix = "message_passing._pool_head_"
+            keys_to_drop = [k for k in state_dict.keys() if k.startswith(drop_prefix)]
+            for k in keys_to_drop:
+                state_dict.pop(k, None)
+
+            # 2) clone tensors to avoid "inplace update to inference tensor" error
+            for k, v in list(state_dict.items()):
+                if torch.is_tensor(v):
+                    state_dict[k] = v.clone().detach()
+
+
+        
         d = torch.load(checkpoint_path, map_location, weights_only=False)
         d["state_dict"] = state_dict
         d["hyper_parameters"] = hparams
@@ -383,7 +400,8 @@ class MPNN(pl.LightningModule):
         torch.save(d, buffer)
         buffer.seek(0)
 
-        return super().load_from_checkpoint(buffer, map_location, hparams_file, strict, **kwargs)
+        # IMPORTANT: strict=False only when DiffPool (since we dropped keys)
+        return super().load_from_checkpoint(buffer, map_location, hparams_file, strict=(strict and not is_diffpool), **kwargs)
 
     @classmethod
     def load_from_file(cls, model_path, map_location=None, strict=True, **submodules) -> MPNN:

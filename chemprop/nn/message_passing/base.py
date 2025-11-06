@@ -360,6 +360,7 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
         self.lambda_lp = lambda_lp
         self.lambda_ent = lambda_ent
         self.use_mean = use_mean
+        self._is_diffpool = True
 
         # --- initial encoder layer (lazy expansion later) ---
         self.encoders = nn.ModuleList([base_mp_cls(**self.base_mp_kwargs0)])
