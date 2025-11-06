@@ -26,7 +26,7 @@ datasets:
       # - tabular
       - AttentiveFP
       - DMPNN_DiffPool
-    walltime: "02:00:00"
+    walltime: "01:00:00"
     
   insulator:
     targets:
