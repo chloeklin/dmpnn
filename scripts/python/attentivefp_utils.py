@@ -156,11 +156,11 @@ def build_attentivefp_loaders(args, df_tr, df_va, df_te, smiles_col, target, eva
         ds_tr.y = scaler.transform(ds_tr.y)
         ds_va.y = scaler.transform(ds_va.y)  # test left unscaled
     if eval:
-        train_loader = DataLoader(ds_tr, batch_size=args.batch_size, shuffle=False)
+        train_loader = DataLoader(ds_tr, batch_size=args.batch_size, shuffle=False, pin_memory=True)
     else:
-        train_loader = DataLoader(ds_tr, batch_size=args.batch_size, shuffle=True)
-    val_loader   = DataLoader(ds_va, batch_size=args.batch_size, shuffle=False)
-    test_loader  = DataLoader(ds_te, batch_size=args.batch_size, shuffle=False)
+        train_loader = DataLoader(ds_tr, batch_size=args.batch_size, shuffle=True, pin_memory=True)
+    val_loader   = DataLoader(ds_va, batch_size=args.batch_size, shuffle=False, pin_memory=True)
+    test_loader  = DataLoader(ds_te, batch_size=args.batch_size, shuffle=False, pin_memory=True)
     return train_loader, val_loader, test_loader, scaler
 
 def create_attentivefp_model(task_type: str, n_classes: Optional[int] = None, 

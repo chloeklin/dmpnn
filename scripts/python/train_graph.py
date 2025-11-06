@@ -232,7 +232,7 @@ if args.pretrain_monomer:
     if args.export_embeddings:
         mpnn.eval()
         # Re-embed ALL datapoints (train+val+test order) for convenience
-        full_loader = data.build_dataloader(data.MoleculeDataset(all_data, featurizer), batch_size=args.batch_size, num_workers=num_workers, shuffle=False)
+        full_loader = data.build_dataloader(data.MoleculeDataset(all_data, featurizer), batch_size=args.batch_size, num_workers=num_workers, shuffle=False, pin_memory=True)
         X_full = get_encodings_from_loader(mpnn, full_loader)
         # Save as .npy; map to smiles with df_input[smiles_column]
         emb_dir = checkpoint_dir / "embeddings"; emb_dir.mkdir(parents=True, exist_ok=True)
@@ -659,9 +659,9 @@ for target in target_columns:
             descriptor_scaler = None
         
         # Create dataloaders
-        train_loader = data.build_dataloader(train, batch_size=args.batch_size, num_workers=num_workers)
-        val_loader = data.build_dataloader(val, batch_size=args.batch_size, num_workers=num_workers, shuffle=False)
-        test_loader = data.build_dataloader(test, batch_size=args.batch_size, num_workers=num_workers, shuffle=False)
+        train_loader = data.build_dataloader(train, batch_size=args.batch_size, num_workers=num_workers, pin_memory=True)
+        val_loader = data.build_dataloader(val, batch_size=args.batch_size, num_workers=num_workers, shuffle=False, pin_memory=True)
+        test_loader = data.build_dataloader(test, batch_size=args.batch_size, num_workers=num_workers, shuffle=False, pin_memory=True)
         
         # Clean up incompatible checkpoints if preprocessing changed
         # Only delete checkpoints if descriptors are used and preprocessing actually changed

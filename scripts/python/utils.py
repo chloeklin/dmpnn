@@ -808,8 +808,8 @@ def build_model_and_trainer(
     # V100s: "16-mixed" is fine; A100/H100: you can switch to "bf16-mixed"
     trainer_kwargs.setdefault("precision", "16-mixed" if gpu else 32)
     # Determinism vs speed: if you care about speed, set deterministic=False and allow cudnn.benchmark
-    trainer_kwargs.setdefault("deterministic", False if gpu else True)
-    trainer_kwargs.setdefault("benchmark", True if gpu else False)
+    trainer_kwargs.setdefault("deterministic", True)
+    trainer_kwargs.setdefault("benchmark", False)
 
     # Validate inputs
     if not hasattr(args, 'task_type'):
@@ -1049,7 +1049,6 @@ def build_model_and_trainer(
         log_every_n_steps=10,  # Log metrics every 10 steps
         check_val_every_n_epoch=1,
         num_sanity_val_steps=0,  # Disable validation sanity check for faster startup
-        deterministic=True,  # For reproducibility
         enable_checkpointing=True,  # Explicitly enable checkpointing
         default_root_dir=str(checkpoint_path),  # Set default root dir for checkpoints
         **trainer_kwargs  # Allow overriding any trainer parameter
