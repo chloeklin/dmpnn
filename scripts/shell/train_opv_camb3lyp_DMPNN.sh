@@ -8,7 +8,7 @@
 #PBS -l walltime=25:00:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N DMPNN_opv_camb3lyp_DMPNN
+#PBS -N DMPNN_gap
 
 module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.0.0
@@ -17,7 +17,10 @@ cd /scratch/um09/hl4138/dmpnn/
 
 
 # DMPNN training
-python3 scripts/python/train_graph.py --dataset_name opv_camb3lyp --model_name DMPNN --export_embeddings 
+python3 scripts/python/train_graph.py --dataset_name opv_camb3lyp --model_name DMPNN --export_embeddings  --target gap_extrapolated #homo_extrapolated #delta_optical_lumo
+
+##homo_extrapolated
+##gap_extrapolated
 
 
 ##TODO

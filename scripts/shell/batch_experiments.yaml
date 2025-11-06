@@ -74,12 +74,12 @@ experiments:
 
   # OPV CAM-B3LYP experiments
     
-  - <<: *opv_base
-    model: DMPNN
-    walltime: "25:00:00"
-    # incl_rdkit: true
-    targets: *opv_targets
-  #   
+  # - <<: *opv_base
+  #   model: DMPNN
+  #   walltime: "25:00:00"
+  #   # incl_rdkit: true
+  #   targets: *opv_targets
+  # #   
 
     
 
