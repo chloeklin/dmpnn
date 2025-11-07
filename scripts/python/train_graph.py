@@ -756,8 +756,8 @@ for target in target_columns:
                     inprog_flag.unlink(missing_ok=True)
 
 
-
-        results = trainer.test(dataloaders=test_loader)
+        results = trainer.test(model=mpnn, dataloaders=test_loader)
+        # results = trainer.test(dataloaders=test_loader)
         test_metrics = results[0]
         test_metrics['split'] = i  # Add split index to metrics
         results_all.append(test_metrics)
@@ -767,7 +767,8 @@ for target in target_columns:
             logger.info(f"Extracting predictions for split {i}, target {target}")
             
             # Use trainer.predict for unscaled outputs (applies same transform as trainer.test)
-            y_pred = trainer.predict(dataloaders=test_loader)
+            # y_pred = trainer.predict(dataloaders=test_loader)
+            y_pred = trainer.predict(model=mpnn, dataloaders=test_loader)
             
             # Extract y_true and IDs directly from test dataset to match loader order
             y_true = np.array([dp.y[0] if isinstance(dp.y, (list, np.ndarray)) else dp.y for dp in test], dtype=float)

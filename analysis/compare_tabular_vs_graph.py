@@ -302,29 +302,25 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5, color='#E0E0E0')
     ax.set_axisbelow(True)
     
-    # Define a beautiful color palette
+    # Define a vibrant color palette
     colors = []
     for x in df_plot['improvement_pct']:
         if x >= 30:
-            colors.append('#2E8B57')  # Sea Green for high improvement
+            colors.append('#1B5E20')  # Dark Green for high improvement
         elif x >= 15:
-            colors.append('#32CD32')  # Lime Green for good improvement
+            colors.append('#2E7D32')  # Medium Green for good improvement
         elif x >= 5:
-            colors.append('#90EE90')  # Light Green for moderate improvement
+            colors.append('#43A047')  # Light Green for moderate improvement
         elif x >= 0:
-            colors.append('#98FB98')  # Pale Green for small improvement
+            colors.append('#66BB6A')  # Very Light Green for small improvement
         else:
-            colors.append('#FF6B6B')  # Coral Red for tabular better
+            colors.append('#E53935')  # Red for tabular better
     
-    # Create gradient bars with rounded edges
+    
+    # Create colorful bars without shadow effects
     bars = ax.bar(df_plot['dataset'], df_plot['improvement_pct'], 
-                  color=colors, alpha=0.8, edgecolor='white', linewidth=2,
-                  capsize=5, width=0.6)
-    
-    # Add subtle shadow effect
-    for bar in bars:
-        bar.set_path_effects([plt.matplotlib.patheffects.SimplePatchShadow(offset=(1, -1), 
-                                                                           shadow_rgbFace='gray', alpha=0.3)])
+                  color=colors, alpha=1.0, edgecolor='white', linewidth=2,
+                  width=0.7)
     
     # Customize the plot with modern styling
     ax.axhline(y=0, color='#2C3E50', linestyle='-', linewidth=1.5, alpha=0.8)
