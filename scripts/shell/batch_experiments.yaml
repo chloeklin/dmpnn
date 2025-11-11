@@ -43,6 +43,13 @@ eaip_targets: &eaip_targets
   - EA vs SHE (eV)
   - IP vs SHE (eV)
 
+htpmd_targets: &htpmd_targets
+  - Conductivity
+  - Li Diffusivity
+  - TFSI Diffusivity
+  - Poly Diffusivity
+  - Transference Number
+
 experiments:
   # AttentiveFP    
   # - <<: *polyinfo_base
@@ -140,11 +147,14 @@ experiments:
   #   incl_desc: true
   #   walltime: "1:30:00"
 
+#TODO
     
   # - <<: *opv_base
   #   model: DMPNN
   #   walltime: "1:30:00"
-  #   targets: *opv_targets
+  #   targets:
+  #       -lumo
+  #TODO      
   # - <<: *opv_base
   #   model: DMPNN
   #   incl_rdkit: true
@@ -224,6 +234,7 @@ experiments:
   #   model: DMPNN_DiffPool
   #   walltime: "1:10:00"
 
+#TODO
 
   # - <<: *polyinfo_base
   #   model: DMPNN_DiffPool
@@ -246,20 +257,30 @@ experiments:
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
   #   walltime: "3:30:00"
+  #   targets:
+  #       - Poly Diffusivity
+  #       - Transference Number
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
   #   incl_rdkit: true
   #   walltime: "3:30:00"
+  #   targets:
+  #       - Li Diffusivity
+  #       - TFSI Diffusivity
+  #       - Poly Diffusivity
+  #       - Transference Number
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
   #   incl_desc: true
   #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
   #   incl_rdkit: true
   #   incl_desc: true
   #   walltime: "3:30:00"
-
+  #   targets: *htpmd_targets
+#TODO
     
   # - <<: *opv_base
   #   model: DMPNN_DiffPool
