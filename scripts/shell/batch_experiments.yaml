@@ -30,7 +30,7 @@ eaip_base: &eaip_base
   export_embeddings: true
 
 opv_targets: &opv_targets
-  - optical_lumo
+  # - optical_lumo
   # - gap
   # - homo
   # - lumo
@@ -47,8 +47,8 @@ htpmd_targets: &htpmd_targets
   - Conductivity
   - Li Diffusivity
   - TFSI Diffusivity
-  - Poly Diffusivity
-  - Transference Number
+  # - Poly Diffusivity
+  # - Transference Number
 
 experiments:
   # AttentiveFP    
@@ -185,18 +185,18 @@ experiments:
   #   walltime: "1:10:00"
 
 
-  - <<: *polyinfo_base
-    model: wDMPNN
-    walltime: "6:30:00"
-  - <<: *polyinfo_base
-    model: wDMPNN
-    incl_rdkit: true
-    walltime: "6:30:00"
+  # - <<: *polyinfo_base
+  #   model: wDMPNN
+  #   walltime: "6:30:00"
+  # - <<: *polyinfo_base
+  #   model: wDMPNN
+  #   incl_rdkit: true
+  #   walltime: "6:30:00"
 
     
-  - <<: *insulator_base
-    model: wDMPNN
-    walltime: "1:30:00"
+  # - <<: *insulator_base
+  #   model: wDMPNN
+  #   walltime: "1:30:00"
   # - <<: *insulator_base
   #   model: wDMPNN
   #   incl_rdkit: true
@@ -209,10 +209,10 @@ experiments:
   #   walltime: "1:30:00"
   #   incl_rdkit: true
   #   targets: *eaip_targets ##TODO: fix preprocess code for wDMPNN copolymers rdkit
-  - <<: *eaip_base
-    model: wDMPNN
-    walltime: "7:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: wDMPNN
+  #   walltime: "7:30:00"
+  #   targets: *eaip_targets
 
 
 
@@ -254,12 +254,10 @@ experiments:
   #   walltime: "4:30:00"
 
     
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "3:30:00"
-  #   targets:
-  #       - Poly Diffusivity
-  #       - Transference Number
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    walltime: "3:30:00"
+    targets: *htpmd_targets
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
   #   incl_rdkit: true
