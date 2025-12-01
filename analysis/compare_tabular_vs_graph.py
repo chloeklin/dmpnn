@@ -16,6 +16,19 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects
 import seaborn as sns
 
+# Dataset-specific color palette
+DATASET_COLORS = {
+    'tc': '#1f77b4',              # Blue
+    'insulator': '#ff7f0e',       # Orange
+    'htpmd': '#2ca02c',           # Green
+    'polyinfo': '#d62728',        # Red
+    'camb3lyp': '#9467bd',        # Purple
+    'opv_camb3lyp': '#9467bd',    # Purple (same as camb3lyp)
+    'ea_ip': '#8c564b',           # Brown
+    'pae_tg_mono211': '#e377c2',  # Pink
+    'pae_tg_paper211': '#7f7f7f', # Gray
+}
+
 def is_tabular_model(row: pd.Series) -> bool:
     """Determine if a model is tabular based on the 'method' column."""
     return row.get('method', '').lower() == 'tabular'
@@ -302,19 +315,22 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5, color='#E0E0E0')
     ax.set_axisbelow(True)
     
-    # Define a vibrant color palette
-    colors = []
-    for x in df_plot['improvement_pct']:
-        if x >= 30:
-            colors.append('#1B5E20')  # Dark Green for high improvement
-        elif x >= 15:
-            colors.append('#2E7D32')  # Medium Green for good improvement
-        elif x >= 5:
-            colors.append('#43A047')  # Light Green for moderate improvement
-        elif x >= 0:
-            colors.append('#66BB6A')  # Very Light Green for small improvement
-        else:
-            colors.append('#E53935')  # Red for tabular better
+    # Use dataset-specific colors
+    colors = [DATASET_COLORS.get(dataset, '#1f77b4') for dataset in df_plot['dataset']]
+    
+    # # OLD: Define a vibrant color palette based on improvement percentage
+    # colors = []
+    # for x in df_plot['improvement_pct']:
+    #     if x >= 30:
+    #         colors.append('#1B5E20')  # Dark Green for high improvement
+    #     elif x >= 15:
+    #         colors.append('#2E7D32')  # Medium Green for good improvement
+    #     elif x >= 5:
+    #         colors.append('#43A047')  # Light Green for moderate improvement
+    #     elif x >= 0:
+    #         colors.append('#66BB6A')  # Very Light Green for small improvement
+    #     else:
+    #         colors.append('#E53935')  # Red for tabular better
     
     
     # Create colorful bars without shadow effects

@@ -535,6 +535,205 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     
     print(f"Saved: {output_file}")
 
+
+def _select_best_tabular_and_graph_models(data: pd.DataFrame, metric: str, task_type: str) -> pd.DataFrame:
+    """Select best Tabular and best Graph models per target for a given metric.
+
+    This looks across all feature combinations and models and picks, for each target:
+      - the best Tabular entry (method == 'Tabular')
+      - the best Graph entry (method starts with 'Graph_')
+
+    The definition of "best" depends on task type and metric name:
+      - Regression: lower is better for mae/rmse/mse, higher is better for r2
+      - Classification: higher is better for acc/f1_macro/roc_auc, lower is better for logloss
+    """
+
+    if metric not in data.columns:
+        return pd.DataFrame()
+
+    # Aggregate over splits first (keep mean and std so we can show variance)
+    grouped = (
+        data.groupby(['target', 'features', 'model', 'method'])[metric]
+        .agg(['mean', 'std'])
+        .reset_index()
+    )
+    # Helper to decide if higher is better for this metric
+    metric_lower_is_better = {
+        'mae': True,
+        'rmse': True,
+        'mse': True,
+        'logloss': True,
+    }
+
+    metric_higher_is_better = {
+        'r2': True,
+        'acc': True,
+        'f1_macro': True,
+        'roc_auc': True,
+    }
+
+    if metric in metric_lower_is_better:
+        best_fn = lambda x: x.nsmallest(1, 'mean')
+    elif metric in metric_higher_is_better:
+        best_fn = lambda x: x.nlargest(1, 'mean')
+    else:
+        # Fallback: use lower-is-better for unknown regression metrics,
+        # higher-is-better for unknown classification metrics.
+        if task_type == 'classification':
+            best_fn = lambda x: x.nlargest(1, 'mean')
+        else:
+            best_fn = lambda x: x.nsmallest(1, 'mean')
+
+    records = []
+
+    for target, target_df in grouped.groupby('target'):
+        # Best Tabular
+        tab_df = target_df[target_df['method'] == 'Tabular']
+        if not tab_df.empty:
+            best_tab = best_fn(tab_df).iloc[0]
+            records.append({
+                'target': target,
+                'method_group': 'Tabular',
+                'method': best_tab['method'],
+                'model': best_tab['model'],
+                'features': best_tab['features'],
+                'metric_mean': best_tab['mean'],
+                'metric_std': best_tab['std'],
+            })
+
+        # Best Graph (methods like Graph_DMPNN, Graph_wDMPNN, etc.)
+        graph_df = target_df[target_df['method'].astype(str).str.startswith('Graph_')]
+        if not graph_df.empty:
+            best_graph = best_fn(graph_df).iloc[0]
+            records.append({
+                'target': target,
+                'method_group': 'Graph',
+                'method': best_graph['method'],
+                'model': best_graph['model'],
+                'features': best_graph['features'],
+                'metric_mean': best_graph['mean'],
+                'metric_std': best_graph['std'],
+            })
+
+    if not records:
+        return pd.DataFrame()
+
+    return pd.DataFrame.from_records(records)
+
+
+def create_best_model_comparison_plots(data: pd.DataFrame, dataset: str, metric: str, task_type: str, output_dir: Path):
+    """Create simple plots comparing best Tabular vs best Graph models per target.
+
+    Each plot shows, for a given dataset and metric, bars for the best Tabular
+    model and the best Graph model for each target (where available).
+    """
+
+    best_df = _select_best_tabular_and_graph_models(data, metric, task_type)
+    if best_df.empty:
+        print(f"Warning: No best-model data available for {dataset} and metric '{metric}'. Skipping best-model plot.")
+        return
+
+    targets = sorted(best_df['target'].astype(str).unique())
+    n_targets = len(targets)
+    x = np.arange(n_targets)
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(max(8, n_targets * 1.2), 6))
+
+    # Prepare values and stds for Tabular and Graph, and legend labels
+    tab_values = []
+    graph_values = []
+    tab_stds = []
+    graph_stds = []
+    tab_labels = []
+    graph_labels = []
+    for t in targets:
+        t_df = best_df[best_df['target'].astype(str) == t]
+
+        tab_row = t_df[t_df['method_group'] == 'Tabular']
+        graph_row = t_df[t_df['method_group'] == 'Graph']
+
+        if not tab_row.empty:
+            tab_values.append(tab_row['metric_mean'].iloc[0])
+            tab_stds.append(tab_row['metric_std'].iloc[0])
+            tab_labels.append(f"Tabular") #- {tab_row['model'].iloc[0]} ({tab_row['features'].iloc[0]})
+        else:
+            tab_values.append(np.nan)
+            tab_stds.append(np.nan)
+            tab_labels.append("")
+
+        if not graph_row.empty:
+            graph_values.append(graph_row['metric_mean'].iloc[0])
+            graph_stds.append(graph_row['metric_std'].iloc[0])
+            graph_labels.append(f"Graph") #{graph_row['method'].iloc[0]}
+        else:
+            graph_values.append(np.nan)
+            graph_stds.append(np.nan)
+            graph_labels.append("")
+
+    tab_vals = np.array(tab_values, dtype=float)
+    graph_vals = np.array(graph_values, dtype=float)
+    tab_err = np.array(tab_stds, dtype=float)
+    graph_err = np.array(graph_stds, dtype=float)
+
+    # Colors consistent with other plots
+    tab_color = '#1f77b4'
+    graph_color = '#d62728'
+
+    # Use error bars to show variance across splits
+    tab_bars = ax.bar(
+        x - width/2,
+        tab_vals,
+        width,
+        yerr=tab_err,
+        capsize=3,
+        label=None,
+        color=tab_color,
+    )
+    graph_bars = ax.bar(
+        x + width/2,
+        graph_vals,
+        width,
+        yerr=graph_err,
+        capsize=3,
+        label=None,
+        color=graph_color,
+    )
+
+    # Build legend entries from the actual model/method names
+    legend_entries = []
+    legend_labels = []
+
+    # Tabular legend: use the (unique) set of non-empty labels
+    for lbl in sorted(set(l for l in tab_labels if l)):
+        legend_entries.append(
+            plt.Line2D([0], [0], marker='s', color='w', label=lbl, markerfacecolor=tab_color, markersize=10)
+        )
+        legend_labels.append(lbl)
+
+    # Graph legend: use the (unique) set of non-empty labels
+    for lbl in sorted(set(l for l in graph_labels if l)):
+        legend_entries.append(
+            plt.Line2D([0], [0], marker='s', color='w', label=lbl, markerfacecolor=graph_color, markersize=10)
+        )
+        legend_labels.append(lbl)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(targets, rotation=45, ha='right')
+    ax.set_ylabel(metric.upper())
+    ax.set_title(f'{dataset} - Best Tabular vs Best Graph ({metric.upper()})')
+    if legend_entries:
+        ax.legend(legend_entries, legend_labels, bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.grid(True, axis='y', alpha=0.3)
+
+    fig.tight_layout()
+
+    output_file = output_dir / f'{dataset}_{metric}_best_tabular_vs_graph.png'
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"Saved best-model comparison plot: {output_file}")
+
 def main():
     parser = argparse.ArgumentParser(description='Visualize combined tabular and graph results')
     parser.add_argument('--results_dir', type=str, default=None, 
@@ -547,6 +746,8 @@ def main():
                        help='Exclude specific models from plots (e.g., --exclude-models Linear LogReg)')
     parser.add_argument('--dataset', type=str, nargs='+', default=[],
                        help='Only process specific datasets (e.g., --dataset tc insulator)')
+    parser.add_argument('--best-tabular-graph-only', action='store_true',
+                       help='Only plot the best Tabular model vs the best Graph model per dataset/target/metric')
     args = parser.parse_args()
     
     # Set up paths relative to script location
@@ -576,6 +777,8 @@ def main():
         # Create directory name for specific datasets
         datasets_str = "_".join(args.dataset)
         subdirs.append(f"datasets_{datasets_str}")
+    if args.best_tabular_graph_only:
+        subdirs.append("best_tabular_vs_graph")
     
     # Build final output directory with subdirectories
     if subdirs:
@@ -646,26 +849,30 @@ def main():
         # Create comparison plots for each metric
         for metric in metrics:
             if metric in data.columns:
-                # Apply exclusions
-                plot_data = data.copy()
-                
-                # Exclude entire tabular method if flag is set
-                if args.exclude_tabular:
-                    plot_data = plot_data[plot_data['method'] != 'Tabular']
-                
-                # Exclude specific models
-                if args.exclude_models:
-                    plot_data = plot_data[~plot_data['model'].isin(args.exclude_models)]
-                
-                # Create main plot with exclusions applied
-                create_combined_comparison_plots(plot_data, dataset, metric, output_dir)
-                
-                # If tabular exists and not excluded, also create a graph-only plot for better visibility
-                if has_tabular and not args.exclude_tabular and not args.exclude_models:
-                    graph_only_data = data[data['method'] != 'Tabular']
-                    if not graph_only_data.empty:
-                        # Save with different filename
-                        create_combined_comparison_plots_with_suffix(graph_only_data, dataset, metric, output_dir, '_graph_only')
+                if args.best_tabular_graph_only:
+                    # Only create simplified best Tabular vs best Graph plots
+                    create_best_model_comparison_plots(data, dataset, metric, task_type, output_dir)
+                else:
+                    # Apply exclusions
+                    plot_data = data.copy()
+
+                    # Exclude entire tabular method if flag is set
+                    if args.exclude_tabular:
+                        plot_data = plot_data[plot_data['method'] != 'Tabular']
+
+                    # Exclude specific models
+                    if args.exclude_models:
+                        plot_data = plot_data[~plot_data['model'].isin(args.exclude_models)]
+
+                    # Create main plot with exclusions applied
+                    create_combined_comparison_plots(plot_data, dataset, metric, output_dir)
+
+                    # If tabular exists and not excluded, also create a graph-only plot for better visibility
+                    if has_tabular and not args.exclude_tabular and not args.exclude_models:
+                        graph_only_data = data[data['method'] != 'Tabular']
+                        if not graph_only_data.empty:
+                            # Save with different filename
+                            create_combined_comparison_plots_with_suffix(graph_only_data, dataset, metric, output_dir, '_graph_only')
             else:
                 print(f"Warning: Metric '{metric}' not found in {dataset} data. Skipping.")
     

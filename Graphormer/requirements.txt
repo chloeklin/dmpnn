@@ -15,6 +15,6 @@ rdkit>=2023.0.0  # Already in chemprop requirements
 # Data processing
 pandas>=2.0.0    # Already in chemprop requirements
 numpy>=1.24.0    # Already in chemprop requirements
-
+scikit-learn
 # Note: Most other dependencies (scikit-learn, pytorch-lightning, etc.) 
 # are already satisfied by chemprop requirements

@@ -7,7 +7,8 @@ This script analyzes the feature space used in tabular training, including:
 2. Feature variance histograms after preprocessing
 3. PCA 2D scatter plots colored by target
 4. UMAP 2D embedding plots colored by target
-5. Top 5 feature-target correlations bar charts
+5. t-SNE 2D embedding plots colored by target
+6. Top 5 feature-target correlations bar charts
 
 Uses YAML configuration to specify datasets and targets.
 """
@@ -22,6 +23,7 @@ import json
 from typing import Dict, List, Any, Tuple
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.manifold import TSNE
 from scipy.stats import pearsonr
 import umap
 import warnings
@@ -37,6 +39,20 @@ from utils import set_seed
 # Set style for better plots
 plt.style.use('default')
 sns.set_palette("husl")
+
+# Dataset-specific color palette (consistent with compare_tabular_vs_graph.py)
+DATASET_COLORS = {
+    'tc': '#1f77b4',              # Blue
+    'insulator': '#ff7f0e',       # Orange
+    'htpmd': '#2ca02c',           # Green
+    'polyinfo': '#d62728',        # Red
+    'camb3lyp': '#9467bd',
+    'cam_b3lyp': '#9467bd',        # Purple
+    'opv_camb3lyp': '#9467bd',    # Purple (same as camb3lyp)
+    'ea_ip': '#8c564b',           # Brown
+    'pae_tg_mono211': '#e377c2',  # Pink
+    'pae_tg_paper211': '#7f7f7f', # Gray
+}
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load configuration from YAML file."""
@@ -280,18 +296,25 @@ def plot_umap_embedding(features: np.ndarray, targets: np.ndarray, dataset_name:
     # Create plot
     plt.figure(figsize=(10, 8))
     
-    # Create scatter plot
-    scatter = plt.scatter(features_umap[:, 0], features_umap[:, 1], 
-                         c=targets, cmap='viridis', alpha=0.6, s=50)
+    # Use dataset-specific color
+    dataset_color = DATASET_COLORS.get(dataset_name, '#1f77b4')
     
-    # Add colorbar
-    cbar = plt.colorbar(scatter)
-    cbar.set_label(f'{target_name} Value', fontsize=12)
+    # Create scatter plot with dataset-specific color
+    scatter = plt.scatter(features_umap[:, 0], features_umap[:, 1], 
+                         c=dataset_color, alpha=0.6, s=50, edgecolors='white', linewidths=0.5)
+    
+    # # OLD: Color by target values with viridis colormap
+    # scatter = plt.scatter(features_umap[:, 0], features_umap[:, 1], 
+    #                      c=targets, cmap='viridis', alpha=0.6, s=50)
+    # 
+    # # Add colorbar
+    # cbar = plt.colorbar(scatter)
+    # cbar.set_label(f'{target_name} Value', fontsize=12)
     
     # Add labels and title
     plt.xlabel('UMAP 1', fontsize=12)
     plt.ylabel('UMAP 2', fontsize=12)
-    plt.title(f'{dataset_name.upper()} - {target_name}\nUMAP 2D Embedding', 
+    plt.title(f'{dataset_name.upper()}',  # OLD: - {target_name}\nUMAP 2D Embedding
              fontsize=14, fontweight='bold')
     
     # Add grid
@@ -304,6 +327,62 @@ def plot_umap_embedding(features: np.ndarray, targets: np.ndarray, dataset_name:
     output_file = output_path / f"{dataset_name}_{target_name}_umap_embedding.png"
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Saved UMAP embedding plot: {output_file}")
+    plt.close()
+
+def plot_tsne_embedding(features: np.ndarray, targets: np.ndarray, dataset_name: str, 
+                       target_name: str, output_dir: str) -> None:
+    """Create t-SNE 2D embedding plot colored by target values."""
+    
+    # Standardize features
+    scaler = StandardScaler()
+    features_scaled = scaler.fit_transform(features)
+    
+    # Limit samples for t-SNE performance if dataset is large
+    max_samples = 5000
+    if len(features_scaled) > max_samples:
+        print(f"Subsampling {max_samples} points for t-SNE analysis (from {len(features_scaled)})")
+        indices = np.random.choice(len(features_scaled), max_samples, replace=False)
+        features_scaled = features_scaled[indices]
+        targets = targets[indices]
+    
+    # Apply t-SNE
+    perplexity = min(30, len(features_scaled) // 4)  # Ensure perplexity is valid
+    tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+    features_tsne = tsne.fit_transform(features_scaled)
+    
+    # Create plot
+    plt.figure(figsize=(10, 8))
+    
+    # Create scatter plot
+    scatter = plt.scatter(features_tsne[:, 0], features_tsne[:, 1], 
+                         c=targets, cmap='viridis', alpha=0.6, s=50)
+    
+    # Add colorbar
+    cbar = plt.colorbar(scatter)
+    cbar.set_label(f'{target_name} Value', fontsize=12)
+    
+    # Add labels and title
+    plt.xlabel('t-SNE 1', fontsize=12)
+    plt.ylabel('t-SNE 2', fontsize=12)
+    plt.title(f'{dataset_name.upper()} - {target_name}\nt-SNE 2D Embedding', 
+             fontsize=14, fontweight='bold')
+    
+    # Add grid
+    plt.grid(True, alpha=0.3)
+    
+    # Add sample info if subsampled
+    if len(features_scaled) < len(features):
+        plt.text(0.02, 0.98, f'Showing {len(features_scaled)} of {len(features)} samples', 
+                 transform=plt.gca().transAxes, verticalalignment='top',
+                 bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+    
+    # Save plot
+    output_path = Path("/Users/u6788552/Desktop/experiments/dmpnn") / output_dir
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    output_file = output_path / f"{dataset_name}_{target_name}_tsne_embedding.png"
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"Saved t-SNE embedding plot: {output_file}")
     plt.close()
 
 def plot_top_feature_correlations(features: np.ndarray, feature_names: List[str], 
@@ -576,35 +655,24 @@ def analyze_dataset_features(dataset_name: str, config: Dict[str, Any], output_d
         features_valid = features_combined[valid_mask]
         y_valid = y_train[valid_mask]
         
-        # 2. Feature variance histogram
-        print("2. Creating feature variance histogram...")
-        plot_feature_variance_histogram(features_valid, final_feat_names, dataset_name, target, output_dir)
+        # # 2. Feature variance histogram
+        # print("2. Creating feature variance histogram...")
+        # plot_feature_variance_histogram(features_valid, final_feat_names, dataset_name, target, output_dir)
         
-        # 3. PCA scatter plot
-        print("3. Creating PCA scatter plot...")
-        plot_pca_scatter(features_valid, y_valid, dataset_name, target, output_dir)
+        # # 3. PCA scatter plot
+        # print("3. Creating PCA scatter plot...")
+        # plot_pca_scatter(features_valid, y_valid, dataset_name, target, output_dir)
         
         # 4. UMAP embedding plot
         print("4. Creating UMAP embedding plot...")
         plot_umap_embedding(features_valid, y_valid, dataset_name, target, output_dir)
         
-        # 5. Top feature correlations
-        print("5. Creating top feature correlations plot...")
-        top_features, top_corrs, top_pvals = plot_top_feature_correlations(
-            features_valid, final_feat_names, y_valid, dataset_name, target, output_dir
-        )
+        # # 5. t-SNE embedding plot
+        # print("5. Creating t-SNE embedding plot...")
+        # plot_tsne_embedding(features_valid, y_valid, dataset_name, target, output_dir)
         
-        # Store results
-        for i, (feat, corr, pval) in enumerate(zip(top_features, top_corrs, top_pvals)):
-            analysis_results.append({
-                'Dataset': dataset_name.upper(),
-                'Target': target,
-                'Rank': i + 1,
-                'Feature': feat,
-                'Correlation': corr,
-                'P_Value': pval,
-                'Absolute_Correlation': abs(corr)
-            })
+        # #s
+        break
     
     return analysis_results
 
@@ -632,6 +700,8 @@ def main():
     all_results = []
     
     for dataset in datasets:
+        if dataset != 'cam_b3lyp':
+            continue
         try:
             results = analyze_dataset_features(dataset, config, output_dir, logger)
             all_results.extend(results)
