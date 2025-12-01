@@ -11,7 +11,7 @@
 #PBS -N graphormer-train
 
 module use /g/data/dk92/apps/Modules/modulefiles
-module load module load NCI-ai-ml/24.08 python3/3.10.4 gcc/12.2.0
+module load  NCI-ai-ml/24.08 python3/3.10.4 gcc/12.2.0 cuda/11.7.0
 source /scratch/um09/hl4138/graphormer-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn/
 
