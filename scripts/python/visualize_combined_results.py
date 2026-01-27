@@ -507,7 +507,8 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
                   yerr=stds, capsize=3, label=f'{method}-{model}', alpha=0.8, color=color)
         
         ax.set_xlabel('Feature Combination')
-        ax.set_ylabel(metric.upper())
+        ylabel_text = 'Root Mean Squared Error' if str(metric).lower() == 'rmse' else metric.upper()
+        ax.set_ylabel(ylabel_text)
         ax.set_title(f'{target}')
         ax.set_xticks(x_pos)
         ax.set_xticklabels(features, rotation=45, ha='right')
@@ -628,16 +629,34 @@ def create_best_model_comparison_plots(data: pd.DataFrame, dataset: str, metric:
     model and the best Graph model for each target (where available).
     """
 
+    # Format dataset display name: uppercase; special-case CAM_B3LYP
+    ds_lower = str(dataset).lower()
+    if 'camb3lyp' in ds_lower or 'cam_b3lyp' in ds_lower:
+        display_dataset = 'CAM_B3LYP'
+    else:
+        display_dataset = str(dataset).upper()
+
     best_df = _select_best_tabular_and_graph_models(data, metric, task_type)
     if best_df.empty:
         print(f"Warning: No best-model data available for {dataset} and metric '{metric}'. Skipping best-model plot.")
         return
 
-    targets = sorted(best_df['target'].astype(str).unique())
+    # Filter to specific target if desired
+    if dataset.lower() == 'opv_camb3lyp':
+        targets = ['delta_optical_lumo']
+        # Filter best_df to only this target
+        best_df = best_df[best_df['target'] == 'delta_optical_lumo']
+    else:
+        targets = sorted(best_df['target'].astype(str).unique())
+    
     n_targets = len(targets)
     x = np.arange(n_targets)
-    width = 0.35
+    width = 0.22
 
+    # Clear any existing matplotlib state
+    plt.clf()
+    plt.close('all')
+    
     fig, ax = plt.subplots(figsize=(max(8, n_targets * 1.2), 6))
 
     # Prepare values and stds for Tabular and Graph, and legend labels
@@ -670,6 +689,7 @@ def create_best_model_comparison_plots(data: pd.DataFrame, dataset: str, metric:
             graph_values.append(np.nan)
             graph_stds.append(np.nan)
             graph_labels.append("")
+        
 
     tab_vals = np.array(tab_values, dtype=float)
     graph_vals = np.array(graph_values, dtype=float)
@@ -677,54 +697,54 @@ def create_best_model_comparison_plots(data: pd.DataFrame, dataset: str, metric:
     graph_err = np.array(graph_stds, dtype=float)
 
     # Colors consistent with other plots
-    tab_color = '#1f77b4'
-    graph_color = '#d62728'
+    tab_color = '#d62728'
+    graph_color = '#1f77b4'
 
-    # Use error bars to show variance across splits
+    # Use error bars to show variance across splits (thicker, darker, larger caps)
+    err_kw = dict(elinewidth=2, capsize=6, capthick=2, ecolor='#2C3E50')
     tab_bars = ax.bar(
         x - width/2,
         tab_vals,
         width,
         yerr=tab_err,
-        capsize=3,
-        label=None,
         color=tab_color,
+        alpha=0.9,
+        error_kw=err_kw,
     )
     graph_bars = ax.bar(
         x + width/2,
         graph_vals,
         width,
         yerr=graph_err,
-        capsize=3,
-        label=None,
         color=graph_color,
+        alpha=0.9,
+        error_kw=err_kw,
     )
 
-    # Build legend entries from the actual model/method names
-    legend_entries = []
-    legend_labels = []
+    # Replace legend with explicit x-axis labels for each bar: Tabular / Graph
+    xtick_positions = []
+    xtick_labels = []
+    for xi in x:
+        xtick_positions.extend([xi - width/2, xi + width/2])
+        xtick_labels.extend(["Tabular", "Graph"])
 
-    # Tabular legend: use the (unique) set of non-empty labels
-    for lbl in sorted(set(l for l in tab_labels if l)):
-        legend_entries.append(
-            plt.Line2D([0], [0], marker='s', color='w', label=lbl, markerfacecolor=tab_color, markersize=10)
-        )
-        legend_labels.append(lbl)
+    ax.set_xticks(xtick_positions)
+    ax.set_xticklabels(xtick_labels, rotation=0)
+    for lbl in ax.get_xticklabels():
+        lbl.set_fontweight('bold')
 
-    # Graph legend: use the (unique) set of non-empty labels
-    for lbl in sorted(set(l for l in graph_labels if l)):
-        legend_entries.append(
-            plt.Line2D([0], [0], marker='s', color='w', label=lbl, markerfacecolor=graph_color, markersize=10)
-        )
-        legend_labels.append(lbl)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(targets, rotation=45, ha='right')
-    ax.set_ylabel(metric.upper())
-    ax.set_title(f'{dataset} - Best Tabular vs Best Graph ({metric.upper()})')
-    if legend_entries:
-        ax.legend(legend_entries, legend_labels, bbox_to_anchor=(1.05, 1), loc='upper left')
+    ylabel_text = 'Error (RMSE)' if str(metric).lower() == 'rmse' else metric.upper()
+    ax.set_ylabel(ylabel_text)
+    ax.set_title(f'{display_dataset} - Best Tabular vs Best Graph')
     ax.grid(True, axis='y', alpha=0.3)
+
+    # Add target labels above each pair for context (only if multiple targets)
+    if len(targets) > 1:
+        ymax = np.nanmax([np.nanmax(tab_vals + tab_err), np.nanmax(graph_vals + graph_err)])
+        if np.isfinite(ymax):
+            y_text = ymax * 1.05
+            for xi, t in zip(x, targets):
+                ax.text(xi, y_text, str(t), ha='center', va='bottom', fontsize=10, color='#2C3E50')
 
     fig.tight_layout()
 
