@@ -248,10 +248,10 @@ def print_summary(all_results: List[Dict[str, Any]]):
 def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: str = 'graph_vs_tabular_improvement.png'):
     """Create a bar plot showing % improvement of graph over tabular models."""
     
-    # Define the desired dataset order
+    # Define the desired dataset order (canonical IDs, lowercase)
     dataset_order = ['tc', 'insulator', 'htpmd', 'polyinfo', 'camb3lyp']
     
-    # Map opv_camb3lyp to camb3lyp for display
+    # Map variants to canonical dataset IDs
     dataset_mapping = {'opv_camb3lyp': 'camb3lyp'}
     
     # Collect improvement data
@@ -264,8 +264,8 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
         dataset = result['dataset']
         task_type = result['task_type']
         
-        # Apply dataset mapping for display
-        display_dataset = dataset_mapping.get(dataset, dataset)
+        # Canonicalize dataset ID for plotting/colors
+        dataset_id = dataset_mapping.get(dataset, dataset)
         
         # Determine which metric to use based on task type
         if task_type == 'classification' and dataset == 'polyinfo':
@@ -284,8 +284,14 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
             if comp['better_model'] == 'tabular':
                 improvement_pct = -abs(improvement_pct)  # Make negative if tabular is better
             
+            # Build display label: uppercase, special-case CAM_B3LYP
+            display_label = dataset_id.upper()
+            if dataset_id == 'camb3lyp':
+                display_label = 'CAM_B3LYP'
+
             plot_data.append({
-                'dataset': display_dataset,
+                'dataset_id': dataset_id,           # canonical id for ordering/colors
+                'display': display_label,           # label shown on x-axis
                 'improvement_pct': improvement_pct,
                 'task_type': task_type,
                 'metric': metric_key.upper()
@@ -298,14 +304,14 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
     # Convert to DataFrame and sort by desired order
     df_plot = pd.DataFrame(plot_data)
     
-    # Filter to only include datasets in our desired order that we have data for
-    available_datasets = df_plot['dataset'].unique()
-    ordered_datasets = [ds for ds in dataset_order if ds in available_datasets]
-    
-    # Filter and reorder
-    df_plot = df_plot[df_plot['dataset'].isin(ordered_datasets)]
-    df_plot['dataset'] = pd.Categorical(df_plot['dataset'], categories=ordered_datasets, ordered=True)
-    df_plot = df_plot.sort_values('dataset')
+    # Filter to only include datasets in our desired order that we have data for (by canonical id)
+    available_ids = df_plot['dataset_id'].unique()
+    ordered_ids = [ds for ds in dataset_order if ds in available_ids]
+
+    # Filter and reorder by canonical id
+    df_plot = df_plot[df_plot['dataset_id'].isin(ordered_ids)]
+    df_plot['dataset_id'] = pd.Categorical(df_plot['dataset_id'], categories=ordered_ids, ordered=True)
+    df_plot = df_plot.sort_values('dataset_id')
     
     # Create the plot with modern styling
     plt.style.use('default')  # Use default style to preserve colors
@@ -316,7 +322,7 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
     ax.set_axisbelow(True)
     
     # Use dataset-specific colors
-    colors = [DATASET_COLORS.get(dataset, '#1f77b4') for dataset in df_plot['dataset']]
+    colors = [DATASET_COLORS.get(ds_id, '#1f77b4') for ds_id in df_plot['dataset_id']]
     
     # # OLD: Define a vibrant color palette based on improvement percentage
     # colors = []
@@ -334,7 +340,7 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
     
     
     # Create colorful bars without shadow effects
-    bars = ax.bar(df_plot['dataset'], df_plot['improvement_pct'], 
+    bars = ax.bar(df_plot['dataset_id'], df_plot['improvement_pct'], 
                   color=colors, alpha=1.0, edgecolor='white', linewidth=2,
                   width=0.7)
     
@@ -342,7 +348,7 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
     ax.axhline(y=0, color='#2C3E50', linestyle='-', linewidth=1.5, alpha=0.8)
     ax.set_xlabel('Dataset', fontsize=14, fontweight='bold', color='#2C3E50', labelpad=15)
     ax.set_ylabel('% Improvement of Graph over Tabular Models', fontsize=14, fontweight='bold', color='#2C3E50', labelpad=15)
-    ax.set_title('🚀 Graph vs Tabular Model Performance Comparison', 
+    ax.set_title('Graph vs Tabular Model Performance Comparison', 
                 fontsize=18, fontweight='bold', color='#2C3E50', pad=25)
     
     # Style the axes
@@ -350,7 +356,13 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_color('#BDC3C7')
     ax.spines['bottom'].set_color('#BDC3C7')
-    ax.tick_params(colors='#2C3E50', labelsize=12)
+    ax.tick_params(axis='x', colors='#2C3E50', labelsize=16)
+    ax.tick_params(axis='y', colors='#2C3E50', labelsize=12)
+    # Set custom x-axis tick labels to uppercase display names (with CAM_B3LYP)
+    ax.set_xticklabels(df_plot['display'])
+    # Make x-axis tick labels bold for better readability
+    for lbl in ax.get_xticklabels():
+        lbl.set_fontweight('bold')
     
     # Add value labels on bars with better styling
     for bar, value in zip(bars, df_plot['improvement_pct']):
@@ -362,7 +374,7 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='none'))
     
     # Add metric information with better styling
-    for i, (dataset, metric) in enumerate(zip(df_plot['dataset'], df_plot['metric'])):
+    for i, (display, metric) in enumerate(zip(df_plot['display'], df_plot['metric'])):
         ax.text(i, min(df_plot['improvement_pct']) - 8, f'({metric})', 
                 ha='center', va='top', fontsize=11, style='italic', color='#7F8C8D',
                 bbox=dict(boxstyle='round,pad=0.2', facecolor='#ECF0F1', alpha=0.7, edgecolor='none'))
@@ -380,7 +392,7 @@ def create_improvement_bar_plot(all_results: List[Dict[str, Any]], output_path: 
     print(f"\n📊 IMPROVEMENT SUMMARY:")
     for _, row in df_plot.iterrows():
         status = "✅ Graph better" if row['improvement_pct'] >= 0 else "⚠️ Tabular better"
-        print(f"   {row['dataset']}: {row['improvement_pct']:+.1f}% ({row['metric']}) - {status}")
+        print(f"   {row['display']}: {row['improvement_pct']:+.1f}% ({row['metric']}) - {status}")
     
     plt.show()
 

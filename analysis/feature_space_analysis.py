@@ -312,14 +312,18 @@ def plot_umap_embedding(features: np.ndarray, targets: np.ndarray, dataset_name:
     # cbar.set_label(f'{target_name} Value', fontsize=12)
     
     # Add labels and title
-    plt.xlabel('UMAP 1', fontsize=12)
-    plt.ylabel('UMAP 2', fontsize=12)
+    # plt.xlabel('UMAP 1', fontsize=12)
+    # plt.ylabel('UMAP 2', fontsize=12)
     plt.title(f'{dataset_name.upper()}',  # OLD: - {target_name}\nUMAP 2D Embedding
              fontsize=14, fontweight='bold')
     
     # Add grid
     plt.grid(True, alpha=0.3)
-    
+
+    # plt.xlim(-15, 35)
+    # plt.ylim(-20, 30)
+    # plt.gca().set_aspect('equal', adjustable='box')
+                      
     # Save plot
     output_path = Path("/Users/u6788552/Desktop/experiments/dmpnn") / output_dir
     output_path.mkdir(parents=True, exist_ok=True)
@@ -700,8 +704,6 @@ def main():
     all_results = []
     
     for dataset in datasets:
-        if dataset != 'cam_b3lyp':
-            continue
         try:
             results = analyze_dataset_features(dataset, config, output_dir, logger)
             all_results.extend(results)
