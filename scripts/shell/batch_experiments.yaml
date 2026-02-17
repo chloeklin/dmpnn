@@ -44,11 +44,11 @@ eaip_targets: &eaip_targets
   - IP vs SHE (eV)
 
 htpmd_targets: &htpmd_targets
-  - Conductivity
-  - Li Diffusivity
-  - TFSI Diffusivity
+  # - Conductivity
+  # - Li Diffusivity
+  # - TFSI Diffusivity
   # - Poly Diffusivity
-  # - Transference Number
+  - Transference Number
 
 experiments:
   # AttentiveFP    
