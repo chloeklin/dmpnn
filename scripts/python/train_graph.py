@@ -282,14 +282,16 @@ logger.info("================================\n")
 smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df_input, smiles_column, descriptor_columns, target_columns, args)
 
 # Choose featurizer based on model type
+# PPG uses PPGMolGraphFeaturizer for periodic polymer graph construction
 # Small molecule models use SimpleMoleculeMolGraphFeaturizer
 # Polymer models (wDMPNN) use PolymerMolGraphFeaturizer
-small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG"]
-featurizer = (
-    featurizers.SimpleMoleculeMolGraphFeaturizer() 
-    if args.model_name in small_molecule_models 
-    else featurizers.PolymerMolGraphFeaturizer()
-)
+small_molecule_models = ["DMPNN", "DMPNN_DiffPool"]
+if args.model_name == "PPG":
+    featurizer = featurizers.PPGMolGraphFeaturizer()
+elif args.model_name in small_molecule_models:
+    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
+else:
+    featurizer = featurizers.PolymerMolGraphFeaturizer()
       
 
 # Store all results for aggregate saving
@@ -630,7 +632,8 @@ for target in target_columns:
             processed_descriptor_data = None
 
         # Create datasets after cleaning
-        DS = data.MoleculeDataset if args.model_name in small_molecule_models else data.PolymerDataset
+        # PPG uses MoleculeDataset like other small molecule models
+        DS = data.MoleculeDataset if args.model_name in ["DMPNN", "DMPNN_DiffPool", "PPG"] else data.PolymerDataset
         train = DS(train_data[i], featurizer)
         val = DS(val_data[i], featurizer)
         test = DS(test_data[i], featurizer)
