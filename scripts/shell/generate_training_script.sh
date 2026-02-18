@@ -24,7 +24,7 @@
 if [ $# -lt 3 ]; then
     echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type] [--no-submit] [key=value...]"
     echo ""
-    echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG"
+    echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE"
     echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi, pretrain_monomer, save_checkpoint, save_predictions, export_embeddings"
     echo "Extra key=value: target=..., train_size=..., polymer_type=..."
     exit 1
@@ -54,9 +54,9 @@ POLYMER_TYPE=""
 
 # Validate model
 case $MODEL in
-  tabular|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG) ;;
+  tabular|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG|GAT|GATv2|GIN|GIN0|GINE) ;;
   *)
-    echo "Error: Invalid model '$MODEL'. Available: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG"
+    echo "Error: Invalid model '$MODEL'. Available: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE"
     exit 1
     ;;
 esac
