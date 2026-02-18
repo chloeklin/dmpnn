@@ -759,6 +759,7 @@ def build_model_and_trainer(
     max_epochs: int = 300,
     gradient_clip_val: float = 10.0,
     save_checkpoint: bool = True,
+    featurizer: Optional[Any] = None,
     **trainer_kwargs
 ) -> Tuple[Any, Any]:  # Returns (model, trainer)
     """Build and configure a chemprop model and PyTorch Lightning trainer.
@@ -776,6 +777,7 @@ def build_model_and_trainer(
         max_epochs: Maximum number of training epochs
         gradient_clip_val: Maximum gradient norm for gradient clipping
         save_checkpoint: Whether to save model checkpoints (default: True)
+        featurizer: Optional featurizer to extract feature dimensions (required for PPG)
         **trainer_kwargs: Additional arguments for the PyTorch Lightning Trainer
         
     Returns:
@@ -833,7 +835,13 @@ def build_model_and_trainer(
     # Create message passing and aggregation layers
     if args.model_name == "PPG":
         # PPG uses standard DMPNN architecture with PPGMolGraphFeaturizer
-        mp = nn.BondMessagePassing()
+        # PPG adds 10 bond length bins, so we need to get dimensions from featurizer
+        if featurizer is not None and hasattr(featurizer, 'shape'):
+            d_v, d_e = featurizer.shape
+            mp = nn.BondMessagePassing(d_v=d_v, d_e=d_e)
+        else:
+            # Fallback: use default dimensions (will likely fail)
+            mp = nn.BondMessagePassing()
         agg = nn.MeanAggregation()
     elif args.model_name == "wDMPNN":
         mp = nn.WeightedBondMessagePassing()

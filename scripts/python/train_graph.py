@@ -708,7 +708,7 @@ for target in target_columns:
             early_stopping_patience=PATIENCE,
             max_epochs=EPOCHS,
             save_checkpoint=args.save_checkpoint,
-            
+            featurizer=featurizer,
         )
         # Validate checkpoint compatibility and get resume path
         descriptor_dim = processed_descriptor_data.shape[1] if processed_descriptor_data is not None else 0
