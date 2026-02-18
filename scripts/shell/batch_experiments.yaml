@@ -11,7 +11,7 @@ insulator_base: &insulator_base
 htpmd_base: &htpmd_base
   dataset: htpmd
   task_type: reg
-  export_embeddings: true
+  # export_embeddings: true
 
 tc_base: &tc_base
   dataset: tc
@@ -54,15 +54,39 @@ experiments:
   - <<: *htpmd_base
     model: GAT
     walltime: "03:30:00"
+    incl_desc: true
+    targets: *htpmd_targets
+    export_embeddings: true
+    
   - <<: *htpmd_base
     model: GIN
     walltime: "03:30:00"
+    incl_desc: true
+    targets: *htpmd_targets
+    export_embeddings: true
+    
   - <<: *htpmd_base
-    model: DMPNN_DiffPool
+    model: tabular
     walltime: "03:30:00"
-  - <<: *htpmd_base
-    model: PPG
-    walltime: "03:30:00"
+    incl_desc: true
+    # targets: *htpmd_targets
+    
+  # - <<: *htpmd_base
+  #   model: PPG
+  #   walltime: "3:30:00"
+  #   incl_desc: true
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "3:30:00"
+  #   incl_desc: true
+  #   targets: *htpmd_targets
+
+
+
+  
   # AttentiveFP    
   # - <<: *polyinfo_base
   #   model: AttentiveFP
@@ -265,11 +289,6 @@ experiments:
   #   incl_rdkit: true
   #   walltime: "4:30:00"
 
-    
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    walltime: "3:30:00"
-    targets: *htpmd_targets
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
   #   incl_rdkit: true
@@ -312,7 +331,3 @@ experiments:
 
 
 # PPG
-  - <<: *htpmd_base
-    model: PPG
-    walltime: "3:30:00"
-    targets: *htpmd_targets
