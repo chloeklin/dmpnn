@@ -51,6 +51,18 @@ htpmd_targets: &htpmd_targets
   - Transference Number
 
 experiments:
+  - <<: *htpmd_base
+    model: GAT
+    walltime: "03:30:00"
+  - <<: *htpmd_base
+    model: GIN
+    walltime: "03:30:00"
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    walltime: "03:30:00"
+  - <<: *htpmd_base
+    model: PPG
+    walltime: "03:30:00"
   # AttentiveFP    
   # - <<: *polyinfo_base
   #   model: AttentiveFP
