@@ -285,7 +285,7 @@ smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df
 # PPG uses PPGMolGraphFeaturizer for periodic polymer graph construction
 # Small molecule models use SimpleMoleculeMolGraphFeaturizer
 # Polymer models (wDMPNN) use PolymerMolGraphFeaturizer
-small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "GIN", "GIN0", "GINE", "GAT", "GATv2"]
+small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "GIN", "GIN0", "GINE", "GAT", "GATv2", "AttentiveFP"]
 if args.model_name == "PPG":
     featurizer = featurizers.PPGMolGraphFeaturizer()
 elif args.model_name in small_molecule_models:

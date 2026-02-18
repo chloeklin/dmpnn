@@ -102,9 +102,10 @@ def compute_reg_metrics(y_true, y_pred):
 class GraphCSV(torch.utils.data.Dataset):
     """Dataset class for AttentiveFP that converts SMILES to graphs - matches original name."""
     
-    def __init__(self, df: pd.DataFrame, smiles_col: str, target_col: str, task_type='reg'):
+    def __init__(self, df: pd.DataFrame, smiles_col: str, target_col: str, task_type='reg', descriptors: Optional[np.ndarray] = None):
         self.smiles = df[smiles_col].astype(str).tolist()
         self.task_type = task_type
+        self.descriptors = descriptors
         
         # Handle targets based on task type
         if task_type == 'reg':
@@ -123,6 +124,11 @@ class GraphCSV(torch.utils.data.Dataset):
         else:
             # Classification: use long tensors for CrossEntropyLoss
             d.y = torch.tensor(self.y[i], dtype=torch.long)
+        
+        # Add descriptors if available
+        if self.descriptors is not None:
+            d.descriptors = torch.tensor(self.descriptors[i], dtype=torch.float)
+        
         return d
 
 
@@ -135,7 +141,7 @@ class EdgeGuard(nn.Module):
         self.core = core
         self.edge_dim = edge_dim
     
-    def forward(self, x, edge_index, edge_attr, batch):
+    def forward(self, x, edge_index, edge_attr, batch, descriptors=None):
         if edge_index.numel() == 0:
             edge_attr = x.new_zeros((0, self.edge_dim))
         elif edge_attr is None or edge_attr.size(-1) == 0:
@@ -143,14 +149,28 @@ class EdgeGuard(nn.Module):
         return self.core(x, edge_index, edge_attr, batch)
 
 
-def build_attentivefp_loaders(args, df_tr, df_va, df_te, smiles_col, target, eval=False):
+def build_attentivefp_loaders(args, df_tr, df_va, df_te, smiles_col, target, 
+                              desc_tr=None, desc_va=None, desc_te=None, eval=False):
+    """Build AttentiveFP data loaders with optional descriptor support.
+    
+    Args:
+        args: Arguments containing batch_size and task_type
+        df_tr, df_va, df_te: Train/val/test dataframes
+        smiles_col: Name of SMILES column
+        target: Name of target column
+        desc_tr, desc_va, desc_te: Optional descriptor arrays (already preprocessed)
+        eval: If True, don't shuffle training data
+    
+    Returns:
+        train_loader, val_loader, test_loader, scaler
+    """
     from attentivefp_utils import GraphCSV
     from torch_geometric.loader import DataLoader
     from sklearn.preprocessing import StandardScaler
 
-    ds_tr = GraphCSV(df_tr, smiles_col, target, task_type=args.task_type)
-    ds_va = GraphCSV(df_va, smiles_col, target, task_type=args.task_type)
-    ds_te = GraphCSV(df_te, smiles_col, target, task_type=args.task_type)
+    ds_tr = GraphCSV(df_tr, smiles_col, target, task_type=args.task_type, descriptors=desc_tr)
+    ds_va = GraphCSV(df_va, smiles_col, target, task_type=args.task_type, descriptors=desc_va)
+    ds_te = GraphCSV(df_te, smiles_col, target, task_type=args.task_type, descriptors=desc_te)
 
     scaler = None
     if args.task_type == 'reg':
@@ -165,10 +185,76 @@ def build_attentivefp_loaders(args, df_tr, df_va, df_te, smiles_col, target, eva
     test_loader  = DataLoader(ds_te, batch_size=args.batch_size, shuffle=False, pin_memory=True)
     return train_loader, val_loader, test_loader, scaler
 
+class AttentiveFPWithDescriptors(nn.Module):
+    """AttentiveFP wrapper that supports descriptor concatenation like chemprop models."""
+    
+    def __init__(self, core_model, descriptor_dim: int = 0, task_type: str = 'reg', n_classes: Optional[int] = None):
+        super().__init__()
+        self.core = core_model
+        self.descriptor_dim = descriptor_dim
+        self.task_type = task_type
+        
+        # Get the embedding dimension from the core model
+        # AttentiveFP outputs through lin2, which has hidden_channels as input
+        if hasattr(core_model, 'core'):
+            # EdgeGuard wrapped model
+            attfp_core = core_model.core
+        else:
+            attfp_core = core_model
+        
+        self.embedding_dim = attfp_core.lin2.in_features
+        
+        # Create new output layer that takes embeddings + descriptors
+        if descriptor_dim > 0:
+            combined_dim = self.embedding_dim + descriptor_dim
+            
+            if task_type == 'reg':
+                self.output_layer = nn.Linear(combined_dim, 1)
+            elif task_type == 'binary':
+                self.output_layer = nn.Linear(combined_dim, 1)
+            elif task_type == 'multi':
+                if n_classes is None:
+                    raise ValueError("n_classes must be provided for multi-class classification")
+                self.output_layer = nn.Linear(combined_dim, n_classes)
+            else:
+                raise ValueError(f"Unknown task_type: {task_type}")
+            
+            # Replace the core's output layer with identity to get embeddings
+            attfp_core.lin2 = nn.Identity()
+        else:
+            self.output_layer = None
+    
+    def forward(self, x, edge_index, edge_attr, batch, descriptors=None):
+        # Get graph embeddings from core model
+        embeddings = self.core(x, edge_index, edge_attr, batch)
+        
+        # If no descriptors, return embeddings directly
+        if self.descriptor_dim == 0 or descriptors is None:
+            return embeddings
+        
+        # Concatenate descriptors and pass through output layer
+        combined = torch.cat([embeddings, descriptors], dim=1)
+        return self.output_layer(combined)
+
+
 def create_attentivefp_model(task_type: str, n_classes: Optional[int] = None, 
                            hidden_channels: int = 200, num_layers: int = 2, 
-                           num_timesteps: int = 2, dropout: float = 0.0) -> nn.Module:
-    """Create AttentiveFP model with appropriate output layer - matches original dimensions."""
+                           num_timesteps: int = 2, dropout: float = 0.0,
+                           descriptor_dim: int = 0) -> nn.Module:
+    """Create AttentiveFP model with optional descriptor concatenation support.
+    
+    Args:
+        task_type: 'reg', 'binary', or 'multi'
+        n_classes: Number of classes for multi-class classification
+        hidden_channels: Hidden dimension size
+        num_layers: Number of message passing layers
+        num_timesteps: Number of timesteps for attention
+        dropout: Dropout rate
+        descriptor_dim: Dimension of additional descriptors (0 = no descriptors)
+    
+    Returns:
+        AttentiveFP model with optional descriptor support
+    """
     from torch_geometric.nn import models
     
     if task_type == 'reg':
@@ -195,6 +281,11 @@ def create_attentivefp_model(task_type: str, n_classes: Optional[int] = None,
     
     # Wrap with EdgeGuard (using edge_dim=10 to match bond features)
     model = EdgeGuard(core, edge_dim=10)
+    
+    # If descriptors are used, wrap with descriptor concatenation layer
+    if descriptor_dim > 0:
+        model = AttentiveFPWithDescriptors(model, descriptor_dim, task_type, n_classes)
+    
     return model
 
 
@@ -207,7 +298,10 @@ def eval_loss(model, loader, device, task):
     with torch.no_grad():
         for batch in loader:
             batch = batch.to(device)
-            pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+            
+            # Get descriptors if available
+            descriptors = batch.descriptors if hasattr(batch, 'descriptors') else None
+            pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch, descriptors)
             
             if task == "reg":
                 loss = F.mse_loss(pred.view(-1,1), batch.y.view(-1,1), reduction='sum')
@@ -236,8 +330,9 @@ def train_epoch(model, loader, optimizer, device, task_type: str):
         batch = batch.to(device)
         optimizer.zero_grad()
         
-        # Use original forward pass style
-        pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+        # Get descriptors if available
+        descriptors = batch.descriptors if hasattr(batch, 'descriptors') else None
+        pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch, descriptors)
         
         # Use same loss functions as original
         if task_type == 'reg':
@@ -288,7 +383,10 @@ def evaluate_model(model, loader, device, task_type: str, scaler=None):
     with torch.no_grad():
         for batch in loader:
             batch = batch.to(device)
-            out = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+            
+            # Get descriptors if available
+            descriptors = batch.descriptors if hasattr(batch, 'descriptors') else None
+            out = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch, descriptors)
 
             if task_type == 'reg':
                 # raw preds

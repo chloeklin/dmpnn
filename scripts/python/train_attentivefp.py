@@ -210,26 +210,36 @@ def main():
             if skip_training:
                 logger.info(f"[{target}] split {i}: Found existing checkpoint, skipping training and loading for evaluation")
 
-            # if combined_descriptor_data is not None:
-            #     arts = load_dmpnn_preproc(preprocessing_path, i)
-            #     X_all_proc = apply_dmpnn_preproc(combined_descriptor_data, arts)
-
-            #     # slice rows for each fold piece
-            #     X_tr = X_all_proc[tr]
-            #     X_va = X_all_proc[va]
-            #     X_te = X_all_proc[te]
-            # else:
-            #     X_tr = X_va = X_te = None
-
-            # (ckpt_path / "logs").mkdir(parents=True, exist_ok=True)
+            # Handle descriptor preprocessing if descriptors are enabled
+            X_tr = X_va = X_te = None
+            descriptor_dim = 0
+            
+            if combined_descriptor_data is not None:
+                from utils import load_dmpnn_preproc, apply_dmpnn_preproc
+                
+                # Load preprocessing artifacts for this split
+                arts = load_dmpnn_preproc(preprocessing_path, i)
+                X_all_proc = apply_dmpnn_preproc(combined_descriptor_data, arts)
+                
+                # Slice rows for each fold
+                X_tr = X_all_proc[tr]
+                X_va = X_all_proc[va]
+                X_te = X_all_proc[te]
+                
+                descriptor_dim = X_tr.shape[1]
+                logger.info(f"[{target}] split {i}: Using {descriptor_dim} descriptors")
 
             df_tr, df_va, df_te = df_input.iloc[tr].reset_index(drop=True), df_input.iloc[va].reset_index(drop=True), df_input.iloc[te].reset_index(drop=True)
 
-            train_loader, val_loader, test_loader, scaler = build_attentivefp_loaders(args, df_tr, df_va, df_te, smiles_column, target, eval=False)
+            train_loader, val_loader, test_loader, scaler = build_attentivefp_loaders(
+                args, df_tr, df_va, df_te, smiles_column, target, 
+                desc_tr=X_tr, desc_va=X_va, desc_te=X_te, eval=False
+            )
 
             model = create_attentivefp_model(
-                task_type=args.task_type, n_classes=n_classes_per_target.get(target, None), hidden_channels=args.hidden,
-                num_layers=2, num_timesteps=2, dropout=0.0
+                task_type=args.task_type, n_classes=n_classes_per_target.get(target, None), 
+                hidden_channels=args.hidden, num_layers=2, num_timesteps=2, dropout=0.0,
+                descriptor_dim=descriptor_dim
             ).to(device)
             
             
