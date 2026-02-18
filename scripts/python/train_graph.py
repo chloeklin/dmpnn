@@ -632,8 +632,10 @@ for target in target_columns:
             processed_descriptor_data = None
 
         # Create datasets after cleaning
-        # PPG uses MoleculeDataset like other small molecule models
-        DS = data.MoleculeDataset if args.model_name in ["DMPNN", "DMPNN_DiffPool", "PPG"] else data.PolymerDataset
+        # Small molecule models (DMPNN, PPG, GAT, GIN, etc.) use MoleculeDataset
+        # Only wDMPNN uses PolymerDataset (for polymer-specific datapoints with edges)
+        small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG", "GIN", "GIN0", "GINE", "GAT", "GATv2", "AttentiveFP"]
+        DS = data.MoleculeDataset if args.model_name in small_molecule_models else data.PolymerDataset
         train = DS(train_data[i], featurizer)
         val = DS(val_data[i], featurizer)
         test = DS(test_data[i], featurizer)
