@@ -236,7 +236,10 @@ try:
             print(f"Generating: {dataset} {model}{target_info}")
             
             # Call the generate_training_script.sh
-            result = subprocess.run(target_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            # Use shlex.quote to properly escape arguments with spaces
+            import shlex
+            cmd_str = ' '.join(shlex.quote(arg) for arg in target_args)
+            result = subprocess.run(cmd_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             
             if result.returncode != 0:
                 print(f"  ❌ Error: {result.stderr}")
