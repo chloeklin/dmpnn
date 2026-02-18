@@ -60,6 +60,9 @@ class MolGraphCache(MolGraphCacheFacade):
             # If input is a PolymerDatapoint, extract mol and edges
             if hasattr(input_data, 'mol') and hasattr(input_data, 'edges'):
                 self._mgs.append(featurizer(input_data.mol, input_data.edges, V_f, E_f))
+            # If input is a MoleculeDatapoint, extract mol only
+            elif hasattr(input_data, 'mol'):
+                self._mgs.append(featurizer(input_data.mol, V_f, E_f))
             else:
                 self._mgs.append(featurizer(input_data, V_f, E_f))
 
@@ -96,5 +99,8 @@ class MolGraphCacheOnTheFly(MolGraphCacheFacade):
         # If input is a PolymerDatapoint, extract mol and edges
         if hasattr(input_data, 'mol') and hasattr(input_data, 'edges'):
             return self._featurizer(input_data.mol, input_data.edges, self._V_fs[index], self._E_fs[index])
+        # If input is a MoleculeDatapoint, extract mol only
+        elif hasattr(input_data, 'mol'):
+            return self._featurizer(input_data.mol, self._V_fs[index], self._E_fs[index])
         # Otherwise, assume it's a regular molecule
         return self._featurizer(input_data, self._V_fs[index], self._E_fs[index])
