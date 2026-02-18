@@ -204,7 +204,16 @@ class BoundedRMSE(BoundedMixin, RMSE):
 
 
 @MetricRegistry.register("r2")
-class R2Score(torchmetrics.R2Score):
+class R2Score(torchmetrics.Metric):
+    """Numerically stable R² that collects predictions/targets and computes
+    in float64 at ``compute()`` time.  This avoids the catastrophic
+    cancellation that ``torchmetrics.R2Score`` suffers from when target
+    values are very small (e.g. diffusivities ~1e-8)."""
+
+    is_differentiable = False
+    higher_is_better = True
+    full_state_update = False
+
     def __init__(self, task_weights: ArrayLike = 1.0, **kwargs):
         """
         Parameters
@@ -216,9 +225,23 @@ class R2Score(torchmetrics.R2Score):
         super().__init__()
         task_weights = torch.as_tensor(task_weights, dtype=torch.float).view(1, -1)
         self.register_buffer("task_weights", task_weights)
+        self.add_state("preds_list", default=[], dist_reduce_fx="cat")
+        self.add_state("targets_list", default=[], dist_reduce_fx="cat")
 
     def update(self, preds: Tensor, targets: Tensor, mask: Tensor, *args, **kwargs):
-        super().update(preds[mask].double(), targets[mask].double())
+        p = preds[mask].detach().double()
+        t = targets[mask].detach().double()
+        self.preds_list.append(p)
+        self.targets_list.append(t)
+
+    def compute(self) -> Tensor:
+        preds = torch.cat(self.preds_list)
+        targets = torch.cat(self.targets_list)
+        ss_res = torch.sum((preds - targets) ** 2)
+        ss_tot = torch.sum((targets - targets.mean()) ** 2)
+        if ss_tot == 0:
+            return torch.tensor(0.0)
+        return (1 - ss_res / ss_tot).float()
 
 
 @LossFunctionRegistry.register("mve")
