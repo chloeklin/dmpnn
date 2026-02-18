@@ -44,10 +44,10 @@ eaip_targets: &eaip_targets
   - IP vs SHE (eV)
 
 htpmd_targets: &htpmd_targets
-  # - Conductivity
-  # - Li Diffusivity
-  # - TFSI Diffusivity
-  # - Poly Diffusivity
+  - Conductivity
+  - Li Diffusivity
+  - TFSI Diffusivity
+  - Poly Diffusivity
   - Transference Number
 
 experiments:
@@ -289,3 +289,18 @@ experiments:
   #   incl_rdkit: true
   #   walltime: "2:30:00"
   #   targets: *opv_targets
+
+
+
+
+
+
+
+
+
+
+# PPG
+  - <<: *htpmd_base
+    model: PPG
+    walltime: "3:30:00"
+    targets: *htpmd_targets
