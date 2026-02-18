@@ -127,7 +127,8 @@ SUFFIX="_${MODEL}"
 [ "$TASK_TYPE" != "reg" ]  && SUFFIX="${SUFFIX}_${TASK_TYPE}"
 [ -n "$POLYMER_TYPE" ]     && SUFFIX="${SUFFIX}_$POLYMER_TYPE"
 [ -n "$TRAIN_SIZE" ]       && SUFFIX="${SUFFIX}_ts${TRAIN_SIZE}"
-[ -n "$TARGET" ]           && SUFFIX="${SUFFIX}_$TARGET"
+# Replace spaces with underscores in target name for job name compatibility
+[ -n "$TARGET" ]           && SUFFIX="${SUFFIX}_${TARGET// /_}"
 
 OUTPUT_SCRIPT="train_${DATASET}${SUFFIX}.sh"
 

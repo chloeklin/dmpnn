@@ -434,7 +434,10 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
             # outside blocks are ~-inf -> 0 after softmax
 
             # ---- per-graph coarsening (sparse, vectorized) ----
-            mgs_next = []
+            Vp_list = []
+            Ep_list = []
+            edge_index_list = []
+            rev_p_list = []
             lp_sum, ent_sum = 0.0, 0.0
 
             for g in range(G):
@@ -494,26 +497,24 @@ class BondMessagePassingWithDiffPool(_DiffPoolMixin, _MessagePassingBase):
                 # build pooled edges from Ap_g (threshold > 0; weights from Ap_g)
                 edge_index_p, E_p, rev_p = self._ap_to_edges(Ap_g)
 
-                # --- keep everything as tensors; no .cpu().numpy() ---
-                mg_next = MolGraph(
-                    V=Vp_g.detach().cpu().numpy(),      # instead of Vp_g
-                    E=E_p.detach().cpu().numpy(),       # instead of E_p
-                    edge_index=edge_index_p.detach().cpu().numpy(),
-                    rev_edge_index=rev_p.detach().cpu().numpy(),
-                )
-
-                mgs_next.append(mg_next)
+                # --- keep everything as tensors (NO .detach() to prevent data leakage) ---
+                Vp_list.append(Vp_g)
+                Ep_list.append(E_p)
+                edge_index_list.append(edge_index_p)
+                rev_p_list.append(rev_p)
 
 
             total_lp += lp_sum
             total_ent += ent_sum
 
             # ---- next graph level or stop ----
-            if not mgs_next:
+            if not Vp_list:
                 break
 
-            cur_bmg = BatchMolGraph(mgs_next)
-            cur_bmg.to(Z.device, dtype=Z.dtype)
+            # Create BatchMolGraph directly from tensors (keeps gradients)
+            cur_bmg = self._create_batch_from_tensors(Vp_list, Ep_list, edge_index_list, rev_p_list)
+            if cur_bmg.V.device != Z.device or cur_bmg.V.dtype != Z.dtype:
+                cur_bmg.to(Z.device, dtype=Z.dtype)
 
             # Prepare next-level encoder if needed (d_v = current Z dim; d_e = coarsened E dim)
             if level + 1 < self.depth and len(self.encoders) <= level + 1:

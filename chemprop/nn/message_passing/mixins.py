@@ -198,6 +198,51 @@ class _DiffPoolMixin:
                         torch.stack([dst, src], 0)], dim=1)
         val = torch.ones(idx.size(1), device=device, dtype=dtype)
         return torch.sparse_coo_tensor(idx, val, (N, N))
+    
+    def _create_batch_from_tensors(self, Vp_list, Ep_list, edge_index_list, rev_p_list):
+        """Create BatchMolGraph directly from tensors without numpy conversion.
+        This keeps gradients flowing through the computation graph."""
+        from chemprop.data.collate import BatchMolGraph
+        
+        if not Vp_list:
+            # Return empty batch
+            bmg = BatchMolGraph.__new__(BatchMolGraph)
+            bmg.V = torch.empty((0, 0), dtype=torch.float32)
+            bmg.E = torch.empty((0, 0), dtype=torch.float32)
+            bmg.edge_index = torch.empty((2, 0), dtype=torch.long)
+            bmg.rev_edge_index = torch.empty((0,), dtype=torch.long)
+            bmg.batch = torch.empty((0,), dtype=torch.long)
+            bmg._BatchMolGraph__size = 0
+            return bmg
+        
+        Vs_cat = []
+        Es_cat = []
+        edge_indexes_cat = []
+        rev_edge_indexes_cat = []
+        batch_indexes = []
+        
+        num_nodes = 0
+        num_edges = 0
+        for i, (Vp, Ep, ei_p, rev_p) in enumerate(zip(Vp_list, Ep_list, edge_index_list, rev_p_list)):
+            Vs_cat.append(Vp)
+            Es_cat.append(Ep)
+            edge_indexes_cat.append(ei_p + num_nodes)
+            rev_edge_indexes_cat.append(rev_p + num_edges)
+            batch_indexes.append(torch.full((Vp.size(0),), i, dtype=torch.long, device=Vp.device))
+            
+            num_nodes += Vp.size(0)
+            num_edges += ei_p.size(1)
+        
+        # Create BatchMolGraph directly without going through MolGraph
+        bmg = BatchMolGraph.__new__(BatchMolGraph)
+        bmg.V = torch.cat(Vs_cat, dim=0)
+        bmg.E = torch.cat(Es_cat, dim=0)
+        bmg.edge_index = torch.cat(edge_indexes_cat, dim=1)
+        bmg.rev_edge_index = torch.cat(rev_edge_indexes_cat, dim=0)
+        bmg.batch = torch.cat(batch_indexes, dim=0)
+        bmg._BatchMolGraph__size = len(Vp_list)
+        
+        return bmg
 
 
 

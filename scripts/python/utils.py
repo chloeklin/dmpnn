@@ -858,6 +858,41 @@ def build_model_and_trainer(
         )
 
         agg = nn.IdentityAggregation()
+    elif args.model_name == "GIN":
+        mp = nn.GINMessagePassing(
+            eps_learnable=True,
+            mlp_layers=getattr(args, "gin_mlp_layers", 2),
+            use_edge_features=True
+        )
+        agg = nn.MeanAggregation()
+    elif args.model_name == "GIN0":
+        mp = nn.GIN0MessagePassing(
+            mlp_layers=getattr(args, "gin_mlp_layers", 2),
+            use_edge_features=True
+        )
+        agg = nn.MeanAggregation()
+    elif args.model_name == "GINE":
+        mp = nn.GINEMessagePassing(
+            eps_learnable=True,
+            mlp_layers=getattr(args, "gin_mlp_layers", 2)
+        )
+        agg = nn.MeanAggregation()
+    elif args.model_name == "GAT":
+        mp = nn.GATMessagePassing(
+            num_heads=getattr(args, "gat_num_heads", 4),
+            concat_heads=getattr(args, "gat_concat_heads", True),
+            attention_dropout=getattr(args, "gat_attention_dropout", 0.0),
+            use_edge_features=True
+        )
+        agg = nn.MeanAggregation()
+    elif args.model_name == "GATv2":
+        mp = nn.GATv2MessagePassing(
+            num_heads=getattr(args, "gat_num_heads", 4),
+            concat_heads=getattr(args, "gat_concat_heads", True),
+            attention_dropout=getattr(args, "gat_attention_dropout", 0.0),
+            use_edge_features=True
+        )
+        agg = nn.MeanAggregation()
     else:
         raise ValueError(f"Unsupported model_name: {args.model_name}")
     

@@ -1,6 +1,8 @@
 from .base import AtomMessagePassing, BondMessagePassing, WeightedBondMessagePassing, BondMessagePassingWithDiffPool
 from .mol_atom_bond import MABAtomMessagePassing, MABBondMessagePassing
 from .multi import MulticomponentMessagePassing
+from .gat import GATMessagePassing, GATv2MessagePassing
+from .gin import GINMessagePassing, GIN0MessagePassing, GINEMessagePassing
 from .proto import MABMessagePassing, MessagePassing
 
 __all__ = [
@@ -12,5 +14,10 @@ __all__ = [
     "MABAtomMessagePassing",
     "MABBondMessagePassing",
     "MulticomponentMessagePassing",
-    "BondMessagePassingWithDiffPool"
+    "BondMessagePassingWithDiffPool",
+    "GATMessagePassing",
+    "GATv2MessagePassing",
+    "GINMessagePassing",
+    "GIN0MessagePassing",
+    "GINEMessagePassing",
 ]

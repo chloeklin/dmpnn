@@ -21,6 +21,7 @@ from .molgraph import (
     RxnMode,
     SimpleMoleculeMolGraphFeaturizer,
     PolymerMolGraphFeaturizer,
+    PPGMolGraphFeaturizer,
 )
 
 __all__ = [
@@ -37,6 +38,8 @@ __all__ = [
     "MolGraphCache",
     "MolGraphCacheOnTheFly",
     "SimpleMoleculeMolGraphFeaturizer",
+    "PolymerMolGraphFeaturizer",
+    "PPGMolGraphFeaturizer",
     "CondensedGraphOfReactionFeaturizer",
     "CGRFeaturizer",
     "RxnMode",

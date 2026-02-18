@@ -189,6 +189,26 @@ models:
     smiles_column: smiles
     ignore_columns: []
 
+  GIN:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
+  
+  GIN0:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
+  
+  GINE:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
+
+  GAT:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
+  
+  GATv2:
+    smiles_column: smiles
+    ignore_columns: [WDMPNN_Input]
+
   AttentiveFP:
     smiles_column: smiles
     ignore_columns: [WDMPNN_Input]
