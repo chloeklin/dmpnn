@@ -19,6 +19,11 @@ from .message_passing import (
     MessagePassing,
     MulticomponentMessagePassing,
     BondMessagePassingWithDiffPool,
+    GATMessagePassing,
+    GATv2MessagePassing,
+    GINMessagePassing,
+    GIN0MessagePassing,
+    GINEMessagePassing,
 )
 from .metrics import (
     MAE,
@@ -125,6 +130,11 @@ __all__ = [
     "MABBondMessagePassing",
     "MABMessagePassing",
     "MulticomponentMessagePassing",
+    "GATMessagePassing",
+    "GATv2MessagePassing",
+    "GINMessagePassing",
+    "GIN0MessagePassing",
+    "GINEMessagePassing",
     "Predictor",
     "PredictorRegistry",
     "QuantileFFN",

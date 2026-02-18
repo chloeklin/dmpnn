@@ -218,7 +218,7 @@ class R2Score(torchmetrics.R2Score):
         self.register_buffer("task_weights", task_weights)
 
     def update(self, preds: Tensor, targets: Tensor, mask: Tensor, *args, **kwargs):
-        super().update(preds[mask], targets[mask])
+        super().update(preds[mask].double(), targets[mask].double())
 
 
 @LossFunctionRegistry.register("mve")
