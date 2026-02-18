@@ -275,7 +275,10 @@ class MPNN(pl.LightningModule):
         for m in self.metrics[:-1]:
             # m.update(preds, targets, mask, weights, lt_mask, gt_mask)
             m.update(preds_for_metrics, targets_for_metrics, mask_for_metrics, weights_for_metrics, lt_mask, gt_mask)
-            self.log(f"{label}/{m.alias}", m, batch_size=batch_size)
+            # Use getattr with fallback to handle cloned metrics that don't have alias attribute
+            metric_alias = getattr(m, 'alias', None)
+            if metric_alias is not None:
+                self.log(f"{label}/{metric_alias}", m, batch_size=batch_size)
 
     def predict_step(self, batch: BatchType, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
         bmg, V_d, X_d, *_ = batch

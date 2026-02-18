@@ -115,7 +115,7 @@ fi
 [ -n "$EXPORT_EMBEDDINGS" ]  && ARGS="$ARGS $EXPORT_EMBEDDINGS"
 [ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
-[ -n "$TARGET" ]             && ARGS="$ARGS --target $TARGET"
+[ -n "$TARGET" ]             && ARGS="$ARGS --target \"$TARGET\""
 
 # Filename/jobname suffix
 SUFFIX="_${MODEL}"

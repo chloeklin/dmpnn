@@ -429,7 +429,10 @@ class MolAtomBondMPNN(pl.LightningModule):
 
             for m in metrics[:-1]:
                 m.update(preds, targets, mask, weights, lt_mask, gt_mask)
-                self.log(f"{kind}_{label}/{m.alias}", m, batch_size=targets.shape[0])
+                # Use getattr with fallback to handle cloned metrics that don't have alias attribute
+                metric_alias = getattr(m, 'alias', None)
+                if metric_alias is not None:
+                    self.log(f"{kind}_{label}/{metric_alias}", m, batch_size=targets.shape[0])
 
     def predict_step(
         self, batch: MolAtomBondTrainingBatch, batch_idx: int, dataloader_idx: int = 0
