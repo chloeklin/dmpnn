@@ -810,11 +810,17 @@ def main():
                        help='Exclude tabular baseline models from plots (useful when they have very different scales)')
     parser.add_argument('--exclude-models', type=str, nargs='+', default=[],
                        help='Exclude specific models from plots (e.g., --exclude-models Linear LogReg)')
+    parser.add_argument('--include-models', type=str, nargs='+', default=[],
+                       help='Only include specific models in plots (e.g., --include-models DMPNN wDMPNN). Cannot be used with --exclude-models.')
     parser.add_argument('--dataset', type=str, nargs='+', default=[],
                        help='Only process specific datasets (e.g., --dataset tc insulator)')
     parser.add_argument('--best-tabular-graph-only', action='store_true',
                        help='Only plot the best Tabular model vs the best Graph model per dataset/target/metric')
     args = parser.parse_args()
+    
+    # Validate that --exclude-models and --include-models are not used together
+    if args.exclude_models and args.include_models:
+        parser.error("Cannot use both --exclude-models and --include-models at the same time")
     
     # Set up paths relative to script location
     script_dir = Path(__file__).parent
@@ -839,6 +845,10 @@ def main():
         # Create safe directory name from excluded models
         excluded_str = "_".join(args.exclude_models).replace("/", "_").replace(" ", "_")
         subdirs.append(f"exclude_{excluded_str}")
+    if args.include_models:
+        # Create safe directory name from included models
+        included_str = "_".join(args.include_models).replace("/", "_").replace(" ", "_")
+        subdirs.append(f"include_{included_str}")
     if args.dataset:
         # Create directory name for specific datasets
         datasets_str = "_".join(args.dataset)
@@ -919,23 +929,31 @@ def main():
                     # Only create simplified best Tabular vs best Graph plots
                     create_best_model_comparison_plots(data, dataset, metric, task_type, output_dir)
                 else:
-                    # Apply exclusions
+                    # Apply exclusions/inclusions
                     plot_data = data.copy()
 
                     # Exclude entire tabular method if flag is set
                     if args.exclude_tabular:
                         plot_data = plot_data[plot_data['method'] != 'Tabular']
 
-                    # Exclude specific models
+                    # Apply model filtering (either exclude or include)
                     if args.exclude_models:
                         plot_data = plot_data[~plot_data['model'].isin(args.exclude_models)]
+                    elif args.include_models:
+                        plot_data = plot_data[plot_data['model'].isin(args.include_models)]
 
-                    # Create main plot with exclusions applied
+                    # Create main plot with exclusions/inclusions applied
                     create_combined_comparison_plots(plot_data, dataset, metric, output_dir)
 
                     # If tabular exists and not excluded, also create a graph-only plot for better visibility
-                    if has_tabular and not args.exclude_tabular and not args.exclude_models:
+                    if has_tabular and not args.exclude_tabular:
                         graph_only_data = data[data['method'] != 'Tabular']
+                        # Apply model filtering to graph-only data as well
+                        if args.exclude_models:
+                            graph_only_data = graph_only_data[~graph_only_data['model'].isin(args.exclude_models)]
+                        elif args.include_models:
+                            graph_only_data = graph_only_data[graph_only_data['model'].isin(args.include_models)]
+                        # Only create graph-only plot if there's at least one graph model remaining
                         if not graph_only_data.empty:
                             # Save with different filename
                             create_combined_comparison_plots_with_suffix(graph_only_data, dataset, metric, output_dir, '_graph_only')

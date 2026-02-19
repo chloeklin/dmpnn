@@ -127,7 +127,8 @@ class GraphCSV(torch.utils.data.Dataset):
         
         # Add descriptors if available
         if self.descriptors is not None:
-            d.descriptors = torch.tensor(self.descriptors[i], dtype=torch.float)
+            # Store as 2D tensor [1, descriptor_dim] so PyG batching works correctly
+            d.descriptors = torch.tensor(self.descriptors[i], dtype=torch.float).unsqueeze(0)
         
         return d
 
@@ -233,6 +234,7 @@ class AttentiveFPWithDescriptors(nn.Module):
             return embeddings
         
         # Concatenate descriptors and pass through output layer
+        # descriptors should be [batch_size, descriptor_dim] from PyG batching
         combined = torch.cat([embeddings, descriptors], dim=1)
         return self.output_layer(combined)
 

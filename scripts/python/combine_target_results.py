@@ -67,6 +67,12 @@ def combine_results(results_dir: str):
     
     # Process each group of files
     for base_name, file_paths in file_groups.items():
+        # Check if combined result file already exists
+        output_path = results_dir / f"{base_name}_results.csv"
+        if output_path.exists():
+            print(f"Skipping {base_name}: combined file already exists at {output_path}")
+            continue
+        
         combined_df = pd.DataFrame()
         successfully_processed = []
         
