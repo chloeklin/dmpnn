@@ -40,18 +40,18 @@ from utils import set_seed
 plt.style.use('default')
 sns.set_palette("husl")
 
-# Dataset-specific color palette (consistent with compare_tabular_vs_graph.py)
+# Dataset-specific color palette using Paul Tol's colorblind-friendly colors
 DATASET_COLORS = {
-    'tc': '#1f77b4',              # Blue
-    'insulator': '#ff7f0e',       # Orange
-    'htpmd': '#2ca02c',           # Green
-    'polyinfo': '#d62728',        # Red
-    'camb3lyp': '#9467bd',
-    'cam_b3lyp': '#9467bd',        # Purple
-    'opv_camb3lyp': '#9467bd',    # Purple (same as camb3lyp)
-    'ea_ip': '#8c564b',           # Brown
-    'pae_tg_mono211': '#e377c2',  # Pink
-    'pae_tg_paper211': '#7f7f7f', # Gray
+    'tc': '#4477AA',              # Blue (Tol's bright)
+    'insulator': '#EE7733',       # Orange (Tol's vibrant)
+    'htpmd': '#228833',           # Green (Tol's bright)
+    'polyinfo': '#EE6677',        # Red (Tol's bright)
+    'camb3lyp': '#AA3377',        # Purple (Tol's muted)
+    'cam_b3lyp': '#AA3377',       # Purple
+    'opv_camb3lyp': '#AA3377',    # Purple
+    'ea_ip': '#CCBB44',           # Yellow (Tol's bright)
+    'pae_tg_mono211': '#EE3377',  # Magenta (Tol's vibrant)
+    'pae_tg_paper211': '#BBBBBB', # Grey (Tol's vibrant)
 }
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -172,14 +172,14 @@ def plot_feature_variance_histogram(features: np.ndarray, feature_names: List[st
     plt.figure(figsize=(12, 6))
     
     if len(meaningful_variances) > 0:
-        plt.hist(meaningful_variances, bins=50, alpha=0.7, edgecolor='black', color='steelblue')
+        plt.hist(meaningful_variances, bins=50, alpha=0.7, edgecolor='#333333', color='#4477AA')  # Tol's blue
         
         # Add statistics
         mean_var = np.mean(meaningful_variances)
         median_var = np.median(meaningful_variances)
         
-        plt.axvline(mean_var, color='red', linestyle='--', alpha=0.8, label=f'Mean: {mean_var:.2e}')
-        plt.axvline(median_var, color='orange', linestyle='--', alpha=0.8, label=f'Median: {median_var:.2e}')
+        plt.axvline(mean_var, color='#EE6677', linestyle='--', alpha=0.8, label=f'Mean: {mean_var:.2e}')  # Tol's red
+        plt.axvline(median_var, color='#EE7733', linestyle='--', alpha=0.8, label=f'Median: {median_var:.2e}')  # Tol's orange
         plt.legend()
     else:
         plt.text(0.5, 0.5, 'No features with meaningful variance', 
@@ -223,7 +223,7 @@ def plot_feature_variance_histogram(features: np.ndarray, feature_names: List[st
     stats_text += f'\nDescriptors: {desc_exact_zero} zero, {desc_low_variance} low, {desc_normal} normal'
     
     plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
-             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=10)
+             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='#FFF4E6', alpha=0.8), fontsize=10)
     
     # Save plot
     output_path = Path("/Users/u6788552/Desktop/experiments/dmpnn") / output_dir
@@ -270,7 +270,7 @@ def plot_pca_scatter(features: np.ndarray, targets: np.ndarray, dataset_name: st
     explained_var = np.sum(pca.explained_variance_ratio_) * 100
     plt.text(0.02, 0.98, f'Explained variance: {explained_var:.1f}%', 
              transform=plt.gca().transAxes, verticalalignment='top',
-             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+             bbox=dict(boxstyle='round', facecolor='#E8F4F8', alpha=0.8))
     
     # Save plot
     output_path = Path("/Users/u6788552/Desktop/experiments/dmpnn") / output_dir
@@ -297,11 +297,11 @@ def plot_umap_embedding(features: np.ndarray, targets: np.ndarray, dataset_name:
     plt.figure(figsize=(10, 8))
     
     # Use dataset-specific color
-    dataset_color = DATASET_COLORS.get(dataset_name, '#1f77b4')
+    dataset_color = DATASET_COLORS.get(dataset_name, '#4477AA')  # Default to Tol's blue
     
     # Create scatter plot with dataset-specific color
     scatter = plt.scatter(features_umap[:, 0], features_umap[:, 1], 
-                         c=dataset_color, alpha=0.6, s=50, edgecolors='white', linewidths=0.5)
+                         c=dataset_color, alpha=0.6, s=50, edgecolors='#BBBBBB', linewidths=0.5)
     
     # # OLD: Color by target values with viridis colormap
     # scatter = plt.scatter(features_umap[:, 0], features_umap[:, 1], 
@@ -378,7 +378,7 @@ def plot_tsne_embedding(features: np.ndarray, targets: np.ndarray, dataset_name:
     if len(features_scaled) < len(features):
         plt.text(0.02, 0.98, f'Showing {len(features_scaled)} of {len(features)} samples', 
                  transform=plt.gca().transAxes, verticalalignment='top',
-                 bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+                 bbox=dict(boxstyle='round', facecolor='#E8F4F8', alpha=0.8))
     
     # Save plot
     output_path = Path("/Users/u6788552/Desktop/experiments/dmpnn") / output_dir
@@ -421,11 +421,11 @@ def plot_top_feature_correlations(features: np.ndarray, feature_names: List[str]
     top_corrs = [correlations[i] * np.sign(pearsonr(features[:, i], targets)[0]) for i in top_indices]
     top_pvals = [p_values[i] for i in top_indices]
     
-    # Create color map based on correlation direction
-    colors = ['red' if corr < 0 else 'blue' for corr in top_corrs]
+    # Create color map based on correlation direction using Tol's colors
+    colors = ['#EE6677' if corr < 0 else '#4477AA' for corr in top_corrs]  # Red for negative, Blue for positive
     
     # Create bar plot
-    bars = plt.bar(range(len(top_features)), top_corrs, color=colors, alpha=0.7, edgecolor='black')
+    bars = plt.bar(range(len(top_features)), top_corrs, color=colors, alpha=0.7, edgecolor='#333333')
     
     # Add significance stars
     for i, (bar, p_val) in enumerate(zip(bars, top_pvals)):
@@ -453,18 +453,18 @@ def plot_top_feature_correlations(features: np.ndarray, feature_names: List[str]
     
     # Add grid and horizontal line at y=0
     plt.grid(True, alpha=0.3, axis='y')
-    plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    plt.axhline(y=0, color='#333333', linestyle='-', alpha=0.3)
     
     # Add legend for correlation direction
     from matplotlib.patches import Patch
-    legend_elements = [Patch(facecolor='blue', alpha=0.7, label='Positive correlation'),
-                      Patch(facecolor='red', alpha=0.7, label='Negative correlation')]
+    legend_elements = [Patch(facecolor='#4477AA', alpha=0.7, label='Positive correlation'),
+                      Patch(facecolor='#EE6677', alpha=0.7, label='Negative correlation')]
     plt.legend(handles=legend_elements, loc='upper right')
     
     # Add text for significance
     plt.text(0.02, 0.98, 'Significance: *** p<0.001, ** p<0.01, * p<0.05', 
              transform=plt.gca().transAxes, verticalalignment='top',
-             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+             bbox=dict(boxstyle='round', facecolor='#FFF4E6', alpha=0.8))
     
     plt.tight_layout()
     

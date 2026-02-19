@@ -180,7 +180,7 @@ class MPNN(pl.LightningModule):
                     # Not logging auxiliary losses separately to avoid CSVLogger header conflicts
                     # They are still included in the total train_loss
 
-        self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True, on_epoch=True, on_step=False)
+        self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
 
         return l
 
@@ -273,12 +273,13 @@ class MPNN(pl.LightningModule):
             preds = preds[..., 0]
 
         for m in self.metrics[:-1]:
-            # m.update(preds, targets, mask, weights, lt_mask, gt_mask)
+            # Update all metrics
             m.update(preds_for_metrics, targets_for_metrics, mask_for_metrics, weights_for_metrics, lt_mask, gt_mask)
-            # Use getattr with fallback to handle cloned metrics that don't have alias attribute
-            metric_alias = getattr(m, 'alias', None)
+            # Check for alias at instance level first, then class level
+            metric_alias = getattr(m, 'alias', None) or getattr(type(m), 'alias', None)
+            # Only log metrics that have an alias to avoid CSVLogger errors
             if metric_alias is not None:
-                self.log(f"{label}/{metric_alias}", m, batch_size=batch_size)
+                self.log(f"{label}/{metric_alias}", m, batch_size=batch_size, logger=True, prog_bar=False)
 
     def predict_step(self, batch: BatchType, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
         bmg, V_d, X_d, *_ = batch
