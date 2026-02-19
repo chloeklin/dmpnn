@@ -75,6 +75,7 @@ class MPNN(pl.LightningModule):
         max_lr: float = 1e-3,
         final_lr: float = 1e-4,
         X_d_transform: ScaleTransform | None = None,
+        fusion_mode: str = "late_concat",
     ):
         super().__init__()
         # manually add X_d_transform to hparams to suppress lightning's warning about double saving
@@ -106,6 +107,7 @@ class MPNN(pl.LightningModule):
         self.init_lr = init_lr
         self.max_lr = max_lr
         self.final_lr = final_lr
+        self.fusion_mode = fusion_mode
 
     @property
     def output_dim(self) -> int:
@@ -127,8 +129,16 @@ class MPNN(pl.LightningModule):
         self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
     ) -> Tensor:
         """the learned fingerprints for the input molecules"""
+        # Standardize X_d once (used by both film and late_concat paths)
+        X_d_transformed = self.X_d_transform(X_d) if X_d is not None else None
+
         # 1) Encodings from message passing (node-level OR graph-level)
-        H_v = self.message_passing(bmg, V_d)
+        # In film mode, pass X_d into message passing for early conditioning
+        if self.fusion_mode == "film" and X_d_transformed is not None:
+            H_v = self.message_passing(bmg, V_d, X_d=X_d_transformed)
+        else:
+            H_v = self.message_passing(bmg, V_d)
+
         if isinstance(self.agg, WeightedMeanAggregation):
             H = self.agg(H_v, bmg)         # gives it access to .atom_weights
         else:
@@ -145,8 +155,11 @@ class MPNN(pl.LightningModule):
         if isinstance(bmg, BatchPolymerMolGraph):
             H = H * bmg.degree_of_polym.unsqueeze(1)
 
-        # 5) Concatenate tabular descriptors if present
-        return H if X_d is None else torch.cat((H, self.X_d_transform(X_d)), dim=1)
+        # 5) Concatenate tabular descriptors if present (late_concat or none mode)
+        # In film mode, descriptors are already integrated via early conditioning
+        if self.fusion_mode == "film":
+            return H
+        return H if X_d is None else torch.cat((H, X_d_transformed), dim=1)
 
     def encoding(
         self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None, i: int = -1

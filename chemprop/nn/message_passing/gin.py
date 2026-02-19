@@ -13,6 +13,7 @@ from torch import Tensor
 from chemprop.conf import DEFAULT_ATOM_FDIM, DEFAULT_BOND_FDIM, DEFAULT_HIDDEN_DIM
 from chemprop.data import BatchMolGraph
 from chemprop.exceptions import InvalidShapeError
+from chemprop.nn.film import FilmConditioner
 from chemprop.nn.message_passing.proto import MessagePassing
 from chemprop.nn.transforms import GraphTransform, ScaleTransform
 from chemprop.nn.utils import Activation, get_activation_function
@@ -76,11 +77,12 @@ class GINMessagePassing(MessagePassing, HyperparametersMixin):
         V_d_transform: ScaleTransform | None = None,
         graph_transform: GraphTransform | None = None,
         use_edge_features: bool = True,
+        film_conditioner: FilmConditioner | None = None,
     ):
         super().__init__()
         
         # Save hyperparameters
-        ignore_list = ["V_d_transform", "graph_transform"]
+        ignore_list = ["V_d_transform", "graph_transform", "film_conditioner"]
         if isinstance(activation, nn.Module):
             ignore_list.append("activation")
         self.save_hyperparameters(ignore=ignore_list)
@@ -127,13 +129,16 @@ class GINMessagePassing(MessagePassing, HyperparametersMixin):
         
         # Descriptor projection (if using extra features)
         self.W_d = nn.Linear(d_h + d_vd, d_h) if d_vd else None
+        
+        # FiLM conditioning
+        self.film_conditioner = film_conditioner
     
     @property
     def output_dim(self) -> int:
         """Return the output dimension of the message passing layer."""
         return self.W_d.out_features if self.W_d is not None else self.W_output.out_features
     
-    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         """Forward pass through GIN layers.
         
         Parameters
@@ -142,6 +147,8 @@ class GINMessagePassing(MessagePassing, HyperparametersMixin):
             Batched molecular graph
         V_d : Tensor | None, default=None
             Additional vertex descriptors [n_atoms, d_vd]
+        X_d : Tensor | None, default=None
+            Global descriptor vector [B, D] for FiLM conditioning
         
         Returns
         -------
@@ -184,6 +191,9 @@ class GINMessagePassing(MessagePassing, HyperparametersMixin):
         src_idx = edge_index[0]
         dst_idx = edge_index[1]
         
+        # Precompute node-to-graph mapping for FiLM (GIN operates on node hidden states)
+        node_graph_ids = bmg.batch if (self.film_conditioner is not None and X_d is not None) else None
+        
         for layer in range(self.depth):
             # Aggregate messages from neighbors: Σ_{u∈N(v)} h_u
             n_atoms = H.size(0)
@@ -195,6 +205,10 @@ class GINMessagePassing(MessagePassing, HyperparametersMixin):
             
             # Apply MLP
             H = self.gin_mlps[layer](H_updated)
+            
+            # Apply FiLM conditioning after each GIN layer
+            if self.film_conditioner is not None and X_d is not None and node_graph_ids is not None:
+                H = self.film_conditioner(H, X_d, layer_idx=layer, graph_ids=node_graph_ids)
         
         # Final output projection
         H = self.W_output(H)
@@ -240,7 +254,7 @@ class GINEMessagePassing(GINMessagePassing):
     where e_{uv} is the edge feature between nodes u and v.
     """
     
-    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         """Forward pass with edge features in aggregation."""
         bmg = self.graph_transform(bmg)
         
@@ -259,6 +273,9 @@ class GINEMessagePassing(GINMessagePassing):
         src_idx = edge_index[0]
         dst_idx = edge_index[1]
         
+        # Precompute node-to-graph mapping for FiLM
+        node_graph_ids = bmg.batch if (self.film_conditioner is not None and X_d is not None) else None
+        
         for layer in range(self.depth):
             # Aggregate messages with edge features: Σ_{u∈N(v)} ReLU(h_u + e_{uv})
             n_atoms = H.size(0)
@@ -273,6 +290,10 @@ class GINEMessagePassing(GINMessagePassing):
             
             # Apply MLP
             H = self.gin_mlps[layer](H_updated)
+            
+            # Apply FiLM conditioning after each GIN-E layer
+            if self.film_conditioner is not None and X_d is not None and node_graph_ids is not None:
+                H = self.film_conditioner(H, X_d, layer_idx=layer, graph_ids=node_graph_ids)
         
         # Final output projection
         H = self.W_output(H)

@@ -14,6 +14,7 @@ from torch import Tensor
 from chemprop.conf import DEFAULT_ATOM_FDIM, DEFAULT_BOND_FDIM, DEFAULT_HIDDEN_DIM
 from chemprop.data import BatchMolGraph
 from chemprop.exceptions import InvalidShapeError
+from chemprop.nn.film import FilmConditioner
 from chemprop.nn.message_passing.proto import MessagePassing
 from chemprop.nn.transforms import GraphTransform, ScaleTransform
 from chemprop.nn.utils import Activation, get_activation_function
@@ -88,6 +89,7 @@ class GATMessagePassing(MessagePassing, HyperparametersMixin):
         d_vd: int | None = None,
         V_d_transform: ScaleTransform | None = None,
         graph_transform: GraphTransform | None = None,
+        film_conditioner: FilmConditioner | None = None,
     ):
         super().__init__()
         
@@ -136,8 +138,11 @@ class GATMessagePassing(MessagePassing, HyperparametersMixin):
             self.W_d = nn.Linear(self.output_dim + d_vd, self.output_dim + d_vd, bias=bias)
         else:
             self.W_d = None
+        
+        # FiLM conditioning
+        self.film_conditioner = film_conditioner
 
-    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         """Forward pass through GAT layers.
         
         Parameters
@@ -146,6 +151,8 @@ class GATMessagePassing(MessagePassing, HyperparametersMixin):
             The batch of molecular graphs
         V_d : Tensor | None
             Additional vertex descriptors of shape (n_atoms, d_vd)
+        X_d : Tensor | None
+            Global descriptor vector [B, D] for FiLM conditioning
             
         Returns
         -------
@@ -157,11 +164,18 @@ class GATMessagePassing(MessagePassing, HyperparametersMixin):
         # Initial node features
         H = bmg.V
         
+        # Precompute node-to-graph mapping for FiLM
+        node_graph_ids = bmg.batch if (self.film_conditioner is not None and X_d is not None) else None
+        
         # Apply GAT layers
-        for layer in self.attention_layers:
+        for layer_idx, layer in enumerate(self.attention_layers):
             H = layer(H, bmg.edge_index, bmg.E if self.use_edge_features else None)
             H = self.tau(H)
             H = self.dropout(H)
+            
+            # Apply FiLM conditioning after each GAT layer
+            if self.film_conditioner is not None and X_d is not None and node_graph_ids is not None:
+                H = self.film_conditioner(H, X_d, layer_idx=layer_idx, graph_ids=node_graph_ids)
         
         # Handle additional descriptors
         if V_d is not None:
@@ -392,6 +406,7 @@ class GATv2MessagePassing(MessagePassing, HyperparametersMixin):
         d_vd: int | None = None,
         V_d_transform: ScaleTransform | None = None,
         graph_transform: GraphTransform | None = None,
+        film_conditioner: FilmConditioner | None = None,
     ):
         super().__init__()
         
@@ -440,17 +455,27 @@ class GATv2MessagePassing(MessagePassing, HyperparametersMixin):
             self.W_d = nn.Linear(self.output_dim + d_vd, self.output_dim + d_vd, bias=bias)
         else:
             self.W_d = None
+        
+        # FiLM conditioning
+        self.film_conditioner = film_conditioner
 
-    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         """Forward pass through GATv2 layers."""
         bmg = self.graph_transform(bmg)
         
         H = bmg.V
         
-        for layer in self.attention_layers:
+        # Precompute node-to-graph mapping for FiLM
+        node_graph_ids = bmg.batch if (self.film_conditioner is not None and X_d is not None) else None
+        
+        for layer_idx, layer in enumerate(self.attention_layers):
             H = layer(H, bmg.edge_index, bmg.E if self.use_edge_features else None)
             H = self.tau(H)
             H = self.dropout(H)
+            
+            # Apply FiLM conditioning after each GATv2 layer
+            if self.film_conditioner is not None and X_d is not None and node_graph_ids is not None:
+                H = self.film_conditioner(H, X_d, layer_idx=layer_idx, graph_ids=node_graph_ids)
         
         if V_d is not None:
             if self.V_d_transform is not None:

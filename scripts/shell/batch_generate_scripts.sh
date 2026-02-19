@@ -208,6 +208,21 @@ try:
         if train_size:
             args.append(f'train_size={train_size}')
         
+        # Add fusion_mode if specified (none | late_concat | film)
+        fusion_mode = exp.get('fusion_mode')
+        if fusion_mode:
+            args.append(f'fusion_mode={fusion_mode}')
+        
+        # Add film_layers if specified (all | last)
+        film_layers = exp.get('film_layers')
+        if film_layers:
+            args.append(f'film_layers={film_layers}')
+        
+        # Add film_hidden_dim if specified
+        film_hidden_dim = exp.get('film_hidden_dim')
+        if film_hidden_dim:
+            args.append(f'film_hidden_dim={film_hidden_dim}')
+        
         # Handle targets: can be a list, single value, or omitted
         targets = exp.get('targets')  # List of targets
         single_target = exp.get('target')  # Single target

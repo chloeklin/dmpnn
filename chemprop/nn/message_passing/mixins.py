@@ -43,15 +43,24 @@ class _WeightedBondMessagePassingMixin:
         # mirror your base class: if base applies W_h here, keep it; else leave raw
         return self.W_h(msg)                        
 
-    def forward(self, bmg: BatchPolymerMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(self, bmg: BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         bmg = self.graph_transform(bmg)
         H0  = self.initialize(bmg)
         H   = H0
-        for _ in range(1, self.depth):
+
+        # Precompute edge-to-graph mapping for FiLM
+        film = getattr(self, 'film_conditioner', None)
+        edge_graph_ids = bmg.batch[bmg.edge_index[0]] if (film is not None and X_d is not None) else None
+
+        for t in range(1, self.depth):
             if self.undirected:
                 H = (H + H[bmg.rev_edge_index]) / 2
             M = self.message(H, bmg)
             H = self.update(M, H0)
+
+            # Apply FiLM conditioning after each update step
+            if film is not None and X_d is not None and edge_graph_ids is not None:
+                H = film(H, X_d, layer_idx=t - 1, graph_ids=edge_graph_ids)
 
         # weighted EDGE->NODE aggregation (still inside MP)
         w = bmg.edge_weights

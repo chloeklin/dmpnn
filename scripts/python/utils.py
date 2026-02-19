@@ -60,6 +60,19 @@ def create_base_argument_parser(description="Train a graph model"):
     parser.add_argument('--batch_norm', action='store_true',
                         help='Enable batch normalization in the model')
     
+    # Fusion / FiLM arguments
+    parser.add_argument('--fusion_mode', type=str, default='late_concat',
+                        choices=['none', 'late_concat', 'film'],
+                        help='How to integrate global descriptors (X_d): '
+                             'none = no descriptors, '
+                             'late_concat = concatenate after GNN (default), '
+                             'film = FiLM early conditioning inside message passing')
+    parser.add_argument('--film_layers', type=str, default='all',
+                        choices=['all', 'last'],
+                        help='Which MP layers to apply FiLM to (default: all)')
+    parser.add_argument('--film_hidden_dim', type=int, default=None,
+                        help='Hidden dim of FiLM MLP trunk (default: message passing hidden dim)')
+
     # Output arguments
     parser.add_argument('--export_embeddings', action='store_true',
                         help='Export GNN embeddings/encodings for train/val/test sets after training')
@@ -832,6 +845,26 @@ def build_model_and_trainer(
             else None
         )
     
+    # ---- FiLM conditioner setup ----
+    from chemprop.nn.film import FilmConditioner
+    fusion_mode = getattr(args, 'fusion_mode', 'late_concat')
+    descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
+    film_conditioner = None
+
+    if fusion_mode == 'film' and descriptor_dim > 0:
+        from chemprop.conf import DEFAULT_HIDDEN_DIM
+        d_h = DEFAULT_HIDDEN_DIM  # will be overridden per-model if needed
+        # Number of MP layers (depth) varies by model; default 3 for DMPNN
+        # We create the conditioner after mp is built so we know the exact d_h and depth
+        # For now, just note that we need it
+        _film_requested = True
+    else:
+        _film_requested = False
+        if fusion_mode == 'film' and descriptor_dim == 0:
+            import warnings
+            warnings.warn("fusion_mode='film' but no descriptors provided. Falling back to 'none'.")
+            fusion_mode = 'none'
+
     # Create message passing and aggregation layers
     if args.model_name == "PPG":
         # PPG uses standard DMPNN architecture with PPGMolGraphFeaturizer
@@ -904,9 +937,47 @@ def build_model_and_trainer(
     else:
         raise ValueError(f"Unsupported model_name: {args.model_name}")
     
+    # ---- Attach FiLM conditioner to message passing (post-creation) ----
+    if _film_requested:
+        # Determine hidden dim and depth from the constructed message passing module
+        mp_hidden_dim = getattr(mp, 'output_dim', DEFAULT_HIDDEN_DIM)
+        # For DMPNN variants, the hidden dim of directed-edge states equals W_h output
+        if hasattr(mp, 'W_h') and hasattr(mp.W_h, 'out_features'):
+            mp_hidden_dim = mp.W_h.out_features
+        mp_depth = getattr(mp, 'depth', 3)
+        # For DMPNN, FiLM is applied (depth-1) times (layers 1..depth-1)
+        # For GIN/GAT, FiLM is applied depth times (layers 0..depth-1)
+        is_dmpnn_variant = args.model_name in ["DMPNN", "wDMPNN", "PPG", "DMPNN_SumPool", "DMPNN_AttnPool"]
+        n_film_layers = mp_depth - 1 if is_dmpnn_variant else mp_depth
+        n_film_layers = max(n_film_layers, 1)
+
+        film_hidden = getattr(args, 'film_hidden_dim', None) or mp_hidden_dim
+        film_layers_mode = getattr(args, 'film_layers', 'all')
+
+        film_conditioner = FilmConditioner(
+            d_descriptor=descriptor_dim,
+            d_hidden=mp_hidden_dim,
+            n_layers=n_film_layers,
+            film_hidden_dim=film_hidden,
+            film_layers_mode=film_layers_mode,
+        )
+        # Attach to message passing module
+        if hasattr(mp, 'film_conditioner'):
+            mp.film_conditioner = film_conditioner
+        else:
+            # For models that don't have the attribute natively (e.g., DiffPool wrapper)
+            import warnings
+            warnings.warn(f"Model {args.model_name} does not support FiLM conditioning natively. "
+                          f"FiLM conditioner will not be used.")
+            film_conditioner = None
+            fusion_mode = 'late_concat'
+
     # Calculate input dimension for FFN
-    descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
-    input_dim = mp.output_dim + descriptor_dim
+    # In film mode, descriptors are integrated early (not concatenated), so FFN input = mp.output_dim
+    if fusion_mode == 'film':
+        input_dim = mp.output_dim
+    else:
+        input_dim = mp.output_dim + descriptor_dim
     
     # Create Feed-Forward Network based on task type
     if args.task_type == 'reg':
@@ -950,6 +1021,7 @@ def build_model_and_trainer(
         predictor=ffn, 
         batch_norm=batch_norm, 
         metrics=metric_list or [],
+        fusion_mode=fusion_mode,
     )
     
     # Convert to Path object but don't create directory yet - let Lightning handle it

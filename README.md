@@ -128,6 +128,65 @@ Preprocesses SMILES strings for weighted D-MPNN (wDMPNN):
 - Handles polymer-specific molecular representations
 - Required for training wDMPNN models
 
+## FiLM Conditioning (Early Descriptor Fusion)
+
+The codebase supports three modes for integrating global descriptors (e.g., DoP, Molality, Density) into GNN models via the `--fusion_mode` argument:
+
+| Mode | Behavior |
+|------|----------|
+| `none` | No descriptors used |
+| `late_concat` | **(default)** Descriptors concatenated to graph embedding after message passing |
+| `film` | FiLM early conditioning — descriptors modulate hidden states *inside* message passing |
+
+### How FiLM Works
+
+At each message passing layer *l*, a small MLP computes per-sample modulation parameters from the standardized descriptor vector **d** ∈ ℝ^D:
+
+```
+(γ_l, β_l) = MLP_l(d)        # shape [B, H] each
+h_l = (1 + tanh(γ_l)) · h_l + β_l
+```
+
+The γ/β are broadcast over all nodes or directed edges belonging to each molecule in the batch using the `bmg.batch` graph-ID mapping.
+
+**Architecture:** Shared trunk MLP (`Linear(D→film_hidden_dim), ReLU`) + per-layer linear heads (`Linear(film_hidden_dim→2H)`, split into γ and β). Heads are zero-initialized so the model starts as an unmodulated baseline.
+
+### CLI Arguments
+
+```
+--fusion_mode {none,late_concat,film}   # default: late_concat
+--film_layers {all,last}                # which MP layers to modulate (default: all)
+--film_hidden_dim INT                   # FiLM MLP trunk hidden dim (default: MP hidden dim)
+```
+
+### Usage Examples
+
+```bash
+# Standard DMPNN with late descriptor concatenation (default)
+python train_graph.py --dataset_name my_dataset --incl_desc --incl_rdkit
+
+# DMPNN with FiLM early conditioning
+python train_graph.py --dataset_name my_dataset --incl_desc --incl_rdkit --fusion_mode film
+
+# FiLM only on last MP layer, custom hidden dim
+python train_graph.py --dataset_name my_dataset --incl_desc --fusion_mode film --film_layers last --film_hidden_dim 128
+
+# GIN with FiLM
+python train_graph.py --dataset_name my_dataset --model_name GIN --incl_desc --fusion_mode film
+```
+
+### Supported Models
+
+FiLM conditioning works with: **DMPNN**, **wDMPNN**, **PPG**, **DMPNN_SumPool**, **DMPNN_AttnPool**, **GIN**, **GIN0**, **GINE**, **GAT**, **GATv2**. It is not supported for **DMPNN_DiffPool** (falls back to `late_concat` with a warning).
+
+### Smoke Test
+
+```bash
+python tests/test_film_smoke.py
+```
+
+Runs forward passes with `fusion_mode=film` on all supported model types and verifies output shapes, backward compatibility, and gradient flow.
+
 ## Workflow Overview
 
 1. **Data Preparation:** Place datasets in `data/` directory

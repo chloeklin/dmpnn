@@ -70,6 +70,7 @@ from .predictors import (
     SpectralFFN,
     MixedRegMultiFFN
 )
+from .film import FilmConditioner
 from .transforms import GraphTransform, ScaleTransform, UnscaleTransform
 from .utils import Activation
 
@@ -149,6 +150,7 @@ __all__ = [
     "SpectralFFN",
     "MixedRegMultiFFN",
     "Activation",
+    "FilmConditioner",
     "GraphTransform",
     "ScaleTransform",
     "UnscaleTransform",

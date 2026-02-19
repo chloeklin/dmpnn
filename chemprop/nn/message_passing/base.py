@@ -9,6 +9,7 @@ from chemprop.conf import DEFAULT_ATOM_FDIM, DEFAULT_BOND_FDIM, DEFAULT_HIDDEN_D
 from chemprop.data import BatchMolGraph, BatchPolymerMolGraph, MolGraph
 from chemprop.exceptions import InvalidShapeError
 from chemprop.nn.message_passing.mixins import _AtomMessagePassingMixin, _BondMessagePassingMixin, _WeightedBondMessagePassingMixin, _DiffPoolMixin
+from chemprop.nn.film import FilmConditioner
 from chemprop.nn.message_passing.proto import MessagePassing
 from chemprop.nn.transforms import GraphTransform, ScaleTransform
 from chemprop.nn.utils import Activation, get_activation_function
@@ -66,11 +67,12 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
         d_vd: int | None = None,
         V_d_transform: ScaleTransform | None = None,
         graph_transform: GraphTransform | None = None,
+        film_conditioner: FilmConditioner | None = None,
     ):
         super().__init__()
         # manually add V_d_transform and graph_transform to hparams to suppress lightning's warning
         # about double saving their state_dict values.
-        ignore_list = ["V_d_transform", "graph_transform"]
+        ignore_list = ["V_d_transform", "graph_transform", "film_conditioner"]
         if isinstance(activation, nn.Module):
             ignore_list.append("activation")
         self.save_hyperparameters(ignore=ignore_list)
@@ -87,6 +89,7 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
         self.tau = get_activation_function(activation)
         self.V_d_transform = V_d_transform if V_d_transform is not None else nn.Identity()
         self.graph_transform = graph_transform if graph_transform is not None else nn.Identity()
+        self.film_conditioner = film_conditioner
 
     @property
     def output_dim(self) -> int:
@@ -194,17 +197,25 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
 
         return H
 
-    def forward(self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         bmg = self.graph_transform(bmg)
         H_0 = self.initialize(bmg)
         H_0 = self.tau(H_0)
         H = H_0
-        for _ in range(1, self.depth):
+
+        # Precompute edge-to-graph mapping for FiLM (directed edges inherit source node's graph id)
+        edge_graph_ids = bmg.batch[bmg.edge_index[0]] if (self.film_conditioner is not None and X_d is not None) else None
+
+        for t in range(1, self.depth):
             if self.undirected:
                 H = (H + H[bmg.rev_edge_index]) / 2
 
             M = self.message(H, bmg)
             H = self.update(M, H_0)
+
+            # Apply FiLM conditioning after each update step
+            if self.film_conditioner is not None and X_d is not None and edge_graph_ids is not None:
+                H = self.film_conditioner(H, X_d, layer_idx=t - 1, graph_ids=edge_graph_ids)
 
         index_torch = bmg.edge_index[1].unsqueeze(1).repeat(1, H.shape[1])
         M = torch.zeros(len(bmg.V), H.shape[1], dtype=H.dtype, device=H.device).scatter_reduce_(

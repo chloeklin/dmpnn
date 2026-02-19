@@ -19,6 +19,9 @@
 #   target=<name>          # single prediction target/column
 #   train_size=<float>     # e.g., 0.8
 #   polymer_type=<string>  # e.g., copolymer
+#   fusion_mode=<string>   # none | late_concat | film
+#   film_layers=<string>   # all | last
+#   film_hidden_dim=<int>  # FiLM MLP trunk hidden dim
 
 # Check args
 if [ $# -lt 3 ]; then
@@ -26,7 +29,7 @@ if [ $# -lt 3 ]; then
     echo ""
     echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE"
     echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi, pretrain_monomer, save_checkpoint, save_predictions, export_embeddings"
-    echo "Extra key=value: target=..., train_size=..., polymer_type=..."
+    echo "Extra key=value: target=..., train_size=..., polymer_type=..., fusion_mode=..., film_layers=..., film_hidden_dim=..."
     exit 1
 fi
 
@@ -51,6 +54,9 @@ SUBMIT_JOB=true
 TARGET=""
 TRAIN_SIZE=""
 POLYMER_TYPE=""
+FUSION_MODE=""
+FILM_LAYERS=""
+FILM_HIDDEN_DIM=""
 
 # Validate model
 case $MODEL in
@@ -77,6 +83,9 @@ for arg in "${@:4}"; do
     target=*)           TARGET="${arg#target=}" ;;
     train_size=*)       TRAIN_SIZE="${arg#train_size=}" ;;
     polymer_type=*)     POLYMER_TYPE="${arg#polymer_type=}" ;;
+    fusion_mode=*)      FUSION_MODE="${arg#fusion_mode=}" ;;
+    film_layers=*)      FILM_LAYERS="${arg#film_layers=}" ;;
+    film_hidden_dim=*)  FILM_HIDDEN_DIM="${arg#film_hidden_dim=}" ;;
     *)
       echo "Warning: Unknown argument '$arg' ignored"
       ;;
@@ -116,6 +125,9 @@ fi
 [ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
 [ -n "$TARGET" ]             && ARGS="$ARGS --target \"$TARGET\""
+[ -n "$FUSION_MODE" ]        && ARGS="$ARGS --fusion_mode $FUSION_MODE"
+[ -n "$FILM_LAYERS" ]        && ARGS="$ARGS --film_layers $FILM_LAYERS"
+[ -n "$FILM_HIDDEN_DIM" ]    && ARGS="$ARGS --film_hidden_dim $FILM_HIDDEN_DIM"
 
 # Filename/jobname suffix
 SUFFIX="_${MODEL}"
@@ -127,6 +139,9 @@ SUFFIX="_${MODEL}"
 [ "$TASK_TYPE" != "reg" ]  && SUFFIX="${SUFFIX}_${TASK_TYPE}"
 [ -n "$POLYMER_TYPE" ]     && SUFFIX="${SUFFIX}_$POLYMER_TYPE"
 [ -n "$TRAIN_SIZE" ]       && SUFFIX="${SUFFIX}_ts${TRAIN_SIZE}"
+[ -n "$FUSION_MODE" ]      && SUFFIX="${SUFFIX}_${FUSION_MODE}"
+[ -n "$FILM_LAYERS" ]      && SUFFIX="${SUFFIX}_fl${FILM_LAYERS}"
+[ -n "$FILM_HIDDEN_DIM" ]  && SUFFIX="${SUFFIX}_fhd${FILM_HIDDEN_DIM}"
 # Replace spaces with underscores in target name for job name compatibility
 [ -n "$TARGET" ]           && SUFFIX="${SUFFIX}_${TARGET// /_}"
 
