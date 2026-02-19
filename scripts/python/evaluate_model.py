@@ -103,10 +103,10 @@ def main():
 
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
             # Build experiment naming for this split
-            ckpt_path, preprocessing_path, desc_suf, rdkit_suf, bn_suf, size_suf = build_experiment_paths(
+            ckpt_path, preprocessing_path, desc_suf, rdkit_suf, bn_suf, size_suf, fusion_suf, aux_suf = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
-            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suf}{rdkit_suf}{bn_suf}{size_suf}"
+            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suf}{rdkit_suf}{bn_suf}{fusion_suf}{aux_suf}{size_suf}"
             mask_f, Xtr_f, Xva_f, Xte_f = embedding_files(emb_dir, embedding_prefix, i)
 
             # Ensure embeddings exist (compute if missing and we can load a checkpoint)

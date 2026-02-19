@@ -894,9 +894,11 @@ def build_model_and_trainer(
     else:
         _film_requested = False
         if fusion_mode == 'film' and descriptor_dim == 0:
-            import warnings
-            warnings.warn("fusion_mode='film' but no descriptors provided. Falling back to 'none'.")
-            fusion_mode = 'none'
+            raise ValueError(
+                "fusion_mode='film' requires descriptors (--incl_desc and/or --incl_rdkit), "
+                "but no descriptors were provided. Either add descriptors or use "
+                "fusion_mode='late_concat' / 'none'."
+            )
 
     # Create message passing and aggregation layers
     if args.model_name == "PPG":
@@ -1473,7 +1475,7 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     # This saves disk space since preprocessing is identical for DMPNN/wDMPNN/DMPNN_DiffPool
     preprocessing_path = chemprop_dir / "preprocessing" / base_name
     
-    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix
 
 
 def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):

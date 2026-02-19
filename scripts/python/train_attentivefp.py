@@ -189,7 +189,7 @@ def main():
 
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
             # per-split bookkeeping (mirrors your naming)
-            ckpt_path, preprocessing_path, desc_suf, rdkit_suf, bn_suf, size_suf = build_experiment_paths(
+            ckpt_path, preprocessing_path, desc_suf, rdkit_suf, bn_suf, size_suf, fusion_suf, aux_suf = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             ckpt_path.mkdir(parents=True, exist_ok=True)

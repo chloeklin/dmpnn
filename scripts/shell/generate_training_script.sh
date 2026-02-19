@@ -101,6 +101,13 @@ for arg in "${@:4}"; do
   esac
 done
 
+# Validate: fusion_mode=film requires descriptors
+if [ "$FUSION_MODE" = "film" ] && [ -z "$INCL_DESC" ] && [ -z "$INCL_RDKIT" ]; then
+  echo "Error: fusion_mode=film requires descriptors (incl_desc and/or incl_rdkit)."
+  echo "FiLM conditioning needs descriptor inputs to modulate message passing."
+  exit 1
+fi
+
 # Base ARGS and script mapping
 if [ "$MODEL" = "tabular" ]; then
   ARGS="--dataset_name $DATASET"

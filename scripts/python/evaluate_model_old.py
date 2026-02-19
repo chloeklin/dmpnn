@@ -396,7 +396,7 @@ for target in target_columns:
         split_preprocessing_metadata = {}
         for i in range(REPLICATES):
             # Build experiment paths to get proper suffixes using extracted config
-            checkpoint_path, auto_preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+            checkpoint_path, auto_preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
                 temp_args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             
@@ -479,7 +479,7 @@ for target in target_columns:
                 base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
                 preprocessing_path = Path(args.preprocessing_path) / base_name
             else:
-                checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+                checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
                     args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
                 )
             
@@ -524,7 +524,7 @@ for target in target_columns:
                 base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
                 preprocessing_path = Path(args.preprocessing_path) / base_name
             else:
-                checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+                checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
                     args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
                 )
             
@@ -621,7 +621,7 @@ for target in target_columns:
                     checkpoint_path = checkpoint_dir / "AttentiveFP" / checkpoint_name / "best.pt"
             else:
                 # DMPNN, wDMPNN, DMPNN_DiffPool use build_experiment_paths
-                checkpoint_path, _, _, _, _, _ = build_experiment_paths(
+                checkpoint_path, _, _, _, _, _, _, _ = build_experiment_paths(
                     args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
                 )
         

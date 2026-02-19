@@ -226,7 +226,7 @@ if args.pretrain_monomer:
     metric_list = []
 
     # Paths and model
-    checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = \
+    checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = \
         build_experiment_paths(args, chemprop_dir, checkpoint_dir, "__multitask__", descriptor_columns, 0)
 
     processed_descriptor_data = None
@@ -256,10 +256,11 @@ if args.pretrain_monomer:
         X_full = get_encodings_from_loader(mpnn, full_loader)
         # Save as .npy; map to smiles with df_input[smiles_column]
         emb_dir = checkpoint_dir / "embeddings"; emb_dir.mkdir(parents=True, exist_ok=True)
-        np.save(emb_dir / f"{args.dataset_name}__{args.model_name}__monomer_encoder.npy", X_full)
+        emb_base = f"{args.dataset_name}__{args.model_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}"
+        np.save(emb_dir / f"{emb_base}__monomer_encoder.npy", X_full)
         pd.DataFrame({
             "smiles": [dp.smiles for dp in all_data],
-        }).assign(idx=np.arange(len(all_data))).to_csv(emb_dir / f"{args.dataset_name}__{args.model_name}__monomer_index.csv", index=False)
+        }).assign(idx=np.arange(len(all_data))).to_csv(emb_dir / f"{emb_base}__monomer_index.csv", index=False)
 
     # Exit after pretraining (we don’t do per-target loops in this mode)
     save_aggregate_results([], results_dir, args.model_name, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
@@ -449,7 +450,7 @@ for target in target_columns:
     if combined_descriptor_data is not None:
             
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             # Try to load cached preprocessing BEFORE doing any heavy work
@@ -625,7 +626,7 @@ for target in target_columns:
     num_splits = len(train_data)  # robust for both CV and holdout
     for i in range(num_splits):
         # Build experiment paths
-        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix = build_experiment_paths(
+        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
 
@@ -918,7 +919,7 @@ for target in target_columns:
             embeddings_dir.mkdir(parents=True, exist_ok=True)
             
             # Build embedding filename prefix with all identifiers including model name
-            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
+            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}"
             
             # Save embeddings as numpy arrays with full identifiers
             np.save(embeddings_dir / f"{embedding_prefix}__X_train_split_{i}.npy", X_train)
