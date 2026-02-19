@@ -40,17 +40,24 @@ def combine_results(results_dir: str):
     # Group files by their base name (everything before "__target_")
     file_groups = defaultdict(list)
 
-    # Pattern to match your filenames like:
+    # Pattern to match filenames like:
     #   insulator__size1024__target_bandgap_chain_results.csv
     #   opv_camb3lyp__target_spectral_overlap_results.csv
-    pattern = re.compile(r'(.+?)__target_(.+)_results\.csv$')
+    #   htpmd__target_Conductivity__film_results.csv
+    #   htpmd__desc__rdkit__target_Tg__aux_results.csv
+    # Group 1: base name (before __target_)
+    # Group 2: target name (between __target_ and optional mode suffixes / _results)
+    # Group 3: optional mode suffixes (__film, __aux, __nofusion, __aux_la0.05, etc.)
+    pattern = re.compile(r'(.+?)__target_(.+?)(__(?:film|aux|nofusion)(?:_[a-zA-Z0-9.]+)*)?_results\.csv$')
 
     # Find all __target_..._results.csv files
     for file_path in results_dir.glob('*__target_*_results.csv'):
         match = pattern.match(file_path.name)
         if match:
-            base_name = match.group(1)  # e.g., "insulator__size1024"
-            file_groups[base_name].append(file_path)
+            base_name = match.group(1)  # e.g., "insulator__size1024", "htpmd"
+            mode_suffix = match.group(3) or ""  # e.g., "__film", "__aux", ""
+            group_key = base_name + mode_suffix  # group by base + mode
+            file_groups[group_key].append(file_path)
 
     
     # Also check for _baseline pattern files  
@@ -67,25 +74,33 @@ def combine_results(results_dir: str):
     
     # Process each group of files
     for base_name, file_paths in file_groups.items():
-        # Check if combined result file already exists
         output_path = results_dir / f"{base_name}_results.csv"
+
+        # Load existing combined file if present; we'll append any missing targets to it
         if output_path.exists():
-            print(f"Skipping {base_name}: combined file already exists at {output_path}")
-            continue
-        
-        combined_df = pd.DataFrame()
+            existing_df = pd.read_csv(output_path)
+            existing_targets = set(existing_df['target'].unique()) if 'target' in existing_df.columns else set()
+        else:
+            existing_df = pd.DataFrame()
+            existing_targets = set()
+
+        combined_df = existing_df.copy()
         successfully_processed = []
         
         for file_path in file_paths:
             # Extract target name from filename
-            # inside: for file_path in file_paths:
             if '_baseline.csv' in file_path.name:
                 target = file_path.stem.split('__')[-1].replace('_baseline', '')
             else:
                 m = pattern.match(file_path.name)
                 if not m:
                     continue
-                _, target = m.group(1), m.group(2)   # don't overwrite group key
+                target = m.group(2)  # clean target name (mode suffixes are in group 3)
+
+            # Skip if this target is already in the existing combined file
+            if target in existing_targets:
+                print(f"Skipping {file_path.name}: target '{target}' already in combined file")
+                continue
 
             # Check if this is an OPV dataset and filter targets
             is_opv_dataset = 'opv' in file_path.name.lower()

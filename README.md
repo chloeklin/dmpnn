@@ -187,6 +187,64 @@ python tests/test_film_smoke.py
 
 Runs forward passes with `fusion_mode=film` on all supported model types and verifies output shapes, backward compatibility, and gradient flow.
 
+## Auxiliary Descriptor Prediction (Multi-Task Training)
+
+The codebase supports an auxiliary training mode where the GNN simultaneously predicts the main property **y** and selected polymer descriptors (e.g., DoP, Density) as auxiliary regression targets. **Crucially:** in this mode, descriptors are NOT fed as model inputs — they are only prediction targets.
+
+### How It Works
+
+The graph embedding **Z** (output of message passing + aggregation) feeds into two heads:
+
+```
+Z ─┬─→ [Main FFN]  → y_hat   (main prediction, shape [B, T_main])
+   └─→ [Aux MLP]   → d_hat   (descriptor prediction, shape [B, T_aux])
+```
+
+The combined training loss is:
+
+```
+L = L_main(y_hat, y) + λ_aux · L_aux(d_hat, d_target)
+```
+
+- **L_main**: Chemprop's standard loss (MSE/MAE)
+- **L_aux**: MSE on standardized auxiliary targets (per-split train-set mean/std)
+- **λ_aux**: Configurable weight (default 0.1)
+
+The auxiliary head is a small MLP: `Linear(H → H/2) → ReLU → Linear(H/2 → T_aux)`.
+
+### CLI Arguments
+
+```
+--aux_task {off,predict_descriptors}     # default: off
+--aux_descriptor_cols "DoP,Density"      # comma-separated column names from CSV
+--lambda_aux FLOAT                       # auxiliary loss weight (default: 0.1)
+```
+
+### Constraints
+
+- `--aux_task=predict_descriptors` is **incompatible** with `--incl_desc`, `--incl_rdkit`, and `--fusion_mode=film`
+- Descriptors must NOT be model inputs when used as auxiliary targets
+
+### Usage Examples
+
+```bash
+# DMPNN with auxiliary descriptor prediction
+python train_graph.py --dataset_name htpmd --model_name DMPNN \
+    --aux_task predict_descriptors --aux_descriptor_cols "DoP,Density" --lambda_aux 0.1
+
+# GIN with auxiliary task and custom lambda
+python train_graph.py --dataset_name htpmd --model_name GIN \
+    --aux_task predict_descriptors --aux_descriptor_cols "DoP,Density,Molality" --lambda_aux 0.05
+```
+
+### Smoke Test
+
+```bash
+python tests/test_aux_task_smoke.py
+```
+
+Runs 6 tests verifying aux head output shape, combined loss computation, gradient flow through both heads, target splitting, NaN handling, and backward compatibility.
+
 ## Workflow Overview
 
 1. **Data Preparation:** Place datasets in `data/` directory

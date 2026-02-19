@@ -22,6 +22,9 @@
 #   fusion_mode=<string>   # none | late_concat | film
 #   film_layers=<string>   # all | last
 #   film_hidden_dim=<int>  # FiLM MLP trunk hidden dim
+#   aux_task=<string>       # off | predict_descriptors
+#   aux_descriptor_cols=<string>  # comma-separated column names
+#   lambda_aux=<float>     # auxiliary loss weight
 
 # Check args
 if [ $# -lt 3 ]; then
@@ -57,6 +60,9 @@ POLYMER_TYPE=""
 FUSION_MODE=""
 FILM_LAYERS=""
 FILM_HIDDEN_DIM=""
+AUX_TASK=""
+AUX_DESCRIPTOR_COLS=""
+LAMBDA_AUX=""
 
 # Validate model
 case $MODEL in
@@ -86,6 +92,9 @@ for arg in "${@:4}"; do
     fusion_mode=*)      FUSION_MODE="${arg#fusion_mode=}" ;;
     film_layers=*)      FILM_LAYERS="${arg#film_layers=}" ;;
     film_hidden_dim=*)  FILM_HIDDEN_DIM="${arg#film_hidden_dim=}" ;;
+    aux_task=*)         AUX_TASK="${arg#aux_task=}" ;;
+    aux_descriptor_cols=*) AUX_DESCRIPTOR_COLS="${arg#aux_descriptor_cols=}" ;;
+    lambda_aux=*)       LAMBDA_AUX="${arg#lambda_aux=}" ;;
     *)
       echo "Warning: Unknown argument '$arg' ignored"
       ;;
@@ -128,6 +137,9 @@ fi
 [ -n "$FUSION_MODE" ]        && ARGS="$ARGS --fusion_mode $FUSION_MODE"
 [ -n "$FILM_LAYERS" ]        && ARGS="$ARGS --film_layers $FILM_LAYERS"
 [ -n "$FILM_HIDDEN_DIM" ]    && ARGS="$ARGS --film_hidden_dim $FILM_HIDDEN_DIM"
+[ -n "$AUX_TASK" ]           && ARGS="$ARGS --aux_task $AUX_TASK"
+[ -n "$AUX_DESCRIPTOR_COLS" ] && ARGS="$ARGS --aux_descriptor_cols $AUX_DESCRIPTOR_COLS"
+[ -n "$LAMBDA_AUX" ]         && ARGS="$ARGS --lambda_aux $LAMBDA_AUX"
 
 # Filename/jobname suffix
 SUFFIX="_${MODEL}"
@@ -142,6 +154,8 @@ SUFFIX="_${MODEL}"
 [ -n "$FUSION_MODE" ]      && SUFFIX="${SUFFIX}_${FUSION_MODE}"
 [ -n "$FILM_LAYERS" ]      && SUFFIX="${SUFFIX}_fl${FILM_LAYERS}"
 [ -n "$FILM_HIDDEN_DIM" ]  && SUFFIX="${SUFFIX}_fhd${FILM_HIDDEN_DIM}"
+[ -n "$AUX_TASK" ]         && SUFFIX="${SUFFIX}_${AUX_TASK}"
+[ -n "$LAMBDA_AUX" ]       && SUFFIX="${SUFFIX}_la${LAMBDA_AUX}"
 # Replace spaces with underscores in target name for job name compatibility
 [ -n "$TARGET" ]           && SUFFIX="${SUFFIX}_${TARGET// /_}"
 

@@ -223,6 +223,21 @@ try:
         if film_hidden_dim:
             args.append(f'film_hidden_dim={film_hidden_dim}')
         
+        # Add aux_task if specified (off | predict_descriptors)
+        aux_task = exp.get('aux_task')
+        if aux_task:
+            args.append(f'aux_task={aux_task}')
+        
+        # Add aux_descriptor_cols if specified (comma-separated column names)
+        aux_descriptor_cols = exp.get('aux_descriptor_cols')
+        if aux_descriptor_cols:
+            args.append(f'aux_descriptor_cols={aux_descriptor_cols}')
+        
+        # Add lambda_aux if specified
+        lambda_aux = exp.get('lambda_aux')
+        if lambda_aux is not None:
+            args.append(f'lambda_aux={lambda_aux}')
+        
         # Handle targets: can be a list, single value, or omitted
         targets = exp.get('targets')  # List of targets
         single_target = exp.get('target')  # Single target

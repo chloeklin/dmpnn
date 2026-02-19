@@ -76,6 +76,8 @@ class MPNN(pl.LightningModule):
         final_lr: float = 1e-4,
         X_d_transform: ScaleTransform | None = None,
         fusion_mode: str = "late_concat",
+        n_aux_targets: int = 0,
+        lambda_aux: float = 0.1,
     ):
         super().__init__()
         # manually add X_d_transform to hparams to suppress lightning's warning about double saving
@@ -108,6 +110,21 @@ class MPNN(pl.LightningModule):
         self.max_lr = max_lr
         self.final_lr = final_lr
         self.fusion_mode = fusion_mode
+
+        # Auxiliary descriptor prediction head
+        self.n_aux_targets = n_aux_targets
+        self.lambda_aux = lambda_aux
+        if n_aux_targets > 0:
+            # The aux head branches from the graph embedding (same as main predictor input)
+            # Use the message_passing output_dim as the embedding dim
+            embed_dim = self.message_passing.output_dim
+            self.aux_head = nn.Sequential(
+                nn.Linear(embed_dim, embed_dim // 2),
+                nn.ReLU(),
+                nn.Linear(embed_dim // 2, n_aux_targets),
+            )
+        else:
+            self.aux_head = None
 
     @property
     def output_dim(self) -> int:
@@ -173,6 +190,19 @@ class MPNN(pl.LightningModule):
         """Generate predictions for the input molecules/reactions"""
         return self.predictor(self.fingerprint(bmg, V_d, X_d))
 
+    def _split_targets(self, targets, mask, lt_mask, gt_mask):
+        """Split targets into main and auxiliary components."""
+        if self.n_aux_targets > 0 and targets.size(1) > self.n_aux_targets:
+            n_main = targets.size(1) - self.n_aux_targets
+            main_targets = targets[:, :n_main]
+            aux_targets = targets[:, n_main:]
+            main_mask = mask[:, :n_main]
+            aux_mask = mask[:, n_main:]
+            main_lt = lt_mask[:, :n_main] if lt_mask is not None else None
+            main_gt = gt_mask[:, :n_main] if gt_mask is not None else None
+            return main_targets, aux_targets, main_mask, aux_mask, main_lt, main_gt
+        return targets, None, mask, None, lt_mask, gt_mask
+
     def training_step(self, batch: BatchType, batch_idx):
         batch_size = self.get_batch_size(batch)
         bmg, V_d, X_d, targets, weights, lt_mask, gt_mask = batch
@@ -181,8 +211,24 @@ class MPNN(pl.LightningModule):
         targets = targets.nan_to_num(nan=0.0)
 
         Z = self.fingerprint(bmg, V_d, X_d)
+
+        # Split targets into main and auxiliary
+        main_targets, aux_targets, main_mask, aux_mask, main_lt, main_gt = \
+            self._split_targets(targets, mask, lt_mask, gt_mask)
+
         preds = self.predictor.train_step(Z)
-        l = self.criterion(preds, targets, mask, weights, lt_mask, gt_mask)
+        l = self.criterion(preds, main_targets, main_mask, weights, main_lt, main_gt)
+
+        # Auxiliary descriptor prediction loss
+        if self.aux_head is not None and aux_targets is not None:
+            # Get the graph embedding (before descriptor concat) for aux head
+            # Z may include concatenated descriptors; aux_head uses only the GNN embedding
+            embed_dim = self.message_passing.output_dim
+            Z_embed = Z[:, :embed_dim]  # strip any concatenated descriptors
+            d_hat = self.aux_head(Z_embed)
+            # MSE loss on auxiliary targets (standardized), masked for NaN
+            aux_loss = (((d_hat - aux_targets) ** 2) * aux_mask.float()).sum() / aux_mask.float().sum().clamp(min=1)
+            l = l + self.lambda_aux * aux_loss
 
         # Add auxiliary losses from message passing (e.g., DiffPool)
         if hasattr(self.message_passing, 'aux_losses'):
@@ -213,9 +259,13 @@ class MPNN(pl.LightningModule):
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
 
+        # Split targets for val_loss computation (main targets only)
+        main_targets, aux_targets, main_mask, aux_mask, main_lt, main_gt = \
+            self._split_targets(targets, mask, lt_mask, gt_mask)
+
         Z = self.fingerprint(bmg, V_d, X_d)
         preds = self.predictor.train_step(Z)
-        self.metrics[-1](preds, targets, mask, weights, lt_mask, gt_mask)
+        self.metrics[-1](preds, main_targets, main_mask, weights, main_lt, main_gt)
         
         # Not logging auxiliary losses separately to avoid CSVLogger header conflicts
         # They are still included in the total loss during training
@@ -231,6 +281,10 @@ class MPNN(pl.LightningModule):
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
+
+        # Strip auxiliary target columns so targets match main preds shape
+        targets, _, mask, _, lt_mask, gt_mask = self._split_targets(targets, mask, lt_mask, gt_mask)
+
         preds = self(bmg, V_d, X_d)
         weights = torch.ones_like(weights)
 

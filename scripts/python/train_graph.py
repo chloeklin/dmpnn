@@ -27,6 +27,24 @@ args = parser.parse_args()
 # Validate arguments
 validate_train_size_argument(args, parser)
 
+# Validate auxiliary task arguments
+aux_task = getattr(args, 'aux_task', 'off')
+if aux_task == 'predict_descriptors':
+    if not getattr(args, 'aux_descriptor_cols', None):
+        parser.error("--aux_descriptor_cols is required when --aux_task=predict_descriptors")
+    if getattr(args, 'incl_desc', False) or getattr(args, 'incl_rdkit', False):
+        parser.error("--aux_task=predict_descriptors is incompatible with --incl_desc and --incl_rdkit. "
+                      "Descriptors must NOT be model inputs in aux_task mode.")
+    if getattr(args, 'fusion_mode', 'late_concat') == 'film':
+        parser.error("--aux_task=predict_descriptors is incompatible with --fusion_mode=film")
+    # Parse comma-separated column names
+    args._aux_cols = [c.strip() for c in args.aux_descriptor_cols.split(',')]
+    args._n_aux_targets = len(args._aux_cols)
+    logger.info(f"Auxiliary task: predict_descriptors with columns {args._aux_cols}, lambda_aux={args.lambda_aux}")
+else:
+    args._aux_cols = []
+    args._n_aux_targets = 0
+
 # Setup training environment with common configuration
 setup_info = setup_model_environment(args, "dmpnn")
 
@@ -297,12 +315,29 @@ else:
 # Store all results for aggregate saving
 all_results = []
 
+# === Auxiliary task: load raw descriptor targets ===
+aux_raw = None  # shape [N, T_aux] or None
+if args._n_aux_targets > 0:
+    missing_aux = [c for c in args._aux_cols if c not in df_input.columns]
+    if missing_aux:
+        logger.error(f"Auxiliary descriptor columns not found in DataFrame: {missing_aux}")
+        logger.error(f"Available columns: {list(df_input.columns)}")
+        exit(1)
+    aux_raw = df_input[args._aux_cols].values.astype(np.float64)
+    logger.info(f"Loaded auxiliary targets: {args._aux_cols}, shape={aux_raw.shape}")
+
 for target in target_columns:
     # Extract target values
     ys = df_input.loc[:, target].astype(float).values
     if args.task_type != 'reg':
         ys = ys.astype(int)
     ys = ys.reshape(-1, 1) # reshaping target to be 2D
+
+    # Append raw auxiliary targets as extra columns in ys
+    # They will be standardized per-split below
+    if aux_raw is not None:
+        ys = np.concatenate([ys, aux_raw], axis=1)  # [N, 1 + T_aux]
+
     all_data = create_all_data(smis, ys, combined_descriptor_data, args.model_name)
 
     # Determine split strategy and generate splits
@@ -660,10 +695,64 @@ for target in target_columns:
         # Chemprop convention:
         # - Fit scaler on train, apply to train/val targets (for training stability)
         # - DO NOT scale test targets; predictions are unscaled by output_transform
+        #
+        # When aux targets are appended, we must standardize them SEPARATELY
+        # because normalize_targets() returns a scaler used for output_transform
+        # which must only cover the main target columns.
+        if args._n_aux_targets > 0:
+            n_aux = args._n_aux_targets
+            # 1) Strip aux columns from datapoints before main normalization
+            aux_train_raw = np.array([dp.y[0, -n_aux:] for dp in train_data[i]], dtype=np.float64)
+            aux_val_raw = np.array([dp.y[0, -n_aux:] for dp in val_data[i]], dtype=np.float64)
+            aux_test_raw = np.array([dp.y[0, -n_aux:] for dp in test_data[i]], dtype=np.float64)
+
+            # Temporarily remove aux columns for main normalization
+            for dp in train_data[i]:
+                dp.y = dp.y[:, :-n_aux]
+            for dp in val_data[i]:
+                dp.y = dp.y[:, :-n_aux]
+            for dp in test_data[i]:
+                dp.y = dp.y[:, :-n_aux]
+
+            # Rebuild datasets without aux columns for normalization
+            train = DS(train_data[i], featurizer)
+            val = DS(val_data[i], featurizer)
+            test = DS(test_data[i], featurizer)
+
         if args.task_type == 'reg':
             scaler = train.normalize_targets()
             val.normalize_targets(scaler)
             # test targets intentionally left unscaled
+
+        if args._n_aux_targets > 0:
+            n_aux = args._n_aux_targets
+            # 2) Standardize aux targets using training-set stats
+            aux_mu = np.nanmean(aux_train_raw, axis=0)
+            aux_sd = np.nanstd(aux_train_raw, axis=0)
+            aux_sd[aux_sd < 1e-8] = 1.0  # prevent division by zero
+
+            def _standardize_aux(raw):
+                return ((raw - aux_mu) / aux_sd).astype(np.float32)
+
+            aux_train_std = _standardize_aux(aux_train_raw)
+            aux_val_std = _standardize_aux(aux_val_raw)
+            aux_test_std = _standardize_aux(aux_test_raw)
+
+            # 3) Re-append standardized aux columns to datapoints' y
+            for j, dp in enumerate(train):
+                y_main = dp.y  # already normalized by scaler
+                dp.y = np.concatenate([y_main, aux_train_std[j:j+1]], axis=-1) if y_main.ndim == 2 \
+                    else np.concatenate([y_main, aux_train_std[j]])
+            for j, dp in enumerate(val):
+                y_main = dp.y
+                dp.y = np.concatenate([y_main, aux_val_std[j:j+1]], axis=-1) if y_main.ndim == 2 \
+                    else np.concatenate([y_main, aux_val_std[j]])
+            for j, dp in enumerate(test):
+                y_main = dp.y  # NOT scaled (chemprop convention)
+                dp.y = np.concatenate([y_main, aux_test_std[j:j+1]], axis=-1) if y_main.ndim == 2 \
+                    else np.concatenate([y_main, aux_test_std[j]])
+
+            logger.info(f"Split {i}: Aux targets standardized (mu={aux_mu}, sd={aux_sd})")
         
 
         # Modular metric selection

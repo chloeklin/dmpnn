@@ -60,6 +60,18 @@ def create_base_argument_parser(description="Train a graph model"):
     parser.add_argument('--batch_norm', action='store_true',
                         help='Enable batch normalization in the model')
     
+    # Auxiliary task arguments
+    parser.add_argument('--aux_task', type=str, default='off',
+                        choices=['off', 'predict_descriptors'],
+                        help='Auxiliary task mode: '
+                             'off = no auxiliary task (default), '
+                             'predict_descriptors = predict selected descriptors as auxiliary regression targets')
+    parser.add_argument('--aux_descriptor_cols', type=str, default=None,
+                        help='Comma-separated descriptor column names to use as auxiliary targets '
+                             '(e.g., "DoP,Density"). Required when --aux_task=predict_descriptors')
+    parser.add_argument('--lambda_aux', type=float, default=0.1,
+                        help='Weight for auxiliary loss: L = L_main + lambda_aux * L_aux (default: 0.1)')
+
     # Fusion / FiLM arguments
     parser.add_argument('--fusion_mode', type=str, default='late_concat',
                         choices=['none', 'late_concat', 'film'],
@@ -198,6 +210,27 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
         filename_parts.append("rdkit")
     if getattr(args, 'batch_norm', False):
         filename_parts.append("batch_norm")
+    
+    # Add fusion mode suffix (only non-default)
+    fusion_mode = getattr(args, 'fusion_mode', 'late_concat')
+    if fusion_mode == 'film':
+        filename_parts.append("film")
+        film_layers = getattr(args, 'film_layers', 'all')
+        if film_layers != 'all':
+            filename_parts.append(f"fl{film_layers}")
+        film_hidden_dim = getattr(args, 'film_hidden_dim', None)
+        if film_hidden_dim is not None:
+            filename_parts.append(f"fhd{film_hidden_dim}")
+    elif fusion_mode == 'none':
+        filename_parts.append("nofusion")
+    
+    # Add auxiliary task suffix
+    aux_task = getattr(args, 'aux_task', 'off')
+    if aux_task == 'predict_descriptors':
+        filename_parts.append("aux")
+        lambda_aux = getattr(args, 'lambda_aux', 0.1)
+        if lambda_aux != 0.1:
+            filename_parts.append(f"la{lambda_aux}")
     
     # Add train size suffix
     if getattr(args, 'train_size', None) and args.train_size != "full":
@@ -1015,6 +1048,10 @@ def build_model_and_trainer(
         raise ValueError(f"Unsupported task_type: {args.task_type}")
     
     
+    # Auxiliary task configuration
+    n_aux_targets = getattr(args, '_n_aux_targets', 0)
+    lambda_aux = getattr(args, 'lambda_aux', 0.1)
+
     mpnn = models.MPNN(
         message_passing=mp, 
         agg=agg, 
@@ -1022,6 +1059,8 @@ def build_model_and_trainer(
         batch_norm=batch_norm, 
         metrics=metric_list or [],
         fusion_mode=fusion_mode,
+        n_aux_targets=n_aux_targets,
+        lambda_aux=lambda_aux,
     )
     
     # Convert to Path object but don't create directory yet - let Lightning handle it
@@ -1402,7 +1441,30 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     if train_size is not None and train_size.lower() != "full":
         size_suffix = f"__size{train_size}"
     
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__rep{i}"
+    # Add fusion mode suffix (only non-default)
+    fusion_suffix = ""
+    fusion_mode = getattr(args, 'fusion_mode', 'late_concat')
+    if fusion_mode == 'film':
+        fusion_suffix = "__film"
+        film_layers = getattr(args, 'film_layers', 'all')
+        if film_layers != 'all':
+            fusion_suffix += f"_fl{film_layers}"
+        film_hidden_dim = getattr(args, 'film_hidden_dim', None)
+        if film_hidden_dim is not None:
+            fusion_suffix += f"_fhd{film_hidden_dim}"
+    elif fusion_mode == 'none':
+        fusion_suffix = "__nofusion"
+    
+    # Add auxiliary task suffix
+    aux_suffix = ""
+    aux_task = getattr(args, 'aux_task', 'off')
+    if aux_task == 'predict_descriptors':
+        aux_suffix = "__aux"
+        lambda_aux = getattr(args, 'lambda_aux', 0.1)
+        if lambda_aux != 0.1:
+            aux_suffix += f"_la{lambda_aux}"
+    
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}__rep{i}"
     
     # Checkpoint path is model-specific
     checkpoint_path = checkpoint_dir / base_name
@@ -1943,7 +2005,7 @@ def make_groups_for_copolymer(df: pd.DataFrame):
     return gids.astype(str).values
 
 
-def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger):
+def save_aggregate_results(results_list, results_dir, model_name, dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger, args=None):
     """Save results using target-specific filenames to prevent overwriting.
     
     Args:
@@ -1956,13 +2018,37 @@ def save_aggregate_results(results_list, results_dir, model_name, dataset_name, 
         batch_norm_suffix: Batch normalization suffix for filename
         size_suffix: Train size suffix for filename
         logger: Logger instance
+        args: Optional command line arguments for fusion/aux suffixes
     """
+    # Build extra suffixes from args if available
+    fusion_suffix = ""
+    aux_suffix = ""
+    if args is not None:
+        fusion_mode = getattr(args, 'fusion_mode', 'late_concat')
+        if fusion_mode == 'film':
+            fusion_suffix = "__film"
+            film_layers = getattr(args, 'film_layers', 'all')
+            if film_layers != 'all':
+                fusion_suffix += f"_fl{film_layers}"
+            film_hidden_dim = getattr(args, 'film_hidden_dim', None)
+            if film_hidden_dim is not None:
+                fusion_suffix += f"_fhd{film_hidden_dim}"
+        elif fusion_mode == 'none':
+            fusion_suffix = "__nofusion"
+        
+        aux_task = getattr(args, 'aux_task', 'off')
+        if aux_task == 'predict_descriptors':
+            aux_suffix = "__aux"
+            lambda_aux = getattr(args, 'lambda_aux', 0.1)
+            if lambda_aux != 0.1:
+                aux_suffix += f"_la{lambda_aux}"
+
     if model_name.lower() == "tabular":
         model_results_dir = results_dir / "tabular"
-        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
+        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}"
     else:
         model_results_dir = results_dir / model_name
-        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}_results"
+        base_filename = f"{dataset_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}_results"
     
     model_results_dir.mkdir(exist_ok=True)
     

@@ -14,6 +14,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List
 import argparse
+import re
 import sys
 
 # Import combine_target_results function
@@ -62,7 +63,11 @@ def parse_filename(filename: str) -> tuple:
     return dataset, features
 
 def parse_model_filename(filename: str, method: str, model_name: str = None) -> tuple:
-    """Parse model CSV filename to extract dataset and feature information."""
+    """Parse model CSV filename to extract dataset and feature information.
+    
+    Handles mode suffixes like __film, __aux, __nofusion and their sub-variants
+    (e.g. __film_fllast_fhd128, __aux_la0.05).
+    """
     # Remove .csv extension and method suffix first
     base = filename.replace('.csv', '')
     
@@ -73,9 +78,30 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     
     # Handle batch normalization
     batch_norm = False
-    if '_batch_norm' in base:
-        base = base.replace('_batch_norm', '')
+    if '__batch_norm' in base:
+        base = base.replace('__batch_norm', '')
         batch_norm = True
+    
+    # Extract mode suffixes: __film*, __aux*, __nofusion
+    mode_label = ''
+    
+    # Match __film with optional sub-params (e.g. __film_fllast_fhd128)
+    film_match = re.search(r'__film(?:_[a-zA-Z0-9.]+)*', base)
+    if film_match:
+        mode_label = 'FiLM'
+        base = base[:film_match.start()] + base[film_match.end():]
+    
+    # Match __aux with optional sub-params (e.g. __aux_la0.05)
+    aux_match = re.search(r'__aux(?:_[a-zA-Z0-9.]+)*', base)
+    if aux_match:
+        mode_label = 'Aux'
+        base = base[:aux_match.start()] + base[aux_match.end():]
+    
+    # Match __nofusion
+    nofusion_match = re.search(r'__nofusion', base)
+    if nofusion_match:
+        mode_label = 'NoFusion'
+        base = base[:nofusion_match.start()] + base[nofusion_match.end():]
     
     # For baseline methods, include the model name
     if method == 'Baseline' and model_name:
@@ -101,8 +127,12 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     dataset = dataset.rstrip('_')
     
     # Add batch norm to features if present
-    if batch_norm and method in ['Graph', 'Baseline']:  # Only add (BN) for Graph and Baseline methods
+    if batch_norm and method in ['Graph', 'Baseline']:
         features = f"{features} (BN)"
+    
+    # Add mode label to features if present
+    if mode_label:
+        features = f"{features} ({mode_label})"
     
     return dataset, features
 
@@ -392,7 +422,7 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     unique_targets = data['target'].dropna().unique()
     targets = sorted([str(t) for t in unique_targets])
     
-    # Define desired feature order for combined plots, including batch norm variants
+    # Define desired feature order for combined plots, including batch norm, FiLM, and aux variants
     base_features = [
         'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
         'Baseline_DMPNN', 'Baseline_DMPNN+RDKit', 'Baseline_DMPNN+Desc+RDKit',  # DMPNN Baseline features
@@ -403,12 +433,19 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
         'Baseline_PPG', 'Baseline_PPG+RDKit', 'Baseline_PPG+Desc+RDKit',  # PPG Baseline features
         'Baseline_AttentiveFP', 'Baseline_AttentiveFP+RDKit', 'Baseline_AttentiveFP+Desc+RDKit',  # AttentiveFP Baseline features
         'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit',  # Graph features
-        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)'  # Graph with batch norm
+        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)',  # Graph with batch norm
+        'Graph (FiLM)', 'Graph+Desc (FiLM)', 'Graph+RDKit (FiLM)', 'Graph+Desc+RDKit (FiLM)',  # Graph with FiLM
+        'Graph (BN) (FiLM)', 'Graph+Desc (BN) (FiLM)', 'Graph+RDKit (BN) (FiLM)', 'Graph+Desc+RDKit (BN) (FiLM)',  # Graph BN+FiLM
+        'Graph (Aux)', 'Graph (BN) (Aux)',  # Graph with auxiliary task (no desc inputs)
+        'Graph (NoFusion)', 'Graph+Desc (NoFusion)', 'Graph+RDKit (NoFusion)', 'Graph+Desc+RDKit (NoFusion)',  # Graph no fusion
     ]
     
     # Get available features and sort them according to our desired order
     available_features = data['features'].unique()
     features = [f for f in base_features if f in available_features]
+    # Also include any features found in data that aren't in the predefined list
+    extra_features = sorted([f for f in available_features if f not in base_features])
+    features.extend(extra_features)
     
     # Check if metric exists in data
     if metric not in data.columns:
