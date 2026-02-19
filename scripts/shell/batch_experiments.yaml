@@ -51,6 +51,8 @@ htpmd_targets: &htpmd_targets
   - Transference Number
 
 experiments:
+#HTP-MD Dataset
+
   # - <<: *htpmd_base
   #   model: GAT
   #   walltime: "00:30:00"
@@ -99,6 +101,7 @@ experiments:
     walltime: "00:40:00"
     targets: *htpmd_targets
     export_embeddings: true
+    aux_task: predict_descriptors
     aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
     
   # - <<: *htpmd_base
