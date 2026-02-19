@@ -51,63 +51,77 @@ htpmd_targets: &htpmd_targets
   - Transference Number
 
 experiments:
-  - <<: *htpmd_base
-    model: GAT
-    walltime: "03:30:00"
-    # incl_desc: true
-    targets: *htpmd_targets
-    export_embeddings: true
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   walltime: "03:30:00"
+  #   # incl_desc: true
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
     
-  - <<: *htpmd_base
-    model: GIN
-    walltime: "03:30:00"
-    # incl_desc: true
-    targets: *htpmd_targets
-    export_embeddings: true
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   walltime: "03:30:00"
+  #   # incl_desc: true
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
     
-  - <<: *htpmd_base
-    model: tabular
-    walltime: "03:30:00"
-    incl_desc: true
-    # targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: tabular
+  #   walltime: "03:30:00"
+  #   incl_desc: true
+  #   # targets: *htpmd_targets
     
-  - <<: *htpmd_base
-    model: PPG
-    walltime: "3:30:00"
-    # incl_desc: true
-    targets: *htpmd_targets
-    export_embeddings: true
-  
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    walltime: "3:30:00"
-    # incl_desc: true
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: PPG
+  #   walltime: "3:30:00"
+  #   # incl_desc: true
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
 
+  # - <<: *htpmd_base
+  #   model: wDMPNN
+  #   walltime: "3:30:00"
+  #   # incl_desc: true
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   walltime: "3:30:00"
+  #   # incl_desc: true
+  #   targets: *htpmd_targets
+    
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   walltime: "3:30:00"
+  #   # incl_desc: true
+  #   targets: *htpmd_targets
+    
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "3:30:00"
+  #   # incl_desc: true
+  #   targets: *htpmd_targets
 
 
   
   # AttentiveFP    
-  # - <<: *polyinfo_base
-  #   model: AttentiveFP
-  #   walltime: "0:25:00"
-  
-  # - <<: *insulator_base
-  #   model: AttentiveFP
-  #   walltime: "0:10:00"
-  
-  # - <<: *htpmd_base
-  #   model: AttentiveFP
-  #   walltime: "0:45:00"
-  
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   walltime: "0:30:00"
 
-  # - <<: *opv_base
-  #   model: AttentiveFP
-  #   walltime: "1:00:00"
-  #   targets: *opv_targets
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "0:30:00"
+
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_rdkit: true
+    walltime: "0:30:00"
+
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_desc: true
+    walltime: "0:30:00"
 
 
 
@@ -331,3 +345,22 @@ experiments:
 
 
 # PPG
+  - <<: *tc_base
+    model: PPG
+    walltime: "0:30:00"
+    
+  - <<: *tc_base
+    model: PPG
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "0:30:00"
+
+  - <<: *tc_base
+    model: PPG
+    incl_rdkit: true
+    walltime: "0:30:00"
+
+  - <<: *tc_base
+    model: PPG
+    incl_desc: true
+    walltime: "0:30:00"

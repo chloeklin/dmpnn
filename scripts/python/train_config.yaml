@@ -175,15 +175,15 @@ dataset_ignore:
 models:
   DMPNN:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
   
   DMPNN_DiffPool:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
     
   wDMPNN:
     smiles_column: WDMPNN_Input
-    ignore_columns: [smiles,smiles_A,smiles_B,fracA,fracB,DoP]
+    ignore_columns: [smiles,smiles_A,smiles_B,fracA,fracB,DoP,psmiles]
     
   PPG:
     smiles_column: psmiles
@@ -191,31 +191,31 @@ models:
 
   GIN:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
   
   GIN0:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
   
   GINE:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
 
   GAT:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
   
   GATv2:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
 
   AttentiveFP:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
   
   Graphormer:
     smiles_column: smiles
-    ignore_columns: [WDMPNN_Input]
+    ignore_columns: [WDMPNN_Input,psmiles]
 
 # Paths
 paths:
