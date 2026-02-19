@@ -144,11 +144,11 @@ def plot_top_features(importance_df: pd.DataFrame, dataset_name: str, target_nam
     # Create plot
     plt.figure(figsize=(10, 6))
     
-    # Color by feature family
-    colors = {'AB_Block': '#2E86AB', 'RDKit': '#A23B72', 'Descriptors': '#F18F01'}
-    bar_colors = [colors.get(family, '#808080') for family in top_features['feature_family']]
+    # Color by feature family using Paul Tol's colors
+    colors = {'AB_Block': '#4477AA', 'RDKit': '#EE6677', 'Descriptors': '#EE7733'}  # Blue, Red, Orange
+    bar_colors = [colors.get(family, '#BBBBBB') for family in top_features['feature_family']]
     
-    bars = plt.barh(range(len(top_features)), top_features['importance_normalized'], color=bar_colors, alpha=0.8, edgecolor='black')
+    bars = plt.barh(range(len(top_features)), top_features['importance_normalized'], color=bar_colors, alpha=0.8, edgecolor='#333333')
     
     # Customize plot
     plt.xlabel('Normalized Feature Importance', fontsize=12)
@@ -166,7 +166,7 @@ def plot_top_features(importance_df: pd.DataFrame, dataset_name: str, target_nam
                 f'{importance:.3f}', ha='left', va='center', fontsize=10)
     
     # Add legend for feature families
-    legend_elements = [plt.Rectangle((0,0),1,1, facecolor=colors[fam], alpha=0.8, edgecolor='black', 
+    legend_elements = [plt.Rectangle((0,0),1,1, facecolor=colors[fam], alpha=0.8, edgecolor='#333333', 
                                     label=fam.replace('_', ' ')) for fam in colors.keys() 
                       if fam in top_features['feature_family'].values]
     if legend_elements:
@@ -205,10 +205,10 @@ def compare_feature_families(importance_data: Dict[str, pd.DataFrame], dataset_n
     width = 0.25
     
     models = pivot_data.columns
-    colors = ['#2E86AB', '#A23B72', '#F18F01']
+    colors = ['#4477AA', '#EE6677', '#228833']  # Blue, Red, Green (Tol's bright)
     
     for i, model in enumerate(models):
-        plt.bar(x + i*width, pivot_data[model], width, label=model, color=colors[i], alpha=0.8, edgecolor='black')
+        plt.bar(x + i*width, pivot_data[model], width, label=model, color=colors[i % len(colors)], alpha=0.8, edgecolor='#333333')
     
     plt.xlabel('Feature Family', fontsize=12)
     plt.ylabel('Total Normalized Importance', fontsize=12)

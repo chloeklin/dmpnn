@@ -112,6 +112,8 @@ class ChempropMetric(torchmetrics.Metric):
         self.num_samples += mask.sum()
 
     def compute(self):
+        if self.num_samples == 0:
+            return torch.tensor(0.0, device=self.total_loss.device)
         return self.total_loss / self.num_samples
 
     @abstractmethod
@@ -235,6 +237,8 @@ class R2Score(torchmetrics.Metric):
         self.targets_list.append(t)
 
     def compute(self) -> Tensor:
+        if len(self.preds_list) == 0:
+            return torch.tensor(0.0)
         preds = torch.cat(self.preds_list)
         targets = torch.cat(self.targets_list)
         ss_res = torch.sum((preds - targets) ** 2)

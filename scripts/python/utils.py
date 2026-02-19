@@ -991,12 +991,12 @@ def build_model_and_trainer(
     )
     callbacks.append(lr_monitor)
     
-    # Configure logging with explicit flush_logs_every_n_steps
-    logger = pl.loggers.CSVLogger(
+    # Use TensorBoardLogger instead of CSVLogger to avoid static header issues
+    # CSVLogger fails when train_loss and val_loss are logged at different times
+    logger = pl.loggers.TensorBoardLogger(
         save_dir=str(checkpoint_path),
         name="logs",
         version="",  # Use empty string to avoid creating versioned subdirectories
-        flush_logs_every_n_steps=50  # Flush logs less frequently to avoid file access issues
     )
     
     # Ensure logs directory exists

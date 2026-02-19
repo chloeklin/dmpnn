@@ -272,7 +272,7 @@ def plot_pca_analysis(X_train: np.ndarray, X_val: np.ndarray, X_test: np.ndarray
     # Add explained variance info
     explained_var = np.sum(pca.explained_variance_ratio_) * 100
     fig.text(0.02, 0.02, f'Total explained variance: {explained_var:.1f}%', 
-             fontsize=10, bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+             fontsize=10, bbox=dict(boxstyle='round', facecolor='#E8F4F8', alpha=0.8))
     
     plt.tight_layout()
     
