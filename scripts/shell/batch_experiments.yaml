@@ -54,14 +54,14 @@ experiments:
   - <<: *htpmd_base
     model: GAT
     walltime: "03:30:00"
-    incl_desc: true
+    # incl_desc: true
     targets: *htpmd_targets
     export_embeddings: true
     
   - <<: *htpmd_base
     model: GIN
     walltime: "03:30:00"
-    incl_desc: true
+    # incl_desc: true
     targets: *htpmd_targets
     export_embeddings: true
     
@@ -71,18 +71,18 @@ experiments:
     incl_desc: true
     # targets: *htpmd_targets
     
-  # - <<: *htpmd_base
-  #   model: PPG
-  #   walltime: "3:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
+  - <<: *htpmd_base
+    model: PPG
+    walltime: "3:30:00"
+    # incl_desc: true
+    targets: *htpmd_targets
+    export_embeddings: true
   
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "3:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    walltime: "3:30:00"
+    # incl_desc: true
+    targets: *htpmd_targets
 
 
 
