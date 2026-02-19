@@ -58,11 +58,12 @@ DATASET_CONFIGS = {
 }
 
 # Configuration: Add or remove models here
+# Colors use Paul Tol's colorblind-friendly palette (standard in Nature/Science journals)
 MODEL_CONFIGS = {
     'DMPNN': {
         'dir': 'results/DMPNN',
         'pattern': '{dataset}*_results.csv',  # {dataset} will be replaced
-        'color': '#1f77b4',
+        'color': '#EE7733',  # Orange (Tol's vibrant)
         'marker': 'o',
         'linestyle': '-',
         'is_tabular': False
@@ -70,7 +71,7 @@ MODEL_CONFIGS = {
     'Tabular-Linear': {
         'dir': 'results/tabular',
         'pattern': '{dataset}_descriptors_rdkit_ab*.csv',
-        'color': '#ff7f0e',
+        'color': '#4477AA',  # Blue (Tol's vibrant)
         'marker': 's',
         'linestyle': '--',
         'is_tabular': True,
@@ -79,7 +80,7 @@ MODEL_CONFIGS = {
     'Tabular-RF': {
         'dir': 'results/tabular',
         'pattern': '{dataset}_descriptors_rdkit_ab*.csv',
-        'color': '#2ca02c',
+        'color': '#EE6677',  # Red (Tol's vibrant)
         'marker': '^',
         'linestyle': '-.',
         'is_tabular': True,
@@ -88,7 +89,7 @@ MODEL_CONFIGS = {
     'Tabular-XGB': {
         'dir': 'results/tabular',
         'pattern': '{dataset}_descriptors_rdkit_ab*.csv',
-        'color': '#d62728',
+        'color': '#228833',  # Green (Tol's vibrant)
         'marker': 'D',
         'linestyle': ':',
         'is_tabular': True,
@@ -97,7 +98,7 @@ MODEL_CONFIGS = {
     'AttentiveFP': {
         'dir': 'results/AttentiveFP',
         'pattern': '{dataset}*.csv',
-        'color': '#9467bd',
+        'color': '#EE3377',  # Magenta (Tol's vibrant)
         'marker': 'v',
         'linestyle': '--',
         'is_tabular': False
@@ -105,7 +106,7 @@ MODEL_CONFIGS = {
     'wDMPNN': {
         'dir': 'results/wDMPNN',
         'pattern': '{dataset}*_results.csv',
-        'color': '#8c564b',
+        'color': '#0077BB',  # Blue (Tol's vibrant)
         'marker': 'p',
         'linestyle': '-',
         'is_tabular': False
@@ -113,8 +114,40 @@ MODEL_CONFIGS = {
     'Graphormer': {
         'dir': 'results/Graphormer',
         'pattern': '{dataset}*_results.csv',
-        'color': '#e377c2',
+        'color': '#CCBB44',  # Yellow (Tol's vibrant)
         'marker': 'h',
+        'linestyle': '-',
+        'is_tabular': False
+    },
+    'PPG': {
+        'dir': 'results/PPG',
+        'pattern': '{dataset}*_results.csv',
+        'color': '#33BBEE',  # Cyan (Tol's vibrant)
+        'marker': '*',
+        'linestyle': '-',
+        'is_tabular': False
+    },
+    'DMPNN_DiffPool': {
+        'dir': 'results/DMPNN_DiffPool',
+        'pattern': '{dataset}*_results.csv',
+        'color': '#009988',  # Teal (Tol's vibrant)
+        'marker': 'P',
+        'linestyle': '-',
+        'is_tabular': False
+    },
+    'GAT': {
+        'dir': 'results/GAT',
+        'pattern': '{dataset}*_results.csv',
+        'color': '#CC3311',  # Red (Tol's vibrant)
+        'marker': 'X',
+        'linestyle': '-',
+        'is_tabular': False
+    },
+    'GIN': {
+        'dir': 'results/GIN',
+        'pattern': '{dataset}*_results.csv',
+        'color': '#AA3377',  # Purple (Tol's muted)
+        'marker': 'd',
         'linestyle': '-',
         'is_tabular': False
     },

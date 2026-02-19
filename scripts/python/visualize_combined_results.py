@@ -150,7 +150,7 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
     if method in ['Graph', 'Baseline']:
         # First pass: collect all CSV files
         csv_files = []
-        for model_name in ['DMPNN', 'wDMPNN', 'DMPNN_DiffPool', 'PPG', 'AttentiveFP']:
+        for model_name in ['DMPNN', 'wDMPNN', 'DMPNN_DiffPool', 'PPG', 'AttentiveFP', 'GAT', 'GIN']:
             model_dir = results_dir / model_name
             if not model_dir.exists():
                 continue
@@ -437,24 +437,69 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     # Flatten axes for easier indexing
     axes_flat = axes.flatten() if n_targets > 1 else axes
     
-    # Define colors for different methods and models with distinct colors for batch norm variants
+    # Define colors using Paul Tol's colorblind-friendly palette (standard in Nature/Science journals)
+    # These colors are distinguishable in grayscale and accessible to colorblind readers
     colors = {
-        # Tabular models (keep existing colors)
-        'Tabular': {'Linear': '#1f77b4', 'RF': '#ff7f0e', 'XGB': '#2ca02c', 'LogReg': '#1f77b4'},
+        # Tabular models - using distinct primary colors
+        'Tabular': {
+            'Linear': '#4477AA',   # Blue
+            'RF': '#EE6677',       # Red
+            'XGB': '#228833',      # Green
+            'LogReg': '#4477AA'    # Blue (same as Linear)
+        },
         
-        # Baseline models (different colors for different encoders)
-        'Baseline_DMPNN': {'Linear': '#87CEEB', 'RF': '#FFB347', 'XGB': '#90EE90', 'LogReg': '#87CEEB'},
-        'Baseline_wDMPNN': {'Linear': '#DDA0DD', 'RF': '#F0E68C', 'XGB': '#98FB98', 'LogReg': '#DDA0DD'},
-        'Baseline_DMPNN_DiffPool': {'Linear': '#B0E0E6', 'RF': '#FFDAB9', 'XGB': '#AFEEEE', 'LogReg': '#B0E0E6'},
-        'Baseline_PPG': {'Linear': '#D2B48C', 'RF': '#F5DEB3', 'XGB': '#E0FFFF', 'LogReg': '#D2B48C'},
-        'Baseline_AttentiveFP': {'Linear': '#F0B27A', 'RF': '#F7DC6F', 'XGB': '#ABEBC6', 'LogReg': '#F0B27A'},
+        # Baseline models - lighter shades of primary colors for different encoders
+        'Baseline_DMPNN': {
+            'Linear': '#66CCEE',   # Cyan
+            'RF': '#EE99AA',       # Light red
+            'XGB': '#66AA55',      # Light green
+            'LogReg': '#66CCEE'    # Cyan
+        },
+        'Baseline_wDMPNN': {
+            'Linear': '#AA3377',   # Purple
+            'RF': '#CCBB44',       # Yellow
+            'XGB': '#88CCAA',      # Teal
+            'LogReg': '#AA3377'    # Purple
+        },
+        'Baseline_DMPNN_DiffPool': {
+            'Linear': '#77AADD',   # Light blue
+            'RF': '#FFAABB',       # Pink
+            'XGB': '#99DDCC',      # Mint
+            'LogReg': '#77AADD'    # Light blue
+        },
+        'Baseline_PPG': {
+            'Linear': '#44BB99',   # Teal green
+            'RF': '#BBCC33',       # Lime
+            'XGB': '#AAAA00',      # Olive
+            'LogReg': '#44BB99'    # Teal green
+        },
+        'Baseline_AttentiveFP': {
+            'Linear': '#99DDFF',   # Sky blue
+            'RF': '#EEDD88',       # Sand
+            'XGB': '#77CCCC',      # Aqua
+            'LogReg': '#99DDFF'    # Sky blue
+        },
+        'Baseline_GAT': {
+            'Linear': '#CC6677',   # Rose
+            'RF': '#DDCC77',       # Sand
+            'XGB': '#88CCEE',      # Cyan
+            'LogReg': '#CC6677'    # Rose
+        },
+        'Baseline_GIN': {
+            'Linear': '#882255',   # Wine
+            'RF': '#AA4499',       # Mauve
+            'XGB': '#117733',      # Dark green
+            'LogReg': '#882255'    # Wine
+        },
         
-        # Graph models (keep existing colors)
-        'Graph_DMPNN': '#d62728',
-        'Graph_wDMPNN': '#9467bd', 
-        'Graph_PPG': '#8c564b',
-        'Graph_AttentiveFP': '#e377c2',
-        'Graph_DMPNN_DiffPool': '#17becf'
+        # Graph models - bold, saturated colors from Paul Tol's vibrant scheme
+        'Graph_DMPNN': '#EE7733',        # Orange
+        'Graph_wDMPNN': '#0077BB',       # Blue
+        'Graph_PPG': '#33BBEE',          # Cyan
+        'Graph_AttentiveFP': '#EE3377',  # Magenta
+        'Graph_DMPNN_DiffPool': '#009988', # Teal
+        'Graph_GAT': '#CC3311',          # Red
+        'Graph_GIN': '#BBBBBB'           # Grey
     }
     
     for i, target in enumerate(targets):
@@ -696,12 +741,13 @@ def create_best_model_comparison_plots(data: pd.DataFrame, dataset: str, metric:
     tab_err = np.array(tab_stds, dtype=float)
     graph_err = np.array(graph_stds, dtype=float)
 
-    # Colors consistent with other plots
-    tab_color = '#d62728'
-    graph_color = '#1f77b4'
+    # Colors consistent with other plots - using Paul Tol's colorblind-friendly palette
+    tab_color = '#EE6677'    # Red (from Tol's vibrant scheme)
+    graph_color = '#4477AA'  # Blue (from Tol's vibrant scheme)
 
     # Use error bars to show variance across splits (thicker, darker, larger caps)
-    err_kw = dict(elinewidth=2, capsize=6, capthick=2, ecolor='#2C3E50')
+    # Using dark grey for error bars (standard in scientific publications)
+    err_kw = dict(elinewidth=2, capsize=6, capthick=2, ecolor='#333333')
     tab_bars = ax.bar(
         x - width/2,
         tab_vals,
@@ -811,7 +857,7 @@ def main():
     print("Combining target-specific result files...")
     
     # List of model directories to process
-    model_dirs = ['DMPNN', 'wDMPNN', 'DMPNN_DiffPool', 'PPG', 'AttentiveFP']
+    model_dirs = ['DMPNN', 'wDMPNN', 'DMPNN_DiffPool', 'PPG', 'AttentiveFP', 'GAT', 'GIN']
     
     # Combine results in each model subdirectory first
     for model_name in model_dirs:

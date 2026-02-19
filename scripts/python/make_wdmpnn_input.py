@@ -110,13 +110,21 @@ def _autolabel_psmiles(psmiles: str, start_label: int = 1) -> Tuple[str, List[in
 def homopolymer_psmiles_to_wdmpnn(psmiles: str,
                                   frac: float = 1.0,
                                   xn: Optional[str] = None,
-                                  weight: float = 0.25) -> str:
+                                  weight: float = 0.5) -> str:
     """
     Convert a homopolymer PSMILES (single-monomer fragment with '*' or [*] sites)
     into a wDMPNN input string by auto-numbering the sites and constructing bonds.
 
+    For homopolymers:
+    - Fraction is always 1.0
+    - Bond weight is 0.5 (not 0.25 like copolymers)
+    - Only bond between the two wildcard sites (no self-pairs)
+    - No Xn suffix by default
+    
     Output:
-      "<PSMILES_with_labels>|<frac>|<bonds><~Xn?>"
+      "<PSMILES_with_labels>|<frac>|<bonds>"
+    Example:
+      "CCC([*:1])C([*:2])CC|1.0|<1-2:0.5:0.5"
     """
     s = (psmiles or "").strip()
     if not s:
@@ -125,10 +133,17 @@ def homopolymer_psmiles_to_wdmpnn(psmiles: str,
         raise ValueError("Input appears to already contain fractions/bonds/Xn; pass only the monomer PSMILES.")
 
     labeled, labels = _autolabel_psmiles(s, start_label=1)
-    bonds = _bonds_block(labels_A=labels, labels_B=[], w=weight)
-    dp = f"~{str(xn).strip()}" if (xn is not None and str(xn).strip() != "") else ""
+    
+    # For homopolymers: only bond between the two wildcard sites (no self-pairs)
+    if len(labels) != 2:
+        raise ValueError(f"Homopolymer must have exactly 2 wildcard sites, found {len(labels)}")
+    
+    # Single bond between the two sites with weight 0.5
+    bonds = f"<{labels[0]}-{labels[1]}:{weight}:{weight}"
+    
+    # No Xn suffix for homopolymers (kept simple)
     frac_str = f"|{float(frac)}|"
-    return f"{labeled}{frac_str}{bonds}{dp}"
+    return f"{labeled}{frac_str}{bonds}"
 
 
 def _strip_tokens(s: str) -> str:

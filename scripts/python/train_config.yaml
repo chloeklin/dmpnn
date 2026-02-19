@@ -183,11 +183,11 @@ models:
     
   wDMPNN:
     smiles_column: WDMPNN_Input
-    ignore_columns: [smiles,smiles_A,smiles_B,fracA,fracB]
+    ignore_columns: [smiles,smiles_A,smiles_B,fracA,fracB,DoP]
     
   PPG:
-    smiles_column: smiles
-    ignore_columns: []
+    smiles_column: psmiles
+    ignore_columns: [smiles, WDMPNN_Input]
 
   GIN:
     smiles_column: smiles

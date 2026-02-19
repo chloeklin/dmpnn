@@ -127,9 +127,9 @@ def plot_target_histograms(dataset_name):
             ax.set_title(f"{target} (no data)")
             continue
         
-        # Plot histogram
+        # Plot histogram with Paul Tol's colorblind-friendly color
         n_bins = min(50, max(10, len(values) // 20))
-        ax.hist(values, bins=n_bins, alpha=0.7, edgecolor='black')
+        ax.hist(values, bins=n_bins, alpha=0.7, edgecolor='#333333', color='#4477AA')
         
         # Add statistics
         mean_val = values.mean()
@@ -177,7 +177,8 @@ def plot_target_histograms(dataset_name):
             
         plt.figure(figsize=(8, 6))
         n_bins = min(50, max(10, len(values) // 20))
-        plt.hist(values, bins=n_bins, alpha=0.7, edgecolor='black', color='steelblue')
+        # Use Paul Tol's colorblind-friendly blue
+        plt.hist(values, bins=n_bins, alpha=0.7, edgecolor='#333333', color='#4477AA')
         
         mean_val = values.mean()
         std_val = values.std()
@@ -191,9 +192,9 @@ def plot_target_histograms(dataset_name):
         plt.ylabel('Frequency')
         plt.grid(True, alpha=0.3)
         
-        # Add vertical lines for mean and median
-        plt.axvline(mean_val, color='red', linestyle='--', alpha=0.8, label=f'Mean: {mean_val:.2e}')
-        plt.axvline(values.median(), color='orange', linestyle='--', alpha=0.8, label=f'Median: {values.median():.2e}')
+        # Add vertical lines for mean and median using Paul Tol's colors
+        plt.axvline(mean_val, color='#EE6677', linestyle='--', alpha=0.8, label=f'Mean: {mean_val:.2e}')  # Red
+        plt.axvline(values.median(), color='#EE7733', linestyle='--', alpha=0.8, label=f'Median: {values.median():.2e}')  # Orange
         plt.legend()
         
         # Format scientific notation if needed
