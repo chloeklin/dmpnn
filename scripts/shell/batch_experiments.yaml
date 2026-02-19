@@ -51,23 +51,55 @@ htpmd_targets: &htpmd_targets
   - Transference Number
 
 experiments:
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   walltime: "00:30:00"
+  #   incl_desc: true
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+    
+    
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   walltime: "00:30:00"
+  #   incl_desc: true
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+    
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   walltime: "00:30:00"
+  #   incl_desc: true
+  #   targets: *htpmd_targets
+  #   fusion_mode: film
+  #   film_layers: all
+  #   export_embeddings: true
+    
+    
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   walltime: "00:30:00"
+  #   incl_desc: true
+  #   targets: *htpmd_targets
+  #   fusion_mode: film
+  #   film_layers: all
+  #   export_embeddings: true
+
   - <<: *htpmd_base
     model: GAT
-    walltime: "02:30:00"
-    # incl_desc: true
+    walltime: "00:40:00"
     targets: *htpmd_targets
-    fusion_mode: film
-    film_layers: all
     export_embeddings: true
+    aux_task: predict_descriptors
+    aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
+    
     
   - <<: *htpmd_base
     model: GIN
-    walltime: "02:30:00"
-    # incl_desc: true
+    walltime: "00:40:00"
     targets: *htpmd_targets
-    fusion_mode: film
-    film_layers: all
     export_embeddings: true
+    aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
     
   # - <<: *htpmd_base
   #   model: tabular
