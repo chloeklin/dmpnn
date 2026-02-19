@@ -703,17 +703,18 @@ for target in target_columns:
         if args._n_aux_targets > 0:
             n_aux = args._n_aux_targets
             # 1) Strip aux columns from datapoints before main normalization
-            aux_train_raw = np.array([np.asarray(dp.y)[0, -n_aux:] for dp in train_data[i]], dtype=np.float64)
-            aux_val_raw = np.array([np.asarray(dp.y)[0, -n_aux:] for dp in val_data[i]], dtype=np.float64)
-            aux_test_raw = np.array([np.asarray(dp.y)[0, -n_aux:] for dp in test_data[i]], dtype=np.float64)
+            # dp.y may be 1D (flat list) or 2D ([[...]]) depending on model; use atleast_2d
+            aux_train_raw = np.array([np.atleast_2d(dp.y)[0, -n_aux:] for dp in train_data[i]], dtype=np.float64)
+            aux_val_raw = np.array([np.atleast_2d(dp.y)[0, -n_aux:] for dp in val_data[i]], dtype=np.float64)
+            aux_test_raw = np.array([np.atleast_2d(dp.y)[0, -n_aux:] for dp in test_data[i]], dtype=np.float64)
 
             # Temporarily remove aux columns for main normalization
             for dp in train_data[i]:
-                dp.y = np.asarray(dp.y)[:, :-n_aux]
+                dp.y = np.atleast_2d(dp.y)[:, :-n_aux]
             for dp in val_data[i]:
-                dp.y = np.asarray(dp.y)[:, :-n_aux]
+                dp.y = np.atleast_2d(dp.y)[:, :-n_aux]
             for dp in test_data[i]:
-                dp.y = np.asarray(dp.y)[:, :-n_aux]
+                dp.y = np.atleast_2d(dp.y)[:, :-n_aux]
 
             # Rebuild datasets without aux columns for normalization
             train = DS(train_data[i], featurizer)
