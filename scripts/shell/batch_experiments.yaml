@@ -45,8 +45,8 @@ eaip_targets: &eaip_targets
 
 htpmd_targets: &htpmd_targets
   - Conductivity
-  - Li Diffusivity
-  - TFSI Diffusivity
+  # - Li Diffusivity
+  # - TFSI Diffusivity
   - Poly Diffusivity
   - Transference Number
 
@@ -305,13 +305,10 @@ experiments:
 
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
+  #   # incl_rdkit: true
   #   walltime: "3:30:00"
-  #   targets:
-  #       - Li Diffusivity
-  #       - TFSI Diffusivity
-  #       - Poly Diffusivity
-  #       - Transference Number
+  #   targets: *htpmd_targets
+
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
   #   incl_desc: true
@@ -345,22 +342,22 @@ experiments:
 
 
 # PPG
-  - <<: *tc_base
-    model: PPG
-    walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   walltime: "0:30:00"
     
-  - <<: *tc_base
-    model: PPG
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
 
-  - <<: *tc_base
-    model: PPG
-    incl_rdkit: true
-    walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
 
-  - <<: *tc_base
-    model: PPG
-    incl_desc: true
-    walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   incl_desc: true
+  #   walltime: "0:30:00"
