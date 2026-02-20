@@ -75,58 +75,58 @@ experiments:
   #   targets: *htpmd_targets
   #   export_embeddings: true
   
-  # - <<: *htpmd_base
-  #   model: GAT
-  #   walltime: "00:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   fusion_mode: film
-  #   film_layers: all
-  #   export_embeddings: true
-    
-    
-  # - <<: *htpmd_base
-  #   model: GIN
-  #   walltime: "00:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   fusion_mode: film
-  #   film_layers: all
-  #   export_embeddings: true
-
-  # - <<: *htpmd_base
-  #   model: DMPNN
-  #   walltime: "03:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   fusion_mode: film
-  #   film_layers: all
-  #   export_embeddings: true
-
   - <<: *htpmd_base
     model: GAT
-    walltime: "00:40:00"
+    walltime: "00:30:00"
+    incl_desc: true
     targets: *htpmd_targets
+    fusion_mode: film
+    film_layers: last
     export_embeddings: true
-    aux_task: predict_descriptors
-    aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
     
     
   - <<: *htpmd_base
     model: GIN
-    walltime: "00:40:00"
+    walltime: "00:30:00"
+    incl_desc: true
     targets: *htpmd_targets
+    fusion_mode: film
+    film_layers: last
     export_embeddings: true
-    aux_task: predict_descriptors
-    aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
 
   - <<: *htpmd_base
     model: DMPNN
     walltime: "03:30:00"
+    incl_desc: true
     targets: *htpmd_targets
+    fusion_mode: film
+    film_layers: last
     export_embeddings: true
-    aux_task: predict_descriptors
-    aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
+
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   walltime: "00:40:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  #   aux_task: predict_descriptors
+  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
+    
+    
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   walltime: "00:40:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  #   aux_task: predict_descriptors
+  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
+
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   walltime: "03:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  #   aux_task: predict_descriptors
+  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
 
     
   # - <<: *htpmd_base
