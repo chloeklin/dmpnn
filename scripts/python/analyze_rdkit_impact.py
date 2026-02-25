@@ -16,8 +16,10 @@ def find_dataset_pairs(results_dir):
     base_files = []
     for f in results_path.glob("*_results.csv"):
         fname = f.stem
-        # Exclude files that already have rdkit, desc, batch_norm, or size suffixes
-        if "__rdkit" not in fname and "__desc" not in fname and "__batch_norm" not in fname and "__size" not in fname:
+        # Exclude files that already have rdkit, desc, batch_norm, size, or mode suffixes
+        if ("__rdkit" not in fname and "__desc" not in fname and "__batch_norm" not in fname
+                and "__size" not in fname and "__film" not in fname and "__aux" not in fname
+                and "__nofusion" not in fname):
             base_files.append(f)
     
     pairs = []

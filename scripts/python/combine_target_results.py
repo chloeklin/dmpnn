@@ -43,11 +43,12 @@ def combine_results(results_dir: str):
     # Pattern to match filenames like:
     #   insulator__size1024__target_bandgap_chain_results.csv
     #   opv_camb3lyp__target_spectral_overlap_results.csv
-    #   htpmd__target_Conductivity__film_results.csv
-    #   htpmd__desc__rdkit__target_Tg__aux_results.csv
-    # Group 1: base name (before __target_)
-    # Group 2: target name (between __target_ and optional mode suffixes / _results)
-    # Group 3: optional mode suffixes (__film, __aux, __nofusion, __aux_la0.05, etc.)
+    #   htpmd__desc__film__target_Conductivity_results.csv
+    #   htpmd__desc__film__fllast__target_Conductivity_results.csv
+    #   htpmd__desc__aux__target_Tg_results.csv
+    # Group 1: base name (before __target_), may include mode parts like __film, __fllast
+    # Group 2: target name (between __target_ and optional trailing mode suffixes / _results)
+    # Group 3: optional mode suffixes after target (__film, __aux, __nofusion, etc.) — legacy support
     pattern = re.compile(r'(.+?)__target_(.+?)(__(?:film|aux|nofusion)(?:_[a-zA-Z0-9.]+)*)?_results\.csv$')
 
     # Find all __target_..._results.csv files
