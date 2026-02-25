@@ -4,6 +4,7 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 import os, json
 import torch
+from dataclasses import replace
 
 from chemprop import data, featurizers
 from utils import (set_seed, process_data, 
@@ -709,13 +710,10 @@ for target in target_columns:
             aux_test_raw = np.array([np.asarray(dp.y).flatten()[-n_aux:] for dp in test_data[i]], dtype=np.float64)
 
             # Temporarily remove aux columns for main normalization
-            # Assign back as 1D to preserve the shape chemprop Dataset expects
-            for dp in train_data[i]:
-                dp.y = np.asarray(dp.y).flatten()[:-n_aux]
-            for dp in val_data[i]:
-                dp.y = np.asarray(dp.y).flatten()[:-n_aux]
-            for dp in test_data[i]:
-                dp.y = np.asarray(dp.y).flatten()[:-n_aux]
+            # Use replace() for slotted dataclasses (can't directly assign to dp.y)
+            train_data[i] = [replace(dp, y=np.asarray(dp.y).flatten()[:-n_aux]) for dp in train_data[i]]
+            val_data[i] = [replace(dp, y=np.asarray(dp.y).flatten()[:-n_aux]) for dp in val_data[i]]
+            test_data[i] = [replace(dp, y=np.asarray(dp.y).flatten()[:-n_aux]) for dp in test_data[i]]
 
             # Rebuild datasets without aux columns for normalization
             train = DS(train_data[i], featurizer)
@@ -742,18 +740,22 @@ for target in target_columns:
             aux_test_std = _standardize_aux(aux_test_raw)
 
             # 3) Re-append standardized aux columns to datapoints' y
-            for j, dp in enumerate(train):
-                y_main = dp.y  # already normalized by scaler
-                dp.y = np.concatenate([y_main, aux_train_std[j:j+1]], axis=-1) if y_main.ndim == 2 \
-                    else np.concatenate([y_main, aux_train_std[j]])
-            for j, dp in enumerate(val):
-                y_main = dp.y
-                dp.y = np.concatenate([y_main, aux_val_std[j:j+1]], axis=-1) if y_main.ndim == 2 \
-                    else np.concatenate([y_main, aux_val_std[j]])
-            for j, dp in enumerate(test):
-                y_main = dp.y  # NOT scaled (chemprop convention)
-                dp.y = np.concatenate([y_main, aux_test_std[j:j+1]], axis=-1) if y_main.ndim == 2 \
-                    else np.concatenate([y_main, aux_test_std[j]])
+            # Use replace() for slotted dataclasses and update the dataset's data list
+            train.data = [
+                replace(dp, y=np.concatenate([dp.y, aux_train_std[j:j+1]], axis=-1) if dp.y.ndim == 2 
+                        else np.concatenate([dp.y, aux_train_std[j]]))
+                for j, dp in enumerate(train.data)
+            ]
+            val.data = [
+                replace(dp, y=np.concatenate([dp.y, aux_val_std[j:j+1]], axis=-1) if dp.y.ndim == 2 
+                        else np.concatenate([dp.y, aux_val_std[j]]))
+                for j, dp in enumerate(val.data)
+            ]
+            test.data = [
+                replace(dp, y=np.concatenate([dp.y, aux_test_std[j:j+1]], axis=-1) if dp.y.ndim == 2 
+                        else np.concatenate([dp.y, aux_test_std[j]]))
+                for j, dp in enumerate(test.data)
+            ]
 
             logger.info(f"Split {i}: Aux targets standardized (mu={aux_mu}, sd={aux_sd})")
         
