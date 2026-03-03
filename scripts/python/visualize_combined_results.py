@@ -14,7 +14,6 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List
 import argparse
-import re
 import sys
 
 # Import combine_target_results function
@@ -63,12 +62,7 @@ def parse_filename(filename: str) -> tuple:
     return dataset, features
 
 def parse_model_filename(filename: str, method: str, model_name: str = None) -> tuple:
-    """Parse model CSV filename to extract dataset and feature information.
-    
-    Handles mode suffixes like __film, __aux, __nofusion and their sub-variants
-    (e.g. __film__fllast__fhd128, __aux__la0.05). Differentiates variants like
-    FiLM (all layers) vs FiLM-fllast (last layer only) in the returned label.
-    """
+    """Parse model CSV filename to extract dataset and feature information."""
     # Remove .csv extension and method suffix first
     base = filename.replace('.csv', '')
     
@@ -79,47 +73,9 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     
     # Handle batch normalization
     batch_norm = False
-    if '__batch_norm' in base:
-        base = base.replace('__batch_norm', '')
+    if '_batch_norm' in base:
+        base = base.replace('_batch_norm', '')
         batch_norm = True
-    
-    # Extract mode suffixes from '__'-separated parts.
-    # Filename parts are joined by '__', so we split, classify, and rebuild.
-    # Mode-related parts: film, fllast, fhd<N>, aux, la<N>, nofusion
-    parts = base.split('__')
-    kept_parts = []
-    mode_parts = []  # collect mode-related tokens in order
-    
-    # Known mode tokens and prefixes
-    mode_tokens = {'film', 'nofusion', 'aux'}
-    mode_prefixes = ('fl', 'fhd', 'la')  # sub-params of film/aux
-    
-    for p in parts:
-        if p in mode_tokens or p.startswith(mode_prefixes):
-            mode_parts.append(p)
-        else:
-            kept_parts.append(p)
-    
-    base = '__'.join(kept_parts)
-    
-    # Build a human-readable mode label from collected tokens
-    mode_label = ''
-    if 'film' in mode_parts:
-        label_bits = ['FiLM']
-        for mp in mode_parts:
-            if mp.startswith('fl'):
-                label_bits.append(mp)       # e.g. 'fllast'
-            elif mp.startswith('fhd'):
-                label_bits.append(mp)       # e.g. 'fhd128'
-        mode_label = '-'.join(label_bits)   # e.g. 'FiLM-fllast' or 'FiLM-fllast-fhd128'
-    elif 'aux' in mode_parts:
-        label_bits = ['Aux']
-        for mp in mode_parts:
-            if mp.startswith('la'):
-                label_bits.append(mp)       # e.g. 'la0.05'
-        mode_label = '-'.join(label_bits)   # e.g. 'Aux' or 'Aux-la0.05'
-    elif 'nofusion' in mode_parts:
-        mode_label = 'NoFusion'
     
     # For baseline methods, include the model name
     if method == 'Baseline' and model_name:
@@ -145,12 +101,8 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     dataset = dataset.rstrip('_')
     
     # Add batch norm to features if present
-    if batch_norm and method in ['Graph', 'Baseline']:
+    if batch_norm and method in ['Graph', 'Baseline']:  # Only add (BN) for Graph and Baseline methods
         features = f"{features} (BN)"
-    
-    # Add mode label to features if present
-    if mode_label:
-        features = f"{features} ({mode_label})"
     
     return dataset, features
 
@@ -392,63 +344,6 @@ def get_metrics_for_task(task_type: str) -> List[str]:
     else:
         return []
 
-def filter_by_variants(data: pd.DataFrame, variant_patterns: List[str]) -> pd.DataFrame:
-    """Filter data to only include rows matching variant patterns.
-    
-    Args:
-        data: DataFrame with 'features' column
-        variant_patterns: List of patterns to match (case-insensitive)
-            - "graph-only": Graph models without any mode suffixes (no FiLM, Aux, NoFusion, BN)
-            - "FiLM": Any FiLM variant (FiLM, FiLM-fllast, FiLM-fhd128, etc.)
-            - "FiLM-fllast": Specifically FiLM last layer only
-            - "Aux": Auxiliary task variants
-            - "NoFusion": No fusion variants
-            - "BN": Batch normalization variants
-            - Other patterns: Partial case-insensitive match in features string
-    
-    Returns:
-        Filtered DataFrame
-    """
-    if not variant_patterns:
-        return data
-    
-    # Normalize patterns to lowercase for case-insensitive matching
-    patterns_lower = [p.lower() for p in variant_patterns]
-    
-    def matches_any_pattern(feature_str: str) -> bool:
-        """Check if feature string matches any of the variant patterns."""
-        feature_lower = feature_str.lower()
-        
-        for pattern in patterns_lower:
-            if pattern == "graph-only":
-                # Match Graph models without any mode suffixes
-                # Should have "graph" but NOT "(film)", "(aux)", "(nofusion)", or "(bn)"
-                if "graph" in feature_lower:
-                    # Check it doesn't have mode suffixes
-                    if not any(mode in feature_lower for mode in ["(film", "(aux", "(nofusion"]):
-                        # Allow if it has no parentheses at all, or only has baseline/model name in parens
-                        if "(" not in feature_lower or feature_lower.count("(") == 0:
-                            return True
-                        # Also check it's not a baseline (those have method names)
-                        if "baseline" not in feature_lower:
-                            return True
-            elif pattern in ["film", "aux", "nofusion", "bn"]:
-                # Match if the pattern appears in parentheses (mode suffix)
-                if f"({pattern}" in feature_lower:
-                    return True
-            else:
-                # General partial match
-                if pattern in feature_lower:
-                    return True
-        
-        return False
-    
-    # Filter rows where features column matches any pattern
-    mask = data['features'].apply(matches_any_pattern)
-    filtered_data = data[mask].copy()
-    
-    return filtered_data
-
 def export_consolidated_csv(data: pd.DataFrame, dataset: str, metrics: List[str], output_dir: Path):
     """Export consolidated CSV with mean and std for each metric across all feature combinations."""
     
@@ -497,7 +392,7 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     unique_targets = data['target'].dropna().unique()
     targets = sorted([str(t) for t in unique_targets])
     
-    # Define desired feature order for combined plots, including batch norm, FiLM, and aux variants
+    # Define desired feature order for combined plots, including batch norm variants
     base_features = [
         'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
         'Baseline_DMPNN', 'Baseline_DMPNN+RDKit', 'Baseline_DMPNN+Desc+RDKit',  # DMPNN Baseline features
@@ -508,21 +403,12 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
         'Baseline_PPG', 'Baseline_PPG+RDKit', 'Baseline_PPG+Desc+RDKit',  # PPG Baseline features
         'Baseline_AttentiveFP', 'Baseline_AttentiveFP+RDKit', 'Baseline_AttentiveFP+Desc+RDKit',  # AttentiveFP Baseline features
         'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit',  # Graph features
-        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)',  # Graph with batch norm
-        'Graph (FiLM)', 'Graph+Desc (FiLM)', 'Graph+RDKit (FiLM)', 'Graph+Desc+RDKit (FiLM)',  # Graph with FiLM (all layers)
-        'Graph (BN) (FiLM)', 'Graph+Desc (BN) (FiLM)', 'Graph+RDKit (BN) (FiLM)', 'Graph+Desc+RDKit (BN) (FiLM)',  # Graph BN+FiLM (all layers)
-        'Graph (FiLM-fllast)', 'Graph+Desc (FiLM-fllast)', 'Graph+RDKit (FiLM-fllast)', 'Graph+Desc+RDKit (FiLM-fllast)',  # Graph with FiLM (last layer)
-        'Graph (BN) (FiLM-fllast)', 'Graph+Desc (BN) (FiLM-fllast)', 'Graph+RDKit (BN) (FiLM-fllast)', 'Graph+Desc+RDKit (BN) (FiLM-fllast)',  # Graph BN+FiLM (last layer)
-        'Graph (Aux)', 'Graph (BN) (Aux)',  # Graph with auxiliary task (no desc inputs)
-        'Graph (NoFusion)', 'Graph+Desc (NoFusion)', 'Graph+RDKit (NoFusion)', 'Graph+Desc+RDKit (NoFusion)',  # Graph no fusion
+        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)'  # Graph with batch norm
     ]
     
     # Get available features and sort them according to our desired order
     available_features = data['features'].unique()
     features = [f for f in base_features if f in available_features]
-    # Also include any features found in data that aren't in the predefined list
-    extra_features = sorted([f for f in available_features if f not in base_features])
-    features.extend(extra_features)
     
     # Check if metric exists in data
     if metric not in data.columns:
@@ -930,10 +816,6 @@ def main():
                        help='Only process specific datasets (e.g., --dataset tc insulator)')
     parser.add_argument('--best-tabular-graph-only', action='store_true',
                        help='Only plot the best Tabular model vs the best Graph model per dataset/target/metric')
-    parser.add_argument('--variant-filter', type=str, nargs='+', default=[],
-                       help='Only include specific variants in plots (e.g., --variant-filter graph-only FiLM FiLM-fllast). '
-                            'Patterns: "graph-only" (Graph without modes), "FiLM" (any FiLM), "FiLM-fllast" (FiLM last layer), '
-                            '"Aux" (auxiliary task), "NoFusion", "BN" (batch norm). Case-insensitive partial matching.')
     args = parser.parse_args()
     
     # Validate that --exclude-models and --include-models are not used together
@@ -971,10 +853,6 @@ def main():
         # Create directory name for specific datasets
         datasets_str = "_".join(args.dataset)
         subdirs.append(f"datasets_{datasets_str}")
-    if args.variant_filter:
-        # Create directory name for variant filtering
-        variant_str = "_".join(args.variant_filter).replace("/", "_").replace(" ", "_")
-        subdirs.append(f"variants_{variant_str}")
     if args.best_tabular_graph_only:
         subdirs.append("best_tabular_vs_graph")
     
@@ -1038,16 +916,6 @@ def main():
         print(f"Detected task type: {task_type}")
         print(f"Using metrics: {metrics}")
         
-        # Show variant filtering info if active
-        if args.variant_filter:
-            unique_features = sorted(data['features'].unique())
-            print(f"\nVariant filtering active: {args.variant_filter}")
-            print(f"Available feature variants before filtering: {len(unique_features)}")
-            filtered_data = filter_by_variants(data, args.variant_filter)
-            filtered_features = sorted(filtered_data['features'].unique())
-            print(f"Feature variants after filtering: {len(filtered_features)}")
-            print(f"Kept variants: {filtered_features}")
-        
         # Export consolidated CSV (always include all data)
         export_consolidated_csv(data, dataset, metrics, output_dir)
         
@@ -1074,18 +942,21 @@ def main():
                     elif args.include_models:
                         plot_data = plot_data[plot_data['model'].isin(args.include_models)]
                     
-                    # Apply variant filtering
-                    if args.variant_filter:
-                        plot_data = filter_by_variants(plot_data, args.variant_filter)
-                        if plot_data.empty:
-                            print(f"Warning: No data remaining after variant filtering for {dataset}/{metric}. Skipping.")
-                            continue
+                    # Special filter: For tabular models (Linear/RF/XGB), only show results with polymer descriptors
+                    # This filters out results from base files (htpmd.csv, htpmd_rdkit.csv) and keeps only
+                    # results from descriptor files (htpmd_descriptors.csv which has AB+Desc+RDKit features)
+                    tabular_models = ['Linear', 'RF', 'XGB']
+                    for model in tabular_models:
+                        if model in plot_data['model'].values:
+                            # Keep only rows where features contain "Desc" (polymer descriptors)
+                            model_mask = (plot_data['model'] == model) & (~plot_data['features'].str.contains('Desc', case=False, na=False))
+                            plot_data = plot_data[~model_mask]
 
                     # Create main plot with exclusions/inclusions applied
                     create_combined_comparison_plots(plot_data, dataset, metric, output_dir)
 
                     # If tabular exists and not excluded, also create a graph-only plot for better visibility
-                    if has_tabular and not args.exclude_tabular and not args.variant_filter:
+                    if has_tabular and not args.exclude_tabular:
                         graph_only_data = data[data['method'] != 'Tabular']
                         # Apply model filtering to graph-only data as well
                         if args.exclude_models:

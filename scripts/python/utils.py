@@ -53,6 +53,10 @@ def create_base_argument_parser(description="Train a graph model"):
                         help='Include RDKit 2D descriptors')
     parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
+    parser.add_argument("--copolymer_mode", type=str, choices=["mix", "interact"], default="mix",
+                        help='Copolymer integration mode: '
+                             '"mix" = fraction-weighted sum z = fracA*z_A + fracB*z_B (default), '
+                             '"interact" = [z_A || z_B || |z_A-z_B| || z_A*z_B || meta]')
     
     # Training arguments
     parser.add_argument('--train_size', type=str, default=None,
@@ -679,7 +683,198 @@ def create_all_data(
         ]
 
 
-        
+def create_copolymer_data(
+    smis_A: List[str],
+    smis_B: List[str],
+    fracA: np.ndarray,
+    fracB: np.ndarray,
+    ys: Union[List[float], np.ndarray],
+    combined_descriptor_data: Optional[np.ndarray],
+    model_name: str,
+) -> Tuple[List[Any], List[Any], np.ndarray, np.ndarray]:
+    """Create paired MoleculeDatapoint lists for copolymer training.
+
+    Returns
+    -------
+    (data_A, data_B, fracA_arr, fracB_arr)
+        Two parallel lists of MoleculeDatapoint (one per monomer) plus fraction
+        arrays.  Rows with invalid SMILES or all-NaN targets are dropped.
+    """
+    try:
+        from chemprop import data as cdata
+    except ImportError as e:
+        raise ImportError("chemprop is required") from e
+
+    if isinstance(ys, np.ndarray):
+        ys_list = ys.tolist()
+    else:
+        ys_list = list(ys)
+
+    data_A, data_B, fA_out, fB_out = [], [], [], []
+    for idx, (sA, sB, fA, fB, y) in enumerate(
+        zip(smis_A, smis_B, fracA, fracB, ys_list)
+    ):
+        if not sA or not sB:
+            continue
+        if not pd.notna(y).any():
+            continue
+        x_d = combined_descriptor_data[idx] if combined_descriptor_data is not None else None
+        dpA = cdata.MoleculeDatapoint.from_smi(sA, y, x_d=x_d)
+        dpB = cdata.MoleculeDatapoint.from_smi(sB, y)   # y stored only on A side
+        data_A.append(dpA)
+        data_B.append(dpB)
+        fA_out.append(float(fA))
+        fB_out.append(float(fB))
+
+    return data_A, data_B, np.array(fA_out), np.array(fB_out)
+
+
+def build_copolymer_model_and_trainer(
+    args: Any,
+    combined_descriptor_data: Optional[np.ndarray],
+    scaler: Optional[Any],
+    checkpoint_path: Union[str, Path],
+    copolymer_mode: str = "mix",
+    batch_norm: bool = True,
+    metric_list: Optional[List[Any]] = None,
+    early_stopping_patience: int = 30,
+    early_stopping_min_delta: float = 0.0,
+    max_epochs: int = 300,
+    gradient_clip_val: float = 10.0,
+    save_checkpoint: bool = True,
+    **trainer_kwargs,
+) -> Tuple[Any, Any]:
+    """Build a CopolymerMPNN and matching Trainer.
+
+    The FFN input dimension depends on ``copolymer_mode``:
+    * **mix**: ``d_mp + 2 + d_desc``   (z + fracA + fracB + meta)
+    * **interact**: ``4*d_mp + 2 + d_desc``  (z_A, z_B, |diff|, prod, fracA, fracB, meta)
+    """
+    import torch
+    from chemprop import nn, models
+    from chemprop.models.copolymer import CopolymerMPNN
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+    import lightning.pytorch as pl
+
+    gpu = torch.cuda.is_available()
+    trainer_kwargs.setdefault("accelerator", "gpu" if gpu else "cpu")
+    trainer_kwargs.setdefault("devices", 1 if gpu else None)
+    trainer_kwargs.setdefault("precision", "16-mixed" if gpu else 32)
+    trainer_kwargs.setdefault("deterministic", True)
+    trainer_kwargs.setdefault("benchmark", False)
+
+    descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
+
+    # ---------- shared encoder (same code as build_model_and_trainer) ----------
+    if args.model_name == "PPG":
+        raise ValueError("PPG is not supported for copolymer mode")
+    elif args.model_name == "wDMPNN":
+        raise ValueError("wDMPNN is not supported for copolymer mode (use small-molecule encoders)")
+    elif args.model_name == "DMPNN":
+        mp = nn.BondMessagePassing()
+        agg = nn.MeanAggregation()
+    elif args.model_name == "DMPNN_DiffPool":
+        mp = nn.BondMessagePassingWithDiffPool(
+            base_mp_cls=nn.BondMessagePassing,
+            depth=getattr(args, "diffpool_depth", 1),
+            ratio=getattr(args, "diffpool_ratio", 0.5),
+        )
+        agg = nn.IdentityAggregation()
+    elif args.model_name == "GIN":
+        mp = nn.GINMessagePassing(eps_learnable=True, mlp_layers=getattr(args, "gin_mlp_layers", 2), use_edge_features=True)
+        agg = nn.MeanAggregation()
+    elif args.model_name == "GIN0":
+        mp = nn.GIN0MessagePassing(mlp_layers=getattr(args, "gin_mlp_layers", 2), use_edge_features=True)
+        agg = nn.MeanAggregation()
+    elif args.model_name == "GINE":
+        mp = nn.GINEMessagePassing(eps_learnable=True, mlp_layers=getattr(args, "gin_mlp_layers", 2))
+        agg = nn.MeanAggregation()
+    elif args.model_name == "GAT":
+        mp = nn.GATMessagePassing(num_heads=getattr(args, "gat_num_heads", 4), concat_heads=getattr(args, "gat_concat_heads", True), attention_dropout=getattr(args, "gat_attention_dropout", 0.0), use_edge_features=True)
+        agg = nn.MeanAggregation()
+    elif args.model_name == "GATv2":
+        mp = nn.GATv2MessagePassing(num_heads=getattr(args, "gat_num_heads", 4), concat_heads=getattr(args, "gat_concat_heads", True), attention_dropout=getattr(args, "gat_attention_dropout", 0.0), use_edge_features=True)
+        agg = nn.MeanAggregation()
+    else:
+        raise ValueError(f"Unsupported model for copolymer: {args.model_name}")
+
+    d_mp = mp.output_dim  # GNN embedding dim
+
+    # ---------- FFN input dimension ----------
+    # meta = [fracA, fracB] (always) + descriptor_dim
+    meta_dim = 2 + descriptor_dim
+    if copolymer_mode == "mix":
+        ffn_input_dim = d_mp + meta_dim
+    elif copolymer_mode == "interact":
+        ffn_input_dim = 4 * d_mp + meta_dim
+    else:
+        raise ValueError(f"Unknown copolymer_mode: {copolymer_mode}")
+
+    # ---------- output transform ----------
+    output_transform = None
+    if args.task_type == "reg" and scaler is not None:
+        output_transform = nn.UnscaleTransform.from_standard_scaler(scaler)
+
+    # ---------- predictor ----------
+    if args.task_type == "reg":
+        ffn = nn.RegressionFFN(output_transform=output_transform, n_tasks=1, input_dim=ffn_input_dim)
+    elif args.task_type == "binary":
+        ffn = nn.BinaryClassificationFFN(input_dim=ffn_input_dim)
+    elif args.task_type == "multi":
+        n_classes = getattr(args, "_n_classes", None)
+        if n_classes is None:
+            raise ValueError("n_classes required for multi-class copolymer")
+        ffn = nn.MulticlassClassificationFFN(n_classes=n_classes, input_dim=ffn_input_dim)
+    else:
+        raise ValueError(f"Unsupported task_type for copolymer: {args.task_type}")
+
+    # ---------- model ----------
+    model = CopolymerMPNN(
+        message_passing=mp,
+        agg=agg,
+        predictor=ffn,
+        copolymer_mode=copolymer_mode,
+        batch_norm=batch_norm,
+        metrics=metric_list or [],
+    )
+
+    # ---------- trainer ----------
+    checkpoint_path = Path(checkpoint_path)
+    callbacks = []
+    if save_checkpoint:
+        callbacks.append(ModelCheckpoint(
+            dirpath=str(checkpoint_path),
+            filename="best-{epoch:03d}-{val_loss:.4f}",
+            monitor="val_loss", mode="min", save_top_k=1,
+            save_last=True, save_weights_only=False, auto_insert_metric_name=False,
+        ))
+    callbacks.append(EarlyStopping(
+        monitor="val_loss", patience=early_stopping_patience,
+        min_delta=early_stopping_min_delta, mode="min", verbose=True,
+        check_finite=True, check_on_train_epoch_end=False,
+    ))
+    callbacks.append(pl.callbacks.LearningRateMonitor(logging_interval="epoch", log_momentum=True))
+
+    tb_logger = pl.loggers.TensorBoardLogger(save_dir=str(checkpoint_path), name="logs", version="")
+    (checkpoint_path / "logs").mkdir(parents=True, exist_ok=True)
+
+    trainer = pl.Trainer(
+        max_epochs=max_epochs,
+        callbacks=callbacks,
+        logger=tb_logger,
+        gradient_clip_val=gradient_clip_val,
+        gradient_clip_algorithm="norm",
+        enable_progress_bar=True,
+        enable_model_summary=True,
+        log_every_n_steps=10,
+        check_val_every_n_epoch=1,
+        num_sanity_val_steps=0,
+        enable_checkpointing=True,
+        default_root_dir=str(checkpoint_path),
+        **trainer_kwargs,
+    )
+
+    return model, trainer
 
 
 def get_metric_list(

@@ -10,6 +10,12 @@ from .collate import (
     collate_multicomponent,
     collate_polymer_batch
 )
+from .copolymer import (
+    CopolymerDataset,
+    CopolymerDatum,
+    CopolymerTrainingBatch,
+    collate_copolymer_batch,
+)
 from .dataloader import build_dataloader
 from .datapoints import (
     LazyMoleculeDatapoint,
@@ -29,6 +35,7 @@ from .datasets import (
     ReactionDataset,
     PolymerDataset
 )
+
 from .molgraph import MolGraph, PolymerMolGraph
 from .samplers import ClassBalanceSampler, SeededSampler
 from .splitting import SplitType, make_split_indices, split_data_by_indices
@@ -61,5 +68,9 @@ __all__ = [
     "SplitType",
     "make_split_indices",
     "split_data_by_indices",
-    "PolymerDataset"
+    "PolymerDataset",
+    "CopolymerDataset",
+    "CopolymerDatum",
+    "CopolymerTrainingBatch",
+    "collate_copolymer_batch",
 ]

@@ -10,6 +10,7 @@ from chemprop.data.collate import (
     collate_multicomponent,
     collate_polymer_batch
 )
+from chemprop.data.copolymer import CopolymerDataset, collate_copolymer_batch
 from chemprop.data.datasets import (
     CuikmolmakerDataset,
     MolAtomBondDataset,
@@ -18,6 +19,7 @@ from chemprop.data.datasets import (
     PolymerDataset,
     ReactionDataset,
 )
+
 from chemprop.data.samplers import ClassBalanceSampler, SeededSampler
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,8 @@ def build_dataloader(
     | MolAtomBondDataset
     | ReactionDataset
     | PolymerDataset
-    | MulticomponentDataset,
+    | MulticomponentDataset
+    | CopolymerDataset,
     batch_size: int = 64,
     num_workers: int = 0,
     class_balance: bool = False,
@@ -64,7 +67,9 @@ def build_dataloader(
     else:
         sampler = None
 
-    if isinstance(dataset, MulticomponentDataset):
+    if isinstance(dataset, CopolymerDataset):
+        collate_fn = collate_copolymer_batch
+    elif isinstance(dataset, MulticomponentDataset):
         collate_fn = collate_multicomponent
     elif isinstance(dataset, CuikmolmakerDataset):
         collate_fn = collate_cuik_batch

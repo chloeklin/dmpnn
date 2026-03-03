@@ -13,7 +13,8 @@ from utils import (set_seed, process_data,
                   setup_training_environment, load_and_preprocess_data, determine_split_strategy, 
                   generate_data_splits, save_aggregate_results, get_encodings_from_loader, save_predictions,
                   create_base_argument_parser, add_model_specific_args, validate_train_size_argument,
-                  setup_model_environment, save_model_results, pick_best_checkpoint)
+                  setup_model_environment, save_model_results, pick_best_checkpoint,
+                  create_copolymer_data, build_copolymer_model_and_trainer)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -266,6 +267,273 @@ if args.pretrain_monomer:
     # Exit after pretraining (we don’t do per-target loops in this mode)
     save_aggregate_results([], results_dir, args.model_name, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
     raise SystemExit(0)
+
+
+# ========================= COPOLYMER BRANCH =========================
+if args.polymer_type == "copolymer":
+    from chemprop.data.copolymer import CopolymerDataset
+    from chemprop.models.copolymer import CopolymerMPNN
+
+    copolymer_mode = args.copolymer_mode
+    logger.info(f"\n=== Copolymer Training (mode={copolymer_mode}) ===")
+    logger.info(f"Dataset          : {args.dataset_name}")
+    logger.info(f"Model            : {args.model_name}")
+    logger.info(f"Target columns   : {target_columns}")
+    logger.info(f"Copolymer mode   : {copolymer_mode}")
+    logger.info("================================\n")
+
+    # Filter to specific target if specified
+    if args.target:
+        if args.target not in target_columns:
+            logger.error(f"Specified target '{args.target}' not found. Available: {target_columns}")
+            exit(1)
+        target_columns = [args.target]
+        logger.info(f"Training on single target: {args.target}")
+
+    # Extract monomer SMILES columns (already validated in load_and_preprocess_data)
+    sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
+    sB_col = "smilesB" if "smilesB" in df_input.columns else "smiles_B"
+    smis_A = df_input[sA_col].astype(str).tolist()
+    smis_B = df_input[sB_col].astype(str).tolist()
+    fracA_arr = df_input["fracA"].values.astype(float)
+    fracB_arr = df_input["fracB"].values.astype(float)
+
+    # Process descriptors (same logic as homopolymer path)
+    combined_descriptor_data = None
+    if descriptor_columns:
+        combined_descriptor_data = df_input[descriptor_columns].values.astype(np.float32)
+        logger.info(f"Using {len(descriptor_columns)} descriptor columns: {descriptor_columns}")
+
+    featurizer_copoly = featurizers.SimpleMoleculeMolGraphFeaturizer()
+
+    all_results = []
+
+    for target in target_columns:
+        ys = df_input[target].astype(float).values.reshape(-1, 1)
+
+        # Create copolymer paired datapoints
+        data_A, data_B, fA, fB = create_copolymer_data(
+            smis_A, smis_B, fracA_arr, fracB_arr, ys,
+            combined_descriptor_data, args.model_name,
+        )
+        logger.info(f"[{target}] Created {len(data_A)} copolymer datapoints")
+
+        # Determine splits (use group-based splitting to avoid leakage)
+        n_splits, local_reps = determine_split_strategy(len(data_A), REPLICATES)
+
+        # Generate splits using group keys if available
+        if "group_key" in df_input.columns:
+            # Build group array aligned with data_A (after filtering)
+            valid_indices = []
+            for idx in range(len(df_input)):
+                sA = smis_A[idx]
+                sB = smis_B[idx]
+                y_val = ys[idx]
+                if sA and sB and pd.notna(y_val).any():
+                    valid_indices.append(idx)
+            groups = df_input["group_key"].values[valid_indices]
+
+            from sklearn.model_selection import GroupKFold, GroupShuffleSplit
+            train_indices_list, val_indices_list, test_indices_list = [], [], []
+            idx_all = np.arange(len(data_A))
+
+            if n_splits > 1:
+                for rep in range(local_reps):
+                    gkf = GroupKFold(n_splits=n_splits)
+                    for train_val_idx, test_idx in gkf.split(idx_all, groups=groups):
+                        tv_groups = groups[train_val_idx]
+                        unique_groups = np.unique(tv_groups)
+                        rng = np.random.default_rng(SEED + rep)
+                        n_val_groups = max(1, int(0.1 * len(unique_groups)))
+                        val_group_set = set(rng.choice(unique_groups, size=n_val_groups, replace=False))
+                        val_mask = np.array([g in val_group_set for g in tv_groups])
+                        val_idx = train_val_idx[val_mask]
+                        tr_idx = train_val_idx[~val_mask]
+                        train_indices_list.append(tr_idx)
+                        val_indices_list.append(val_idx)
+                        test_indices_list.append(test_idx)
+            else:
+                for rep in range(local_reps):
+                    gss = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=SEED + rep)
+                    train_val_idx, test_idx = next(gss.split(idx_all, groups=groups))
+                    tv_groups = groups[train_val_idx]
+                    gss_inner = GroupShuffleSplit(n_splits=1, test_size=1/9, random_state=SEED + rep)
+                    tr_local, val_local = next(gss_inner.split(np.arange(len(train_val_idx)), groups=tv_groups))
+                    train_indices_list.append(train_val_idx[tr_local])
+                    val_indices_list.append(train_val_idx[val_local])
+                    test_indices_list.append(test_idx)
+
+            train_indices = train_indices_list
+            val_indices = val_indices_list
+            test_indices = test_indices_list
+        else:
+            train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+
+        # Apply train_size subsampling
+        if args.train_size is not None and args.train_size.lower() != "full":
+            target_train_size = int(args.train_size)
+            for si in range(len(train_indices)):
+                orig_size = len(train_indices[si])
+                new_size = min(target_train_size, orig_size)
+                if new_size < orig_size:
+                    rng = np.random.default_rng(SEED + si)
+                    train_indices[si] = rng.choice(train_indices[si], size=new_size, replace=False)
+                    logger.info(f"Split {si}: Training set reduced from {orig_size} to {new_size}")
+
+        num_splits = len(train_indices)
+        results_all = []
+
+        for i in range(num_splits):
+            tr, va, te = train_indices[i], val_indices[i], test_indices[i]
+
+            # Build CopolymerDataset for each split
+            train_dA = [data_A[j] for j in tr]
+            train_dB = [data_B[j] for j in tr]
+            val_dA = [data_A[j] for j in va]
+            val_dB = [data_B[j] for j in va]
+            test_dA = [data_A[j] for j in te]
+            test_dB = [data_B[j] for j in te]
+
+            train_ds = CopolymerDataset(train_dA, train_dB, fA[tr], fB[tr], featurizer_copoly)
+            val_ds = CopolymerDataset(val_dA, val_dB, fA[va], fB[va], featurizer_copoly)
+            test_ds = CopolymerDataset(test_dA, test_dB, fA[te], fB[te], featurizer_copoly)
+
+            # Normalize targets (regression only)
+            scaler = None
+            if args.task_type == "reg":
+                scaler = train_ds.normalize_targets()
+                val_ds.normalize_targets(scaler)
+
+            # Normalize descriptors if present
+            if combined_descriptor_data is not None:
+                desc_scaler = train_ds.normalize_inputs("X_d")
+                val_ds.normalize_inputs("X_d", desc_scaler)
+                test_ds.normalize_inputs("X_d", desc_scaler)
+
+            # Metrics
+            n_classes_arg = None
+            metric_list = get_metric_list(args.task_type, target=target, n_classes=n_classes_arg, df_input=df_input)
+
+            # Build experiment paths
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
+
+            processed_descriptor_data = combined_descriptor_data
+
+            # Build model and trainer
+            mpnn, trainer = build_copolymer_model_and_trainer(
+                args=args,
+                combined_descriptor_data=processed_descriptor_data,
+                scaler=scaler,
+                checkpoint_path=checkpoint_path,
+                copolymer_mode=copolymer_mode,
+                batch_norm=args.batch_norm,
+                metric_list=metric_list,
+                early_stopping_patience=PATIENCE,
+                max_epochs=EPOCHS,
+                save_checkpoint=args.save_checkpoint,
+            )
+
+            # Dataloaders
+            train_loader = data.build_dataloader(train_ds, batch_size=args.batch_size, num_workers=num_workers, pin_memory=True)
+            val_loader = data.build_dataloader(val_ds, batch_size=args.batch_size, num_workers=num_workers, shuffle=False, pin_memory=True)
+            test_loader = data.build_dataloader(test_ds, batch_size=args.batch_size, num_workers=num_workers, shuffle=False, pin_memory=True)
+
+            # Skip-training logic
+            inprog_flag = checkpoint_path / "TRAINING_IN_PROGRESS"
+            done_flag = checkpoint_path / "TRAINING_COMPLETE"
+            best_ckpt_path, best_val_loss = None, None
+            skip_training = False
+
+            if done_flag.exists():
+                best_ckpt_path, best_val_loss = pick_best_checkpoint(checkpoint_path)
+                if best_ckpt_path is not None:
+                    skip_training = True
+                    logger.info(f"[{target}] split {i}: Found TRAINING_COMPLETE; skipping.")
+
+            if skip_training and best_ckpt_path:
+                logger.info(f"Loading copolymer checkpoint: {best_ckpt_path}")
+                use_cuda = torch.cuda.is_available()
+                map_location = None if use_cuda else torch.device("cpu")
+                mpnn = CopolymerMPNN.load_from_checkpoint(best_ckpt_path, map_location=map_location)
+                if use_cuda:
+                    mpnn = mpnn.to(torch.device("cuda"))
+                mpnn.eval()
+            else:
+                inprog_flag.touch(exist_ok=True)
+                try:
+                    trainer.fit(mpnn, train_loader, val_loader)
+                    best_ckpt_path, best_val_loss = pick_best_checkpoint(checkpoint_path)
+                    if best_ckpt_path:
+                        with open(checkpoint_path / "best.json", "w") as f:
+                            json.dump({"best_ckpt": best_ckpt_path, "best_val_loss": best_val_loss}, f, indent=2)
+                        done_flag.touch()
+                finally:
+                    if inprog_flag.exists():
+                        inprog_flag.unlink(missing_ok=True)
+
+            # Test
+            results = trainer.test(model=mpnn, dataloaders=test_loader)
+            test_metrics = results[0]
+            test_metrics["split"] = i
+            results_all.append(test_metrics)
+
+            # Export embeddings if requested
+            if args.export_embeddings:
+                logger.info(f"Exporting copolymer embeddings for split {i}, target {target}")
+                mpnn.eval()
+
+                def _get_copolymer_embeddings(model, loader):
+                    all_z_A, all_z_B, all_z_final = [], [], []
+                    device = next(model.parameters()).device
+                    with torch.no_grad():
+                        for batch in loader:
+                            bmg_A, bmg_B, fracA_t, fracB_t, X_d, *_ = batch
+                            bmg_A.to(device); bmg_B.to(device)
+                            fracA_t = fracA_t.to(device); fracB_t = fracB_t.to(device)
+                            if X_d is not None:
+                                X_d = X_d.to(device)
+                            comps = model.fingerprint_components(bmg_A, bmg_B, fracA_t, fracB_t, X_d)
+                            all_z_A.append(comps["z_A"].cpu().numpy())
+                            all_z_B.append(comps["z_B"].cpu().numpy())
+                            all_z_final.append(comps["z_final"].cpu().numpy())
+                    return {
+                        "z_A": np.concatenate(all_z_A),
+                        "z_B": np.concatenate(all_z_B),
+                        "z_final": np.concatenate(all_z_final),
+                    }
+
+                emb_train = _get_copolymer_embeddings(mpnn, train_loader)
+                emb_test = _get_copolymer_embeddings(mpnn, test_loader)
+
+                embeddings_dir = results_dir / "embeddings"
+                embeddings_dir.mkdir(parents=True, exist_ok=True)
+                emb_prefix = f"{args.dataset_name}__{args.model_name}__{target}__copoly_{copolymer_mode}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
+
+                for key in ["z_A", "z_B", "z_final"]:
+                    np.save(embeddings_dir / f"{emb_prefix}__{key}_train_split_{i}.npy", emb_train[key])
+                    np.save(embeddings_dir / f"{emb_prefix}__{key}_test_split_{i}.npy", emb_test[key])
+                logger.info(f"Split {i}: Saved copolymer embeddings to {embeddings_dir}")
+                logger.info(f"  - z_A train: {emb_train['z_A'].shape}, z_B train: {emb_train['z_B'].shape}, z_final train: {emb_train['z_final'].shape}")
+
+        # Aggregate results for this target
+        results_df = pd.DataFrame(results_all)
+        numeric_cols = [col for col in results_df.columns if col != "split"]
+        mean_metrics = results_df[numeric_cols].mean()
+        std_metrics = results_df[numeric_cols].std()
+        logger.info(f"\n[{target}] Mean across {len(results_all)} splits:\n{mean_metrics}")
+        logger.info(f"\n[{target}] Std across {len(results_all)} splits:\n{std_metrics}")
+        results_df["target"] = target
+        all_results.append(results_df)
+
+    # Save final results
+    if all_results:
+        combined_results = pd.concat(all_results, ignore_index=True)
+        save_model_results(combined_results, args, args.model_name, results_dir, logger)
+
+    raise SystemExit(0)
+# ========================= END COPOLYMER BRANCH =========================
 
 
 # Filter to specific target if specified

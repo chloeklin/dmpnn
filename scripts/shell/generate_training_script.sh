@@ -19,6 +19,7 @@
 #   target=<name>          # single prediction target/column
 #   train_size=<float>     # e.g., 0.8
 #   polymer_type=<string>  # e.g., copolymer
+#   copolymer_mode=<string> # mix | interact (for copolymer datasets)
 #   fusion_mode=<string>   # none | late_concat | film
 #   film_layers=<string>   # all | last
 #   film_hidden_dim=<int>  # FiLM MLP trunk hidden dim
@@ -57,6 +58,7 @@ SUBMIT_JOB=true
 TARGET=""
 TRAIN_SIZE=""
 POLYMER_TYPE=""
+COPOLYMER_MODE=""
 FUSION_MODE=""
 FILM_LAYERS=""
 FILM_HIDDEN_DIM=""
@@ -89,6 +91,7 @@ for arg in "${@:4}"; do
     target=*)           TARGET="${arg#target=}" ;;
     train_size=*)       TRAIN_SIZE="${arg#train_size=}" ;;
     polymer_type=*)     POLYMER_TYPE="${arg#polymer_type=}" ;;
+    copolymer_mode=*)   COPOLYMER_MODE="${arg#copolymer_mode=}" ;;
     fusion_mode=*)      FUSION_MODE="${arg#fusion_mode=}" ;;
     film_layers=*)      FILM_LAYERS="${arg#film_layers=}" ;;
     film_hidden_dim=*)  FILM_HIDDEN_DIM="${arg#film_hidden_dim=}" ;;
@@ -139,6 +142,7 @@ fi
 [ -n "$SAVE_PREDICTIONS" ]   && ARGS="$ARGS $SAVE_PREDICTIONS"
 [ -n "$EXPORT_EMBEDDINGS" ]  && ARGS="$ARGS $EXPORT_EMBEDDINGS"
 [ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
+[ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
 [ -n "$TARGET" ]             && ARGS="$ARGS --target \"$TARGET\""
 [ -n "$FUSION_MODE" ]        && ARGS="$ARGS --fusion_mode $FUSION_MODE"
@@ -157,6 +161,7 @@ SUFFIX="_${MODEL}"
 [ -n "$PRETRAIN_MONOMER" ] && SUFFIX="${SUFFIX}_pretrain"
 [ "$TASK_TYPE" != "reg" ]  && SUFFIX="${SUFFIX}_${TASK_TYPE}"
 [ -n "$POLYMER_TYPE" ]     && SUFFIX="${SUFFIX}_$POLYMER_TYPE"
+[ -n "$COPOLYMER_MODE" ]   && SUFFIX="${SUFFIX}_${COPOLYMER_MODE}"
 [ -n "$TRAIN_SIZE" ]       && SUFFIX="${SUFFIX}_ts${TRAIN_SIZE}"
 [ -n "$FUSION_MODE" ]      && SUFFIX="${SUFFIX}_${FUSION_MODE}"
 [ -n "$FILM_LAYERS" ]      && SUFFIX="${SUFFIX}_fl${FILM_LAYERS}"

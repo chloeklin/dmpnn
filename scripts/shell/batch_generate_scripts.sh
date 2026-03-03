@@ -185,7 +185,11 @@ try:
         polymer_type = exp.get('polymer_type')
         if polymer_type:
             args.append(f'polymer_type={polymer_type}')
-
+        
+        # Add copolymer mode if specified
+        copolymer_mode = exp.get('copolymer_mode')
+        if copolymer_mode:
+            args.append(f'copolymer_mode={copolymer_mode}')
         
         # Add pretrain_monomer flag if specified
         if exp.get('pretrain_monomer', False):

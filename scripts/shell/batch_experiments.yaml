@@ -29,6 +29,12 @@ eaip_base: &eaip_base
   polymer_type: copolymer
   export_embeddings: true
 
+block_base: &block_base
+  dataset: block
+  task_type: reg
+  polymer_type: copolymer
+  export_embeddings: true
+
 opv_targets: &opv_targets
   # - optical_lumo
   # - gap
@@ -42,6 +48,10 @@ opv_targets: &opv_targets
 eaip_targets: &eaip_targets
   - EA vs SHE (eV)
   - IP vs SHE (eV)
+
+block_targets: &block_targets
+  - Mn
+  - phase_label
 
 htpmd_targets: &htpmd_targets
   - Conductivity
@@ -190,7 +200,53 @@ experiments:
 
 
 
+  # ========== COPOLYMER DATASETS ==========
+  
   # EA IP experiments
+  # Example: Copolymer with mix mode
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   walltime: "2:00:00"
+  #   copolymer_mode: mix
+  #   targets: *eaip_targets
+  
+  # Example: Copolymer with interact mode
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   walltime: "2:00:00"
+  #   copolymer_mode: interact
+  #   targets: *eaip_targets
+  
+  # Example: Copolymer with descriptors
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   walltime: "2:00:00"
+  #   copolymer_mode: mix
+  #   incl_rdkit: true
+  #   targets: *eaip_targets
+  
+  # Block copolymer experiments
+  # Example: Block with mix mode
+  # - <<: *block_base
+  #   model: DMPNN
+  #   walltime: "2:00:00"
+  #   copolymer_mode: mix
+  #   targets: *block_targets
+  
+  # Example: Block with interact mode
+  # - <<: *block_base
+  #   model: DMPNN
+  #   walltime: "2:00:00"
+  #   copolymer_mode: interact
+  #   targets: *block_targets
+  
+  # Example: Block with GIN model
+  # - <<: *block_base
+  #   model: GIN
+  #   walltime: "2:00:00"
+  #   copolymer_mode: mix
+  #   targets: *block_targets
+
 #   - <<: *eaip_base
 #     model: tabular
 #     walltime: "1:30:00"
