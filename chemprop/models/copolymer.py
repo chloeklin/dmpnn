@@ -20,17 +20,24 @@ class CopolymerMPNN(pl.LightningModule):
     """Two-monomer copolymer model with shared GNN encoder.
 
     Encodes monomer A and monomer B independently through a **shared** message-passing
-    encoder + aggregation, then combines their graph-level embeddings using one of two
-    integration modes:
+    encoder + aggregation, then combines their graph-level embeddings using one of
+    five integration modes:
 
-    * **mix** (Level 1): ``z = fracA * z_A + fracB * z_B``, then
-      ``z_final = [z || meta]``
-    * **interact** (Level 2):
-      ``z_final = [z_A || z_B || |z_A - z_B| || (z_A ⊙ z_B) || meta]``
+    **Mix family** (fraction-weighted mean-field embedding):
 
-    where ``meta`` includes at least ``[fracA, fracB]`` and any additional scalar
-    descriptors.
+    * **mix**: ``z = fracA * z_A + fracB * z_B`` → head input: ``z``
+    * **mix_meta**: same ``z`` → head input: ``[z || meta]``
+    * **mix_frac_meta**: same ``z`` → head input: ``[z || fracA || fracB || meta]``
+
+    **Interact family** (interaction-aware concatenation):
+
+    * **interact**: head input: ``[z_A || z_B || |z_A-z_B| || z_A⊙z_B || fracA || fracB]``
+    * **interact_meta**: head input: ``[z_A || z_B || |z_A-z_B| || z_A⊙z_B || fracA || fracB || meta]``
+
+    where ``meta`` = additional scalar descriptors (e.g. RDKit, dataset-specific).
     """
+
+    VALID_MODES = ("mix", "mix_meta", "mix_frac_meta", "interact", "interact_meta")
 
     def __init__(
         self,
@@ -66,6 +73,11 @@ class CopolymerMPNN(pl.LightningModule):
 
         self.X_d_transform = X_d_transform if X_d_transform is not None else nn.Identity()
 
+        if copolymer_mode not in self.VALID_MODES:
+            raise ValueError(
+                f"Unknown copolymer_mode '{copolymer_mode}'. "
+                f"Valid modes: {self.VALID_MODES}"
+            )
         self.copolymer_mode = copolymer_mode
 
         self.metrics = (
@@ -128,10 +140,27 @@ class CopolymerMPNN(pl.LightningModule):
         fA = fracA.unsqueeze(1)  # [B, 1]
         fB = fracB.unsqueeze(1)  # [B, 1]
 
-        if self.copolymer_mode == "mix":
+        mode = self.copolymer_mode
+
+        # --- Mix family: z = fracA * z_A + fracB * z_B ---
+        if mode.startswith("mix"):
             z = fA * z_A + fB * z_B  # [B, d]
-            parts = [z, fA, fB]
-        elif self.copolymer_mode == "interact":
+            if mode == "mix":
+                parts = [z]
+            elif mode == "mix_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            elif mode == "mix_frac_meta":
+                parts = [z, fA, fB]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown mix sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
+
+        # --- Interact family ---
+        if mode.startswith("interact"):
             parts = [
                 z_A,
                 z_B,
@@ -140,15 +169,16 @@ class CopolymerMPNN(pl.LightningModule):
                 fA,
                 fB,
             ]
-        else:
-            raise ValueError(f"Unknown copolymer_mode: {self.copolymer_mode}")
+            if mode == "interact":
+                pass  # base interact, no meta
+            elif mode == "interact_meta":
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown interact sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
 
-        # Append additional scalar descriptors if present
-        if X_d is not None:
-            X_d_t = self.X_d_transform(X_d)
-            parts.append(X_d_t)
-
-        return torch.cat(parts, dim=1)
+        raise ValueError(f"Unknown copolymer_mode: {mode}")
 
     def fingerprint_components(
         self,

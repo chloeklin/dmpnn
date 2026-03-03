@@ -53,10 +53,15 @@ def create_base_argument_parser(description="Train a graph model"):
                         help='Include RDKit 2D descriptors')
     parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
-    parser.add_argument("--copolymer_mode", type=str, choices=["mix", "interact"], default="mix",
+    parser.add_argument("--copolymer_mode", type=str,
+                        choices=["mix", "mix_meta", "mix_frac_meta", "interact", "interact_meta"],
+                        default="mix",
                         help='Copolymer integration mode: '
-                             '"mix" = fraction-weighted sum z = fracA*z_A + fracB*z_B (default), '
-                             '"interact" = [z_A || z_B || |z_A-z_B| || z_A*z_B || meta]')
+                             '"mix" = z only, '
+                             '"mix_meta" = z + descriptors, '
+                             '"mix_frac_meta" = z + fracs + descriptors, '
+                             '"interact" = [z_A||z_B||diff||prod||fracs], '
+                             '"interact_meta" = interact + descriptors')
     
     # Training arguments
     parser.add_argument('--train_size', type=str, default=None,
@@ -747,8 +752,15 @@ def build_copolymer_model_and_trainer(
     """Build a CopolymerMPNN and matching Trainer.
 
     The FFN input dimension depends on ``copolymer_mode``:
-    * **mix**: ``d_mp + 2 + d_desc``   (z + fracA + fracB + meta)
-    * **interact**: ``4*d_mp + 2 + d_desc``  (z_A, z_B, |diff|, prod, fracA, fracB, meta)
+
+    Mix family (z = fracA*z_A + fracB*z_B):
+    * **mix**:           ``d_mp``                     (z only)
+    * **mix_meta**:      ``d_mp + d_desc``             (z + meta descriptors)
+    * **mix_frac_meta**: ``d_mp + 2 + d_desc``         (z + fracA + fracB + meta)
+
+    Interact family:
+    * **interact**:      ``4*d_mp + 2``                (z_A, z_B, |diff|, prod, fracA, fracB)
+    * **interact_meta**: ``4*d_mp + 2 + d_desc``       (above + meta descriptors)
     """
     import torch
     from chemprop import nn, models
@@ -801,14 +813,21 @@ def build_copolymer_model_and_trainer(
     d_mp = mp.output_dim  # GNN embedding dim
 
     # ---------- FFN input dimension ----------
-    # meta = [fracA, fracB] (always) + descriptor_dim
-    meta_dim = 2 + descriptor_dim
     if copolymer_mode == "mix":
-        ffn_input_dim = d_mp + meta_dim
+        ffn_input_dim = d_mp
+    elif copolymer_mode == "mix_meta":
+        ffn_input_dim = d_mp + descriptor_dim
+    elif copolymer_mode == "mix_frac_meta":
+        ffn_input_dim = d_mp + 2 + descriptor_dim
     elif copolymer_mode == "interact":
-        ffn_input_dim = 4 * d_mp + meta_dim
+        ffn_input_dim = 4 * d_mp + 2
+    elif copolymer_mode == "interact_meta":
+        ffn_input_dim = 4 * d_mp + 2 + descriptor_dim
     else:
-        raise ValueError(f"Unknown copolymer_mode: {copolymer_mode}")
+        raise ValueError(
+            f"Unknown copolymer_mode: {copolymer_mode}. "
+            f"Valid: mix, mix_meta, mix_frac_meta, interact, interact_meta"
+        )
 
     # ---------- output transform ----------
     output_transform = None
