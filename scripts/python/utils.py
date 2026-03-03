@@ -54,11 +54,12 @@ def create_base_argument_parser(description="Train a graph model"):
     parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
     parser.add_argument("--copolymer_mode", type=str,
-                        choices=["mix", "mix_meta", "mix_frac_meta", "interact", "interact_meta"],
+                        choices=["mix", "mix_meta", "mix_frac", "mix_frac_meta", "interact", "interact_meta"],
                         default="mix",
                         help='Copolymer integration mode: '
                              '"mix" = z only, '
                              '"mix_meta" = z + descriptors, '
+                             '"mix_frac" = z + fracs, '
                              '"mix_frac_meta" = z + fracs + descriptors, '
                              '"interact" = [z_A||z_B||diff||prod||fracs], '
                              '"interact_meta" = interact + descriptors')
@@ -756,6 +757,7 @@ def build_copolymer_model_and_trainer(
     Mix family (z = fracA*z_A + fracB*z_B):
     * **mix**:           ``d_mp``                     (z only)
     * **mix_meta**:      ``d_mp + d_desc``             (z + meta descriptors)
+    * **mix_frac**:      ``d_mp + 2``                  (z + fracA + fracB)
     * **mix_frac_meta**: ``d_mp + 2 + d_desc``         (z + fracA + fracB + meta)
 
     Interact family:
@@ -817,6 +819,8 @@ def build_copolymer_model_and_trainer(
         ffn_input_dim = d_mp
     elif copolymer_mode == "mix_meta":
         ffn_input_dim = d_mp + descriptor_dim
+    elif copolymer_mode == "mix_frac":
+        ffn_input_dim = d_mp + 2
     elif copolymer_mode == "mix_frac_meta":
         ffn_input_dim = d_mp + 2 + descriptor_dim
     elif copolymer_mode == "interact":
@@ -826,7 +830,7 @@ def build_copolymer_model_and_trainer(
     else:
         raise ValueError(
             f"Unknown copolymer_mode: {copolymer_mode}. "
-            f"Valid: mix, mix_meta, mix_frac_meta, interact, interact_meta"
+            f"Valid: mix, mix_meta, mix_frac, mix_frac_meta, interact, interact_meta"
         )
 
     # ---------- output transform ----------

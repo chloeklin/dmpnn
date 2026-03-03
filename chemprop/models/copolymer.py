@@ -27,6 +27,7 @@ class CopolymerMPNN(pl.LightningModule):
 
     * **mix**: ``z = fracA * z_A + fracB * z_B`` → head input: ``z``
     * **mix_meta**: same ``z`` → head input: ``[z || meta]``
+    * **mix_frac**: same ``z`` → head input: ``[z || fracA || fracB]``
     * **mix_frac_meta**: same ``z`` → head input: ``[z || fracA || fracB || meta]``
 
     **Interact family** (interaction-aware concatenation):
@@ -37,7 +38,7 @@ class CopolymerMPNN(pl.LightningModule):
     where ``meta`` = additional scalar descriptors (e.g. RDKit, dataset-specific).
     """
 
-    VALID_MODES = ("mix", "mix_meta", "mix_frac_meta", "interact", "interact_meta")
+    VALID_MODES = ("mix", "mix_meta", "mix_frac", "mix_frac_meta", "interact", "interact_meta")
 
     def __init__(
         self,
@@ -151,6 +152,8 @@ class CopolymerMPNN(pl.LightningModule):
                 parts = [z]
                 if X_d is not None:
                     parts.append(self.X_d_transform(X_d))
+            elif mode == "mix_frac":
+                parts = [z, fA, fB]
             elif mode == "mix_frac_meta":
                 parts = [z, fA, fB]
                 if X_d is not None:
