@@ -59,11 +59,14 @@ class CopolymerMPNN(pl.LightningModule):
             ignore=["X_d_transform", "message_passing", "agg", "predictor"]
         )
         self.hparams["X_d_transform"] = X_d_transform
+        
+        # Handle both fresh init and checkpoint loading
+        # When loading from checkpoint, these might be dicts instead of modules
         self.hparams.update(
             {
-                "message_passing": message_passing.hparams,
-                "agg": agg.hparams,
-                "predictor": predictor.hparams,
+                "message_passing": getattr(message_passing, "hparams", message_passing),
+                "agg": getattr(agg, "hparams", agg),
+                "predictor": getattr(predictor, "hparams", predictor),
             }
         )
 
