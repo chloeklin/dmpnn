@@ -456,7 +456,26 @@ if args.polymer_type == "copolymer":
                 logger.info(f"Loading copolymer checkpoint: {best_ckpt_path}")
                 use_cuda = torch.cuda.is_available()
                 map_location = None if use_cuda else torch.device("cpu")
-                mpnn = CopolymerMPNN.load_from_checkpoint(best_ckpt_path, map_location=map_location)
+                
+                # Rebuild model with same architecture, then load weights
+                mpnn_fresh, _ = build_copolymer_model_and_trainer(
+                    args=args,
+                    combined_descriptor_data=processed_descriptor_data,
+                    scaler=scaler,
+                    checkpoint_path=checkpoint_path,
+                    copolymer_mode=copolymer_mode,
+                    batch_norm=args.batch_norm,
+                    metric_list=metric_list,
+                    early_stopping_patience=PATIENCE,
+                    max_epochs=EPOCHS,
+                    save_checkpoint=args.save_checkpoint,
+                )
+                
+                # Load checkpoint weights into the fresh model
+                checkpoint = torch.load(best_ckpt_path, map_location=map_location)
+                mpnn_fresh.load_state_dict(checkpoint['state_dict'])
+                mpnn = mpnn_fresh
+                
                 if use_cuda:
                     mpnn = mpnn.to(torch.device("cuda"))
                 mpnn.eval()
