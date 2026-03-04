@@ -206,70 +206,143 @@ experiments:
   # ----- Block copolymer -----
   
   # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
-  - <<: *block_base
-    model: GAT
-    walltime: "0:30:00"
-    copolymer_mode: mix
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  #   copolymer_mode: mix
+  #   targets: *block_targets
 
-   # Mix + frac: head gets [z || fracA || fracB]
-  - <<: *block_base
-    model: GAT
-    walltime: "0:30:00"
-    copolymer_mode: mix_frac
-    targets: *block_targets
+  #  # Mix + frac: head gets [z || fracA || fracB]
+  # - <<: *block_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  #   copolymer_mode: mix_frac
+  #   targets: *block_targets
    
-  # Mix + frac + meta: head gets [z || fracA || fracB || descriptors]
-  - <<: *block_base
-    model: GAT
-    walltime: "0:30:00"
-    copolymer_mode: mix_frac_meta
-    targets: *block_targets
+  # # Mix + frac + meta: head gets [z || fracA || fracB || descriptors]
+  # - <<: *block_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  #   copolymer_mode: mix_frac_meta
+  #   targets: *block_targets
   
-  # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
-  - <<: *block_base
-    model: GAT
-    walltime: "0:30:00"
-    copolymer_mode: interact
-    targets: *block_targets
+  # # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
+  # - <<: *block_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  #   copolymer_mode: interact
+  #   targets: *block_targets
 
-  # Interact+meta: head gets [z_A || z_B || |diff| || prod || fracA || fracB || descriptors]
-  - <<: *block_base
-    model: GAT
-    walltime: "0:30:00"
-    copolymer_mode: interact_meta
-    targets: *block_targets
+  # # Interact+meta: head gets [z_A || z_B || |diff| || prod || fracA || fracB || descriptors]
+  # - <<: *block_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  #   copolymer_mode: interact_meta
+  #   targets: *block_targets
 
   # ----- EA IP -----
 
-  # Mix (pure)
+  # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
   # - <<: *eaip_base
-  #   model: DMPNN
-  #   walltime: "2:00:00"
+  #   model: GAT
+  #   walltime: "2:30:00"
   #   copolymer_mode: mix
   #   targets: *eaip_targets
-  
-  # Interact (base)
+
+  #  # Mix + frac: head gets [z || fracA || fracB]
   # - <<: *eaip_base
-  #   model: DMPNN
-  #   walltime: "2:00:00"
+  #   model: GAT
+  #   walltime: "2:30:00"
+  #   copolymer_mode: mix_frac
+  #   targets: *eaip_targets
+   
+  # # Mix + frac + meta: head gets [z || fracA || fracB || descriptors]
+  # - <<: *eaip_base
+  #   model: GAT
+  #   walltime: "2:30:00"
+  #   copolymer_mode: mix_frac_meta
+  #   targets: *eaip_targets
+  
+  # # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
+  # - <<: *eaip_base
+  #   model: GAT
+  #   walltime: "2:30:00"
   #   copolymer_mode: interact
   #   targets: *eaip_targets
 
-#   - <<: *eaip_base
-#     model: tabular
-#     walltime: "1:30:00"
-#     incl_rdkit: true
-
+  # # Interact+meta: head gets [z_A || z_B || |diff| || prod || fracA || fracB || descriptors]
   # - <<: *eaip_base
-  #   model: wDMPNN
-  #   walltime: "1:30:00"
-  #   incl_rdkit: true
+  #   model: GAT
+  #   walltime: "2:30:00"
+  #   copolymer_mode: interact_meta
+  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: mix
+    targets: *eaip_targets
 
-  # - <<: *eaip_base
-  #   model: wDMPNN
-  #   walltime: "12:30:00"
+   # Mix + frac: head gets [z || fracA || fracB]
+  - <<: *eaip_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac
+    targets: *eaip_targets
+   
+  # Mix + frac + meta: head gets [z || fracA || fracB || descriptors]
+  - <<: *eaip_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac_meta
+    targets: *eaip_targets
+  
+  # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
+  - <<: *eaip_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: interact
+    targets: *eaip_targets
 
+  # Interact+meta: head gets [z_A || z_B || |diff| || prod || fracA || fracB || descriptors]
+  - <<: *eaip_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: interact_meta
+    targets: *eaip_targets
+
+    - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: mix
+    targets: *eaip_targets
+
+   # Mix + frac: head gets [z || fracA || fracB]
+  - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac
+    targets: *eaip_targets
+   
+  # Mix + frac + meta: head gets [z || fracA || fracB || descriptors]
+  - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac_meta
+    targets: *eaip_targets
+  
+  # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
+  - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: interact
+    targets: *eaip_targets
+
+  # Interact+meta: head gets [z_A || z_B || |diff| || prod || fracA || fracB || descriptors]
+  - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: interact_meta
+    targets: *eaip_targets
 
 
 # DMPNN
