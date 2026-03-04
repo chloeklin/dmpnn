@@ -1684,7 +1684,14 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
         if lambda_aux != 0.1:
             aux_suffix += f"_la{lambda_aux}"
     
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}__rep{i}"
+    # Add copolymer mode suffix (for copolymer datasets)
+    copoly_suffix = ""
+    polymer_type = getattr(args, 'polymer_type', 'homo')
+    if polymer_type == 'copolymer':
+        copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
+        copoly_suffix = f"__copoly_{copolymer_mode}"
+    
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{copoly_suffix}{size_suffix}__rep{i}"
     
     # Checkpoint path is model-specific
     checkpoint_path = checkpoint_dir / base_name

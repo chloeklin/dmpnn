@@ -84,11 +84,19 @@ class CopolymerMPNN(pl.LightningModule):
             )
         self.copolymer_mode = copolymer_mode
 
-        self.metrics = (
-            nn.ModuleList([*metrics, self.criterion.clone()])
-            if metrics
-            else nn.ModuleList([self.predictor._T_default_metric(), self.criterion.clone()])
-        )
+        # Initialize metrics - handle checkpoint loading where criterion might not exist yet
+        if metrics:
+            metric_list = [*metrics]
+            if self.criterion is not None:
+                metric_list.append(self.criterion.clone())
+            self.metrics = nn.ModuleList(metric_list)
+        else:
+            metric_list = []
+            if hasattr(self.predictor, '_T_default_metric'):
+                metric_list.append(self.predictor._T_default_metric())
+            if self.criterion is not None:
+                metric_list.append(self.criterion.clone())
+            self.metrics = nn.ModuleList(metric_list) if metric_list else nn.ModuleList()
 
         self.warmup_epochs = warmup_epochs
         self.init_lr = init_lr
