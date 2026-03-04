@@ -242,6 +242,12 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
         if lambda_aux != 0.1:
             filename_parts.append(f"la{lambda_aux}")
     
+    # Add copolymer mode suffix
+    polymer_type = getattr(args, 'polymer_type', 'homo')
+    if polymer_type == 'copolymer':
+        copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
+        filename_parts.append(f"copoly_{copolymer_mode}")
+    
     # Add train size suffix
     if getattr(args, 'train_size', None) and args.train_size != "full":
         filename_parts.append(f"size{args.train_size}")
