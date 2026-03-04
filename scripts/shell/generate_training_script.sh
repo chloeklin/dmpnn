@@ -168,8 +168,11 @@ SUFFIX="_${MODEL}"
 [ -n "$FILM_HIDDEN_DIM" ]  && SUFFIX="${SUFFIX}_fhd${FILM_HIDDEN_DIM}"
 [ -n "$AUX_TASK" ]         && SUFFIX="${SUFFIX}_${AUX_TASK}"
 [ -n "$LAMBDA_AUX" ]       && SUFFIX="${SUFFIX}_la${LAMBDA_AUX}"
-# Replace spaces with underscores in target name for job name compatibility
-[ -n "$TARGET" ]           && SUFFIX="${SUFFIX}_${TARGET// /_}"
+# Sanitize target name for PBS job name compatibility (alphanumeric, dash, underscore only)
+if [ -n "$TARGET" ]; then
+  SANITIZED_TARGET=$(echo "$TARGET" | sed 's/[^a-zA-Z0-9_-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//')
+  SUFFIX="${SUFFIX}_${SANITIZED_TARGET}"
+fi
 
 OUTPUT_SCRIPT="train_${DATASET}${SUFFIX}.sh"
 
