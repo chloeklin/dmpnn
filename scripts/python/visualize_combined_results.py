@@ -71,10 +71,21 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     elif method == 'Baseline':
         base = base.replace('_baseline', '')
     
+    # Extract copolymer mode if present
+    copoly_mode = None
+    if '__copoly_' in base:
+        # Extract the mode (e.g., mix, interact, mix_frac_meta, etc.)
+        import re
+        match = re.search(r'__copoly_([a-z_]+)', base)
+        if match:
+            copoly_mode = match.group(1)
+            # Remove the copoly suffix from base for further processing
+            base = base.replace(f'__copoly_{copoly_mode}', '')
+    
     # Handle batch normalization
     batch_norm = False
-    if '_batch_norm' in base:
-        base = base.replace('_batch_norm', '')
+    if '_batch_norm' in base or '__batch_norm' in base:
+        base = base.replace('_batch_norm', '').replace('__batch_norm', '')
         batch_norm = True
     
     # For baseline methods, include the model name
@@ -96,6 +107,10 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     else:
         dataset = base
         features = method_name
+    
+    # Add copolymer mode to features if present
+    if copoly_mode:
+        features = f"{features} ({copoly_mode})"
     
     # Clean up any trailing underscores in dataset name
     dataset = dataset.rstrip('_')
@@ -403,7 +418,10 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
         'Baseline_PPG', 'Baseline_PPG+RDKit', 'Baseline_PPG+Desc+RDKit',  # PPG Baseline features
         'Baseline_AttentiveFP', 'Baseline_AttentiveFP+RDKit', 'Baseline_AttentiveFP+Desc+RDKit',  # AttentiveFP Baseline features
         'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit',  # Graph features
-        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)'  # Graph with batch norm
+        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)',  # Graph with batch norm
+        # Copolymer mode variants
+        'Graph (mix)', 'Graph (mix_meta)', 'Graph (mix_frac)', 'Graph (mix_frac_meta)',
+        'Graph (interact)', 'Graph (interact_meta)'
     ]
     
     # Get available features and sort them according to our desired order
