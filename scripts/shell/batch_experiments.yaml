@@ -310,7 +310,7 @@ experiments:
     copolymer_mode: interact_meta
     targets: *eaip_targets
 
-    - <<: *eaip_base
+  - <<: *eaip_base
     model: DMPNN
     walltime: "2:30:00"
     copolymer_mode: mix
