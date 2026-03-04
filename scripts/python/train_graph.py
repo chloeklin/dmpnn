@@ -472,7 +472,7 @@ if args.polymer_type == "copolymer":
                 )
                 
                 # Load checkpoint weights into the fresh model
-                checkpoint = torch.load(best_ckpt_path, map_location=map_location)
+                checkpoint = torch.load(best_ckpt_path, map_location=map_location, weights_only=False)
                 mpnn_fresh.load_state_dict(checkpoint['state_dict'])
                 mpnn = mpnn_fresh
                 
