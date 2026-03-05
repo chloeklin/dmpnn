@@ -282,6 +282,8 @@ def main():
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
     parser.add_argument('--train_size', type=str, default=None,
                     help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
+    parser.add_argument('--targets', type=str, nargs='+', default=None,
+                    help='Specific target columns to train on. If not specified, trains on all numeric target columns.')
     
     args = parser.parse_args()
     
@@ -340,6 +342,19 @@ def main():
     
     # Load existing results
     existing_results = load_existing_results(detailed_csv, logger)
+
+    # Filter target columns if --targets argument is provided
+    if args.targets:
+        # Validate that specified targets exist in the dataset
+        invalid_targets = [t for t in args.targets if t not in target_columns]
+        if invalid_targets:
+            logger.error(f"Specified targets not found in dataset: {invalid_targets}")
+            logger.error(f"Available targets: {target_columns}")
+            sys.exit(1)
+        target_columns = [t for t in target_columns if t in args.targets]
+        logger.info(f"Training on specified targets: {target_columns}")
+    else:
+        logger.info(f"Training on all detected targets: {target_columns}")
 
     # Process each target variable independently
     all_rows = []
