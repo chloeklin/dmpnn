@@ -960,16 +960,6 @@ def main():
                     elif args.include_models:
                         plot_data = plot_data[plot_data['model'].isin(args.include_models)]
                     
-                    # Special filter: For tabular models (Linear/RF/XGB), only show results with polymer descriptors
-                    # This filters out results from base files (htpmd.csv, htpmd_rdkit.csv) and keeps only
-                    # results from descriptor files (htpmd_descriptors.csv which has AB+Desc+RDKit features)
-                    tabular_models = ['Linear', 'RF', 'XGB']
-                    for model in tabular_models:
-                        if model in plot_data['model'].values:
-                            # Keep only rows where features contain "Desc" (polymer descriptors)
-                            model_mask = (plot_data['model'] == model) & (~plot_data['features'].str.contains('Desc', case=False, na=False))
-                            plot_data = plot_data[~model_mask]
-
                     # Create main plot with exclusions/inclusions applied
                     create_combined_comparison_plots(plot_data, dataset, metric, output_dir)
 
