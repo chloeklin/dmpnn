@@ -356,37 +356,37 @@ experiments:
   #   targets: *eaip_targets
 
   # Tabular baselines for copolymers (ea_ip has no descriptor columns)
-    - <<: *eaip_base
-      model: tabular
-      polymer_type: copolymer
-      incl_ab: true
-      walltime: "2:00:00"
-      targets: *eaip_targets
+    # - <<: *eaip_base
+    #   model: tabular
+    #   polymer_type: copolymer
+    #   incl_ab: true
+    #   walltime: "2:00:00"
+    #   targets: *eaip_targets
     
-    - <<: *eaip_base
-      model: tabular
-      polymer_type: copolymer
-      incl_rdkit: true
-      walltime: "2:00:00"
-      targets: *eaip_targets
+    # - <<: *eaip_base
+    #   model: tabular
+    #   polymer_type: copolymer
+    #   incl_rdkit: true
+    #   walltime: "2:00:00"
+    #   targets: *eaip_targets
     
-    - <<: *eaip_base
-      model: tabular
-      polymer_type: copolymer
-      incl_ab: true
-      incl_rdkit: true
-      walltime: "2:00:00"
-      targets: *eaip_targets
+    # - <<: *eaip_base
+    #   model: tabular
+    #   polymer_type: copolymer
+    #   incl_ab: true
+    #   incl_rdkit: true
+    #   walltime: "2:00:00"
+    #   targets: *eaip_targets
 
 # # =====================================================================
 # # PAE Tg Dataset - Multi-monomer copolymer experiments
 # # =====================================================================
-    # - <<: *pae_tg_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_desc: true
-    #   walltime: "2:00:00"
-    #   targets: *pae_tg_targets
+    - <<: *pae_tg_base
+      model: tabular
+      polymer_type: copolymer
+      incl_desc: true
+      walltime: "2:00:00"
+      targets: *pae_tg_targets
     
     # - <<: *pae_tg_base
     #   model: tabular
@@ -402,13 +402,13 @@ experiments:
     #   walltime: "2:00:00"
     #   targets: *pae_tg_targets
     
-    # - <<: *pae_tg_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_ab: true
-    #   incl_desc: true
-    #   walltime: "2:00:00"
-    #   targets: *pae_tg_targets
+    - <<: *pae_tg_base
+      model: tabular
+      polymer_type: copolymer
+      incl_ab: true
+      incl_desc: true
+      walltime: "2:00:00"
+      targets: *pae_tg_targets
       
   # DMPNN - Mix family
   # - <<: *pae_tg_base
