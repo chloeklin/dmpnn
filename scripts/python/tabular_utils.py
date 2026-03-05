@@ -539,7 +539,7 @@ def build_features(
         return ab_block, descriptor_block, names
 
     # -------------------- COPOLYMER --------------------
-    is_multi_monomer = "smilesA_list" in df.columns
+    is_multi_monomer = df.attrs.get("multi_monomer", False)
 
     if is_multi_monomer:
         # ---------- Multi-monomer copolymer ----------

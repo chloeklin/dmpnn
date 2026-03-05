@@ -238,8 +238,8 @@ class CopolymerMPNN(pl.LightningModule):
         """Apply the copolymer integration mode to block-level embeddings."""
 
         # Keep fracA/fracB as column vectors for broadcasting
-        fA = fracA.unsqueeze(1)  # [B, 1]
-        fB = fracB.unsqueeze(1)  # [B, 1]
+        fA = fracA.unsqueeze(1) if fracA.ndim == 1 else fracA  # [B, 1]
+        fB = fracB.unsqueeze(1) if fracB.ndim == 1 else fracB  # [B, 1]
 
         mode = self.copolymer_mode
 

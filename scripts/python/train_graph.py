@@ -276,7 +276,7 @@ if args.polymer_type == "copolymer":
     from chemprop.models.copolymer import CopolymerMPNN
 
     copolymer_mode = args.copolymer_mode
-    is_multi_monomer = "smilesA_list" in df_input.columns
+    is_multi_monomer = df_input.attrs.get("multi_monomer", False)
     logger.info(f"\n=== Copolymer Training (mode={copolymer_mode}) ===")
     logger.info(f"Dataset          : {args.dataset_name}")
     logger.info(f"Model            : {args.model_name}")
@@ -548,12 +548,24 @@ if args.polymer_type == "copolymer":
                     device = next(model.parameters()).device
                     with torch.no_grad():
                         for batch in loader:
-                            bmg_A, bmg_B, fracA_t, fracB_t, X_d, *_ = batch
-                            bmg_A.to(device); bmg_B.to(device)
-                            fracA_t = fracA_t.to(device); fracB_t = fracB_t.to(device)
-                            if X_d is not None:
-                                X_d = X_d.to(device)
-                            comps = model.fingerprint_components(bmg_A, bmg_B, fracA_t, fracB_t, X_d)
+                            is_mm = len(batch) == 11
+                            if is_mm:
+                                bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d, *_ = batch
+                                bmg_A.to(device); bmg_B.to(device)
+                                fracs_A = fracs_A.to(device); fracs_B = fracs_B.to(device)
+                                counts_A = counts_A.to(device); counts_B = counts_B.to(device)
+                                if X_d is not None:
+                                    X_d = X_d.to(device)
+                                comps = model.fingerprint_components_multi_monomer(
+                                    bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d
+                                )
+                            else:
+                                bmg_A, bmg_B, fracA_t, fracB_t, X_d, *_ = batch
+                                bmg_A.to(device); bmg_B.to(device)
+                                fracA_t = fracA_t.to(device); fracB_t = fracB_t.to(device)
+                                if X_d is not None:
+                                    X_d = X_d.to(device)
+                                comps = model.fingerprint_components(bmg_A, bmg_B, fracA_t, fracB_t, X_d)
                             all_z_A.append(comps["z_A"].cpu().numpy())
                             all_z_B.append(comps["z_B"].cpu().numpy())
                             all_z_final.append(comps["z_final"].cpu().numpy())
