@@ -32,7 +32,7 @@ from utils import (
 
 # ---------------------------- Training Loop ----------------------------
 
-def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, args, existing_results=None, smiles_column="smiles"):
+def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, args, smiles_column="smiles", existing_results=None):
     """Train and evaluate models for a single target variable.
     
     Args:
@@ -359,7 +359,7 @@ def main():
         
         # Train models and get evaluation results
         target_existing = existing_results.get(tcol, {})
-        rows = train(df_input, y_vec, tcol, descriptor_columns, REPLICATES, SEED, out_dir, args, target_existing, setup_info['smiles_column'])
+        rows = train(df_input, y_vec, tcol, descriptor_columns, REPLICATES, SEED, out_dir, args, setup_info['smiles_column'], target_existing)
 
         # Aggregate results across all targets
         all_rows.extend(rows)

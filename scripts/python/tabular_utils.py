@@ -27,7 +27,15 @@ from sklearn.metrics import (
     mean_squared_error, precision_score, r2_score, recall_score,
     roc_auc_score
 )
+from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
+
+# Try to import StratifiedGroupKFold (available in sklearn >= 1.1)
+try:
+    from sklearn.model_selection import StratifiedGroupKFold
+    HAVE_SGKF = True
+except ImportError:
+    HAVE_SGKF = False
 
 # Lazy imports for heavy dependencies
 RDKIT_AVAILABLE = False
