@@ -741,6 +741,82 @@ def create_copolymer_data(
     return data_A, data_B, np.array(fA_out), np.array(fB_out)
 
 
+def create_multi_monomer_copolymer_data(
+    smiles_A_lists: List[List[str]],
+    frac_A_lists: List[List[float]],
+    smiles_B_lists: List[List[str]],
+    frac_B_lists: List[List[float]],
+    ys: Union[List[float], np.ndarray],
+    combined_descriptor_data: Optional[np.ndarray],
+    model_name: str,
+) -> Tuple[List[List[Any]], List[List[Any]], List[List[float]], List[List[float]]]:
+    """Create multi-monomer copolymer data for MultiMonomerCopolymerDataset.
+
+    Parameters
+    ----------
+    smiles_A_lists : list[list[str]]
+        Per-row list of SMILES for block A monomers.
+    frac_A_lists : list[list[float]]
+        Per-row list of intra-block fractions for block A.
+    smiles_B_lists, frac_B_lists : same for block B.
+    ys : targets, shape (N, n_tasks) or list.
+    combined_descriptor_data : optional descriptor array.
+    model_name : model name string.
+
+    Returns
+    -------
+    (data_A_lists, data_B_lists, fracA_lists_out, fracB_lists_out)
+        Each is a list of lists (outer=samples, inner=monomers).
+        Rows with empty blocks or all-NaN targets are dropped.
+    """
+    try:
+        from chemprop import data as cdata
+    except ImportError as e:
+        raise ImportError("chemprop is required") from e
+
+    if isinstance(ys, np.ndarray):
+        ys_list = ys.tolist()
+    else:
+        ys_list = list(ys)
+
+    data_A_out, data_B_out = [], []
+    fA_out, fB_out = [], []
+
+    for idx in range(len(smiles_A_lists)):
+        sA_list = smiles_A_lists[idx]
+        sB_list = smiles_B_lists[idx]
+        fA_list = frac_A_lists[idx]
+        fB_list = frac_B_lists[idx]
+        y = ys_list[idx]
+
+        # Skip rows with empty blocks or all-NaN targets
+        if not sA_list or not sB_list:
+            continue
+        if not pd.notna(y).any():
+            continue
+
+        x_d = combined_descriptor_data[idx] if combined_descriptor_data is not None else None
+
+        # Create MoleculeDatapoints for each monomer in block A
+        dps_A = []
+        for j, smi in enumerate(sA_list):
+            if j == 0:
+                dp = cdata.MoleculeDatapoint.from_smi(smi, y, x_d=x_d)
+            else:
+                dp = cdata.MoleculeDatapoint.from_smi(smi, y)
+            dps_A.append(dp)
+
+        # Create MoleculeDatapoints for each monomer in block B
+        dps_B = [cdata.MoleculeDatapoint.from_smi(smi, y) for smi in sB_list]
+
+        data_A_out.append(dps_A)
+        data_B_out.append(dps_B)
+        fA_out.append(list(fA_list))
+        fB_out.append(list(fB_list))
+
+    return data_A_out, data_B_out, fA_out, fB_out
+
+
 def build_copolymer_model_and_trainer(
     args: Any,
     combined_descriptor_data: Optional[np.ndarray],
@@ -2078,82 +2154,172 @@ def load_and_preprocess_data(args, setup_info):
 
     # ---------------------- Copolymer handling ----------------------
     if args.polymer_type == "copolymer":
-        # Accept both naming conventions
-        sA_col = "smilesA" if "smilesA" in df_input.columns else ("smiles_A" if "smiles_A" in df_input.columns else None)
-        sB_col = "smilesB" if "smilesB" in df_input.columns else ("smiles_B" if "smiles_B" in df_input.columns else None)
-        if sA_col is None or sB_col is None:
-            raise KeyError("Copolymer mode expects 'smilesA'/'smilesB' or 'smiles_A'/'smiles_B' columns.")
+        # ---- Detect multi-monomer vs single-monomer column layout ----
+        multi_A_cols = sorted([c for c in df_input.columns if c.startswith("smilesA") and c[7:].isdigit()])
+        multi_B_cols = sorted([c for c in df_input.columns if c.startswith("smilesB") and c[7:].isdigit()])
+        is_multi_monomer = bool(multi_A_cols and multi_B_cols)
 
-        # Fractions: accept A/B or A_B; infer fracB if missing
-        if "fracA" in df_input.columns or "fracB" in df_input.columns:
-            df_input["fracA"] = pd.to_numeric(df_input.get("fracA"), errors="coerce")
-            if "fracB" in df_input.columns:
-                df_input["fracB"] = pd.to_numeric(df_input.get("fracB"), errors="coerce")
-            else:
-                df_input["fracB"] = 1.0 - df_input["fracA"]
-        elif "frac_A" in df_input.columns or "frac_B" in df_input.columns:
-            df_input["fracA"] = pd.to_numeric(df_input.get("frac_A"), errors="coerce")
-            if "frac_B" in df_input.columns:
-                df_input["fracB"] = pd.to_numeric(df_input.get("frac_B"), errors="coerce")
-            else:
-                df_input["fracB"] = 1.0 - df_input["fracA"]
+        if is_multi_monomer:
+            logger.info(f"Multi-monomer copolymer detected: A cols={multi_A_cols}, B cols={multi_B_cols}")
+            # Build per-row lists of (smiles, frac) for each block
+            # fracAi columns correspond to smilesAi
+            all_smiles_col_names = set()
+            all_frac_col_names = set()
+
+            def _extract_block_lists(df, smiles_cols, block_letter):
+                """Extract lists of (smiles, frac) per row for one block."""
+                smiles_lists = []
+                frac_lists = []
+                for _, row in df.iterrows():
+                    smis = []
+                    fracs = []
+                    for sc in smiles_cols:
+                        idx_str = sc.replace(f"smiles{block_letter}", "")
+                        frac_col = f"frac{block_letter}{idx_str}"
+                        smi_val = row.get(sc, None)
+                        frac_val = row.get(frac_col, None)
+                        smi_str = "" if pd.isna(smi_val) else str(smi_val).strip()
+                        if smi_str and smi_str.lower() not in ("nan", "none", ""):
+                            frac_f = float(frac_val) if pd.notna(frac_val) else 0.0
+                            if frac_f > 0:
+                                smis.append(smi_str)
+                                fracs.append(frac_f)
+                        all_smiles_col_names.add(sc)
+                        if frac_col in df.columns:
+                            all_frac_col_names.add(frac_col)
+                    # Normalize fractions within block so they sum to 1.0
+                    fsum = sum(fracs)
+                    if fsum > 0:
+                        fracs = [f / fsum for f in fracs]
+                    elif smis:
+                        # All fracs zero but SMILES present: equal weight
+                        fracs = [1.0 / len(smis)] * len(smis)
+                    smiles_lists.append(smis)
+                    frac_lists.append(fracs)
+                return smiles_lists, frac_lists
+
+            smiles_A_lists, frac_A_lists = _extract_block_lists(df_input, multi_A_cols, "A")
+            smiles_B_lists, frac_B_lists = _extract_block_lists(df_input, multi_B_cols, "B")
+
+            # Store as object columns (lists per cell)
+            df_input["smilesA_list"] = smiles_A_lists
+            df_input["fracA_list"] = frac_A_lists
+            df_input["smilesB_list"] = smiles_B_lists
+            df_input["fracB_list"] = frac_B_lists
+
+            # For backward compatibility, create smilesA/smilesB as the first monomer
+            # and fracA/fracB as block-level overall fractions (always 0.5/0.5 for
+            # multi-monomer since block weighting is internal)
+            df_input["smilesA"] = [lst[0] if lst else "" for lst in smiles_A_lists]
+            df_input["smilesB"] = [lst[0] if lst else "" for lst in smiles_B_lists]
+            # Block-level fractions are not meaningful for multi-monomer; use 0.5/0.5
+            df_input["fracA"] = 0.5
+            df_input["fracB"] = 0.5
+
+            # Mark as multi-monomer for downstream
+            df_input.attrs["multi_monomer"] = True
+
+            # Build group_key using compute_group_id (already handles smilesA1..A4 pattern)
+            df_input["group_key"] = compute_group_id(df_input)
+
+            # ---- Target column detection (multi-monomer copolymer) ----
+            exclude_cols = (
+                all_smiles_col_names | all_frac_col_names |
+                {"smilesA", "smilesB", "fracA", "fracB",
+                 "smilesA_list", "fracA_list", "smilesB_list", "fracB_list",
+                 *setup_info.get('DATASET_DESCRIPTORS', []),
+                 *setup_info.get('ignore_columns', []),
+                 "group_key"}
+            )
+            target_columns = [c for c in df_input.columns if c not in exclude_cols]
+
         else:
-            raise KeyError("Copolymer mode expects 'fracA'/'fracB' or 'frac_A'/'frac_B' columns.")
+            # ---- Single-monomer copolymer (legacy: smilesA/smilesB or smiles_A/smiles_B) ----
+            sA_col = "smilesA" if "smilesA" in df_input.columns else ("smiles_A" if "smiles_A" in df_input.columns else None)
+            sB_col = "smilesB" if "smilesB" in df_input.columns else ("smiles_B" if "smiles_B" in df_input.columns else None)
+            if sA_col is None or sB_col is None:
+                raise KeyError("Copolymer mode expects 'smilesA'/'smilesB' or 'smiles_A'/'smiles_B' columns.")
 
-        # Validate / normalize fractions (robust to tiny numeric noise)
-        if df_input[["fracA", "fracB"]].isna().any().any():
-            raise ValueError("Found NaNs in fracA/fracB after coercion.")
+            # Fractions: accept A/B or A_B; infer fracB if missing
+            if "fracA" in df_input.columns or "fracB" in df_input.columns:
+                df_input["fracA"] = pd.to_numeric(df_input.get("fracA"), errors="coerce")
+                if "fracB" in df_input.columns:
+                    df_input["fracB"] = pd.to_numeric(df_input.get("fracB"), errors="coerce")
+                else:
+                    df_input["fracB"] = 1.0 - df_input["fracA"]
+            elif "frac_A" in df_input.columns or "frac_B" in df_input.columns:
+                df_input["fracA"] = pd.to_numeric(df_input.get("frac_A"), errors="coerce")
+                if "frac_B" in df_input.columns:
+                    df_input["fracB"] = pd.to_numeric(df_input.get("frac_B"), errors="coerce")
+                else:
+                    df_input["fracB"] = 1.0 - df_input["fracA"]
+            else:
+                raise KeyError("Copolymer mode expects 'fracA'/'fracB' or 'frac_A'/'frac_B' columns.")
 
-        ssum = (df_input["fracA"].astype(float) + df_input["fracB"].astype(float)).values
-        if not np.isfinite(ssum).all() or np.any(ssum <= 0):
-            raise ValueError("Invalid fractions: non-finite or non-positive totals in fracA+fracB.")
+            # Validate / normalize fractions (robust to tiny numeric noise)
+            if df_input[["fracA", "fracB"]].isna().any().any():
+                raise ValueError("Found NaNs in fracA/fracB after coercion.")
 
-        # Normalize so fracA+fracB == 1.0 exactly
-        df_input["fracA"] = (df_input["fracA"].astype(float) / ssum)
-        df_input["fracB"] = 1.0 - df_input["fracA"]
+            ssum = (df_input["fracA"].astype(float) + df_input["fracB"].astype(float)).values
+            if not np.isfinite(ssum).all() or np.any(ssum <= 0):
+                raise ValueError("Invalid fractions: non-finite or non-positive totals in fracA+fracB.")
 
-        # Canonicalize pair & build group_key (A+B == B+A) to avoid leakage across splits
-        def _canon_pair(a, b, wa, wb):
-            a = "" if pd.isna(a) else str(a)
-            b = "" if pd.isna(b) else str(b)
-            if b < a:
-                return b, a, wb, wa
-            return a, b, wa, wb
+            # Normalize so fracA+fracB == 1.0 exactly
+            df_input["fracA"] = (df_input["fracA"].astype(float) / ssum)
+            df_input["fracB"] = 1.0 - df_input["fracA"]
 
-        def _round6(x):  # stable key vs tiny fp jitter
-            try:
-                return round(float(x), 6)
-            except Exception:
-                return x
+            # Canonicalize pair & build group_key (A+B == B+A) to avoid leakage across splits
+            def _canon_pair(a, b, wa, wb):
+                a = "" if pd.isna(a) else str(a)
+                b = "" if pd.isna(b) else str(b)
+                if b < a:
+                    return b, a, wb, wa
+                return a, b, wa, wb
 
-        canA, canB, fA_list, fB_list = [], [], [], []
-        for a, b, wa, wb in zip(df_input[sA_col].astype(str), df_input[sB_col].astype(str),
-                                df_input["fracA"].values, df_input["fracB"].values):
-            a2, b2, wa2, wb2 = _canon_pair(a, b, wa, wb)
-            canA.append(a2); canB.append(b2); fA_list.append(wa2); fB_list.append(wb2)
+            def _round6(x):  # stable key vs tiny fp jitter
+                try:
+                    return round(float(x), 6)
+                except Exception:
+                    return x
 
-        df_input["smilesA"] = canA  # normalized names going forward
-        df_input["smilesB"] = canB
-        df_input["fracA"] = np.asarray(fA_list, float)
-        df_input["fracB"] = np.asarray(fB_list, float)
+            canA, canB, fA_list, fB_list = [], [], [], []
+            for a, b, wa, wb in zip(df_input[sA_col].astype(str), df_input[sB_col].astype(str),
+                                    df_input["fracA"].values, df_input["fracB"].values):
+                a2, b2, wa2, wb2 = _canon_pair(a, b, wa, wb)
+                canA.append(a2); canB.append(b2); fA_list.append(wa2); fB_list.append(wb2)
 
-        df_input["group_key"] = [
-            f"{a}|||{b}|||{_round6(wa)}|||{_round6(wb)}"
-            for a, b, wa, wb in zip(df_input["smilesA"], df_input["smilesB"], df_input["fracA"], df_input["fracB"])
-        ]
+            df_input["smilesA"] = canA  # normalized names going forward
+            df_input["smilesB"] = canB
+            df_input["fracA"] = np.asarray(fA_list, float)
+            df_input["fracB"] = np.asarray(fB_list, float)
 
-        # ---------------------- Target column detection (copolymer) ----------------------
-        exclude_cols = {
-            # smiles/fractions, both raw variants and normalized
-            "smilesA", "smilesB", "fracA", "fracB",
-            sA_col, sB_col, "frac_A", "frac_B",
-            # descriptors & ignores
-            *setup_info.get('DATASET_DESCRIPTORS', []),
-            *setup_info.get('ignore_columns', []),
-            # internal helper col
-            "group_key"
-        }
-        target_columns = [c for c in df_input.columns if c not in exclude_cols]
+            # Create list columns for uniform downstream API
+            df_input["smilesA_list"] = [[s] for s in df_input["smilesA"]]
+            df_input["fracA_list"] = [[f] for f in df_input["fracA"]]
+            df_input["smilesB_list"] = [[s] for s in df_input["smilesB"]]
+            df_input["fracB_list"] = [[f] for f in df_input["fracB"]]
+
+            df_input["group_key"] = [
+                f"{a}|||{b}|||{_round6(wa)}|||{_round6(wb)}"
+                for a, b, wa, wb in zip(df_input["smilesA"], df_input["smilesB"], df_input["fracA"], df_input["fracB"])
+            ]
+
+            # Mark as single-monomer for downstream
+            df_input.attrs["multi_monomer"] = False
+
+            # ---------------------- Target column detection (copolymer) ----------------------
+            exclude_cols = {
+                # smiles/fractions, both raw variants and normalized
+                "smilesA", "smilesB", "fracA", "fracB",
+                sA_col, sB_col, "frac_A", "frac_B",
+                "smilesA_list", "fracA_list", "smilesB_list", "fracB_list",
+                # descriptors & ignores
+                *setup_info.get('DATASET_DESCRIPTORS', []),
+                *setup_info.get('ignore_columns', []),
+                # internal helper col
+                "group_key"
+            }
+            target_columns = [c for c in df_input.columns if c not in exclude_cols]
 
     else:
         # ---------------------- Homopolymer target detection ----------------------

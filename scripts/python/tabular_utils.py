@@ -539,6 +539,87 @@ def build_features(
         return ab_block, descriptor_block, names
 
     # -------------------- COPOLYMER --------------------
+    is_multi_monomer = "smilesA_list" in df.columns
+
+    if is_multi_monomer:
+        # ---------- Multi-monomer copolymer ----------
+        sA_lists = df["smilesA_list"].tolist()
+        fA_lists = df["fracA_list"].tolist()
+        sB_lists = df["smilesB_list"].tolist()
+        fB_lists = df["fracB_list"].tolist()
+        n = len(df)
+
+        def _multi_monomer_blend(smiles_lists, frac_lists, feat_fn):
+            """Compute fraction-weighted average of per-monomer features within each block.
+
+            feat_fn: callable(list[str]) -> np.ndarray of shape (len, d)
+            Returns np.ndarray of shape (n, d).
+            """
+            # Collect all unique SMILES to batch-featurize
+            all_smiles = []
+            for slist in smiles_lists:
+                all_smiles.extend(slist)
+            if not all_smiles:
+                return None
+            all_feats = feat_fn(all_smiles)
+            d = all_feats.shape[1]
+
+            # Reconstruct per-sample weighted averages
+            result = np.zeros((len(smiles_lists), d), dtype=float)
+            offset = 0
+            for i, (slist, flist) in enumerate(zip(smiles_lists, frac_lists)):
+                nm = len(slist)
+                if nm == 0:
+                    result[i] = np.nan
+                else:
+                    block_feats = all_feats[offset:offset + nm]  # [nm, d]
+                    weights = np.array(flist, dtype=float).reshape(-1, 1)  # [nm, 1]
+                    result[i] = (weights * block_feats).sum(axis=0)
+                offset += nm
+            return result
+
+        # AB pooled features
+        if use_ab:
+            ab_fn = lambda smiles: atom_bond_block_from_smiles(smiles, pool=pool, add_counts=add_counts)
+            abA = _multi_monomer_blend(sA_lists, fA_lists, ab_fn)
+            abB = _multi_monomer_blend(sB_lists, fB_lists, ab_fn)
+            if abA is not None and abB is not None:
+                # Equal block-level weighting (0.5/0.5) since intra-block fracs already applied
+                ab_block = 0.5 * abA + 0.5 * abB
+                names += [f"AB_{i}" for i in range(ab_block.shape[1])]
+
+        # RDKit + dataset descriptors
+        desc_blocks, desc_names = [], []
+
+        if use_rdkit:
+            _init_rdkit_descriptors()
+            rdA = _multi_monomer_blend(sA_lists, fA_lists, rdkit_block_from_smiles)
+            rdB = _multi_monomer_blend(sB_lists, fB_lists, rdkit_block_from_smiles)
+            if rdA is not None and rdB is not None:
+                # fit scaler on TRAIN rows only
+                train_stack = np.vstack([rdA[train_idx], rdB[train_idx]])
+                sc = StandardScaler().fit(train_stack)
+                rdA_z = sc.transform(rdA)
+                rdB_z = sc.transform(rdB)
+                rd_blend = 0.5 * rdA_z + 0.5 * rdB_z
+                desc_blocks.append(rd_blend)
+                desc_names += [f"RD_{n}" for n in RD_DESC_NAMES]
+
+        if use_descriptor:
+            dataset_desc_block = df[descriptor_columns].values
+            desc_blocks.append(dataset_desc_block)
+            desc_names += descriptor_columns
+
+        if desc_blocks:
+            descriptor_block = np.concatenate(desc_blocks, axis=1)
+            names += desc_names
+
+        if ab_block is None and descriptor_block is None:
+            raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
+
+        return ab_block, descriptor_block, names
+
+    # ---------- Single-monomer copolymer (legacy) ----------
     # accept either smilesA/smilesB or smiles_A/smiles_B
     smilesA_col = "smilesA" if "smilesA" in df.columns else "smiles_A"
     smilesB_col = "smilesB" if "smilesB" in df.columns else "smiles_B"

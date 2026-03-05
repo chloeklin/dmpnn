@@ -10,7 +10,12 @@ from chemprop.data.collate import (
     collate_multicomponent,
     collate_polymer_batch
 )
-from chemprop.data.copolymer import CopolymerDataset, collate_copolymer_batch
+from chemprop.data.copolymer import (
+    CopolymerDataset,
+    MultiMonomerCopolymerDataset,
+    collate_copolymer_batch,
+    collate_multi_monomer_batch,
+)
 from chemprop.data.datasets import (
     CuikmolmakerDataset,
     MolAtomBondDataset,
@@ -67,7 +72,9 @@ def build_dataloader(
     else:
         sampler = None
 
-    if isinstance(dataset, CopolymerDataset):
+    if isinstance(dataset, MultiMonomerCopolymerDataset):
+        collate_fn = collate_multi_monomer_batch
+    elif isinstance(dataset, CopolymerDataset):
         collate_fn = collate_copolymer_batch
     elif isinstance(dataset, MulticomponentDataset):
         collate_fn = collate_multicomponent

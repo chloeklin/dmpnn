@@ -136,21 +136,27 @@ fi
 [ -n "$INCL_DESC" ]          && ARGS="$ARGS $INCL_DESC"
 [ -n "$INCL_RDKIT" ]         && ARGS="$ARGS $INCL_RDKIT"
 [ -n "$INCL_AB" ]            && ARGS="$ARGS $INCL_AB"
-[ -n "$BATCH_NORM" ]         && ARGS="$ARGS $BATCH_NORM"
-[ -n "$PRETRAIN_MONOMER" ]   && ARGS="$ARGS $PRETRAIN_MONOMER"
-[ -n "$SAVE_CHECKPOINT" ]    && ARGS="$ARGS $SAVE_CHECKPOINT"
-[ -n "$SAVE_PREDICTIONS" ]   && ARGS="$ARGS $SAVE_PREDICTIONS"
-[ -n "$EXPORT_EMBEDDINGS" ]  && ARGS="$ARGS $EXPORT_EMBEDDINGS"
+# Graph-only flags (not supported by train_tabular.py)
+if [ "$MODEL" != "tabular" ]; then
+  [ -n "$BATCH_NORM" ]         && ARGS="$ARGS $BATCH_NORM"
+  [ -n "$PRETRAIN_MONOMER" ]   && ARGS="$ARGS $PRETRAIN_MONOMER"
+  [ -n "$SAVE_CHECKPOINT" ]    && ARGS="$ARGS $SAVE_CHECKPOINT"
+  [ -n "$SAVE_PREDICTIONS" ]   && ARGS="$ARGS $SAVE_PREDICTIONS"
+  [ -n "$EXPORT_EMBEDDINGS" ]  && ARGS="$ARGS $EXPORT_EMBEDDINGS"
+fi
 [ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
 [ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
-[ -n "$TARGET" ]             && ARGS="$ARGS --target \"$TARGET\""
-[ -n "$FUSION_MODE" ]        && ARGS="$ARGS --fusion_mode $FUSION_MODE"
-[ -n "$FILM_LAYERS" ]        && ARGS="$ARGS --film_layers $FILM_LAYERS"
-[ -n "$FILM_HIDDEN_DIM" ]    && ARGS="$ARGS --film_hidden_dim $FILM_HIDDEN_DIM"
-[ -n "$AUX_TASK" ]           && ARGS="$ARGS --aux_task $AUX_TASK"
-[ -n "$AUX_DESCRIPTOR_COLS" ] && ARGS="$ARGS --aux_descriptor_cols $AUX_DESCRIPTOR_COLS"
-[ -n "$LAMBDA_AUX" ]         && ARGS="$ARGS --lambda_aux $LAMBDA_AUX"
+# Graph-only key=value args (not supported by train_tabular.py)
+if [ "$MODEL" != "tabular" ]; then
+  [ -n "$TARGET" ]             && ARGS="$ARGS --target \"$TARGET\""
+  [ -n "$FUSION_MODE" ]        && ARGS="$ARGS --fusion_mode $FUSION_MODE"
+  [ -n "$FILM_LAYERS" ]        && ARGS="$ARGS --film_layers $FILM_LAYERS"
+  [ -n "$FILM_HIDDEN_DIM" ]    && ARGS="$ARGS --film_hidden_dim $FILM_HIDDEN_DIM"
+  [ -n "$AUX_TASK" ]           && ARGS="$ARGS --aux_task $AUX_TASK"
+  [ -n "$AUX_DESCRIPTOR_COLS" ] && ARGS="$ARGS --aux_descriptor_cols $AUX_DESCRIPTOR_COLS"
+  [ -n "$LAMBDA_AUX" ]         && ARGS="$ARGS --lambda_aux $LAMBDA_AUX"
+fi
 
 # Filename/jobname suffix
 SUFFIX="_${MODEL}"

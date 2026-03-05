@@ -35,6 +35,12 @@ block_base: &block_base
   polymer_type: copolymer
   export_embeddings: true
 
+pae_tg_base: &pae_tg_base
+  dataset: pae_tg
+  task_type: reg
+  polymer_type: copolymer
+  export_embeddings: true
+
 opv_targets: &opv_targets
   # - optical_lumo
   # - gap
@@ -59,6 +65,9 @@ htpmd_targets: &htpmd_targets
   - Poly Diffusivity
   - Transference Number
 
+pae_tg_targets: &pae_tg_targets
+  - Tg  
+  
 experiments:
 #HTP-MD Dataset
 
@@ -376,6 +385,125 @@ experiments:
 #   walltime: "2:00:00"
 #   targets: *eaip_targets
 
+# =====================================================================
+# PAE Tg Dataset - Multi-monomer copolymer experiments
+# =====================================================================
+
+  # DMPNN - Mix family
+  - <<: *pae_tg_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: mix
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: mix_meta
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac_meta
+    targets: *pae_tg_targets
+
+  # DMPNN - Interact family
+  - <<: *pae_tg_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: interact
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: interact_meta
+    targets: *pae_tg_targets
+
+  # GIN - Mix family
+  - <<: *pae_tg_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: mix
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: mix_meta
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac_meta
+    targets: *pae_tg_targets
+
+  # GIN - Interact family
+  - <<: *pae_tg_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: interact
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: interact_meta
+    targets: *pae_tg_targets
+
+  # GAT - Mix family
+  - <<: *pae_tg_base
+    model: GAT
+    walltime: "2:30:00"
+    copolymer_mode: mix
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: GAT
+    walltime: "2:30:00"
+    copolymer_mode: mix_meta
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: GAT
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: GAT
+    walltime: "2:30:00"
+    copolymer_mode: mix_frac_meta
+    targets: *pae_tg_targets
+
+  # GAT - Interact family
+  - <<: *pae_tg_base
+    model: GAT
+    walltime: "2:30:00"
+    copolymer_mode: interact
+    targets: *pae_tg_targets
+
+  - <<: *pae_tg_base
+    model: GAT
+    walltime: "2:30:00"
+    copolymer_mode: interact_meta
+    targets: *pae_tg_targets
+
+# =====================================================================
 
 # DMPNN
   # - <<: *tc_base

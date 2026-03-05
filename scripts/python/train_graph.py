@@ -14,7 +14,8 @@ from utils import (set_seed, process_data,
                   generate_data_splits, save_aggregate_results, get_encodings_from_loader, save_predictions,
                   create_base_argument_parser, add_model_specific_args, validate_train_size_argument,
                   setup_model_environment, save_model_results, pick_best_checkpoint,
-                  create_copolymer_data, build_copolymer_model_and_trainer)
+                  create_copolymer_data, create_multi_monomer_copolymer_data,
+                  build_copolymer_model_and_trainer)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -271,15 +272,17 @@ if args.pretrain_monomer:
 
 # ========================= COPOLYMER BRANCH =========================
 if args.polymer_type == "copolymer":
-    from chemprop.data.copolymer import CopolymerDataset
+    from chemprop.data.copolymer import CopolymerDataset, MultiMonomerCopolymerDataset
     from chemprop.models.copolymer import CopolymerMPNN
 
     copolymer_mode = args.copolymer_mode
+    is_multi_monomer = "smilesA_list" in df_input.columns
     logger.info(f"\n=== Copolymer Training (mode={copolymer_mode}) ===")
     logger.info(f"Dataset          : {args.dataset_name}")
     logger.info(f"Model            : {args.model_name}")
     logger.info(f"Target columns   : {target_columns}")
     logger.info(f"Copolymer mode   : {copolymer_mode}")
+    logger.info(f"Multi-monomer    : {is_multi_monomer}")
     logger.info("================================\n")
 
     # Filter to specific target if specified
@@ -290,13 +293,20 @@ if args.polymer_type == "copolymer":
         target_columns = [args.target]
         logger.info(f"Training on single target: {args.target}")
 
-    # Extract monomer SMILES columns (already validated in load_and_preprocess_data)
-    sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
-    sB_col = "smilesB" if "smilesB" in df_input.columns else "smiles_B"
-    smis_A = df_input[sA_col].astype(str).tolist()
-    smis_B = df_input[sB_col].astype(str).tolist()
-    fracA_arr = df_input["fracA"].values.astype(float)
-    fracB_arr = df_input["fracB"].values.astype(float)
+    if is_multi_monomer:
+        # Multi-monomer: extract per-row lists of SMILES and fractions
+        smiles_A_lists = df_input["smilesA_list"].tolist()
+        frac_A_lists = df_input["fracA_list"].tolist()
+        smiles_B_lists = df_input["smilesB_list"].tolist()
+        frac_B_lists = df_input["fracB_list"].tolist()
+    else:
+        # Single-monomer: extract scalar SMILES columns
+        sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
+        sB_col = "smilesB" if "smilesB" in df_input.columns else "smiles_B"
+        smis_A = df_input[sA_col].astype(str).tolist()
+        smis_B = df_input[sB_col].astype(str).tolist()
+        fracA_arr = df_input["fracA"].values.astype(float)
+        fracB_arr = df_input["fracB"].values.astype(float)
 
     # Process descriptors (same logic as homopolymer path)
     combined_descriptor_data = None
@@ -311,31 +321,43 @@ if args.polymer_type == "copolymer":
     for target in target_columns:
         ys = df_input[target].astype(float).values.reshape(-1, 1)
 
-        # Create copolymer paired datapoints
-        data_A, data_B, fA, fB = create_copolymer_data(
-            smis_A, smis_B, fracA_arr, fracB_arr, ys,
-            combined_descriptor_data, args.model_name,
-        )
-        logger.info(f"[{target}] Created {len(data_A)} copolymer datapoints")
+        # Create copolymer datapoints
+        if is_multi_monomer:
+            data_A, data_B, fA, fB = create_multi_monomer_copolymer_data(
+                smiles_A_lists, frac_A_lists, smiles_B_lists, frac_B_lists,
+                ys, combined_descriptor_data, args.model_name,
+            )
+            n_datapoints = len(data_A)
+        else:
+            data_A, data_B, fA, fB = create_copolymer_data(
+                smis_A, smis_B, fracA_arr, fracB_arr, ys,
+                combined_descriptor_data, args.model_name,
+            )
+            n_datapoints = len(data_A)
+        logger.info(f"[{target}] Created {n_datapoints} copolymer datapoints")
 
         # Determine splits (use group-based splitting to avoid leakage)
-        n_splits, local_reps = determine_split_strategy(len(data_A), REPLICATES)
+        n_splits, local_reps = determine_split_strategy(n_datapoints, REPLICATES)
 
         # Generate splits using group keys if available
         if "group_key" in df_input.columns:
-            # Build group array aligned with data_A (after filtering)
+            # Build group array aligned with data (after filtering)
             valid_indices = []
             for idx in range(len(df_input)):
-                sA = smis_A[idx]
-                sB = smis_B[idx]
                 y_val = ys[idx]
-                if sA and sB and pd.notna(y_val).any():
+                if is_multi_monomer:
+                    has_A = bool(smiles_A_lists[idx])
+                    has_B = bool(smiles_B_lists[idx])
+                else:
+                    has_A = bool(smis_A[idx])
+                    has_B = bool(smis_B[idx])
+                if has_A and has_B and pd.notna(y_val).any():
                     valid_indices.append(idx)
             groups = df_input["group_key"].values[valid_indices]
 
             from sklearn.model_selection import GroupKFold, GroupShuffleSplit
             train_indices_list, val_indices_list, test_indices_list = [], [], []
-            idx_all = np.arange(len(data_A))
+            idx_all = np.arange(n_datapoints)
 
             if n_splits > 1:
                 for rep in range(local_reps):
@@ -386,17 +408,35 @@ if args.polymer_type == "copolymer":
         for i in range(num_splits):
             tr, va, te = train_indices[i], val_indices[i], test_indices[i]
 
-            # Build CopolymerDataset for each split
-            train_dA = [data_A[j] for j in tr]
-            train_dB = [data_B[j] for j in tr]
-            val_dA = [data_A[j] for j in va]
-            val_dB = [data_B[j] for j in va]
-            test_dA = [data_A[j] for j in te]
-            test_dB = [data_B[j] for j in te]
+            # Build dataset for each split
+            if is_multi_monomer:
+                train_dA = [data_A[j] for j in tr]
+                train_dB = [data_B[j] for j in tr]
+                val_dA = [data_A[j] for j in va]
+                val_dB = [data_B[j] for j in va]
+                test_dA = [data_A[j] for j in te]
+                test_dB = [data_B[j] for j in te]
+                train_fA = [fA[j] for j in tr]
+                train_fB = [fB[j] for j in tr]
+                val_fA = [fA[j] for j in va]
+                val_fB = [fB[j] for j in va]
+                test_fA = [fA[j] for j in te]
+                test_fB = [fB[j] for j in te]
 
-            train_ds = CopolymerDataset(train_dA, train_dB, fA[tr], fB[tr], featurizer_copoly)
-            val_ds = CopolymerDataset(val_dA, val_dB, fA[va], fB[va], featurizer_copoly)
-            test_ds = CopolymerDataset(test_dA, test_dB, fA[te], fB[te], featurizer_copoly)
+                train_ds = MultiMonomerCopolymerDataset(train_dA, train_dB, train_fA, train_fB, featurizer_copoly)
+                val_ds = MultiMonomerCopolymerDataset(val_dA, val_dB, val_fA, val_fB, featurizer_copoly)
+                test_ds = MultiMonomerCopolymerDataset(test_dA, test_dB, test_fA, test_fB, featurizer_copoly)
+            else:
+                train_dA = [data_A[j] for j in tr]
+                train_dB = [data_B[j] for j in tr]
+                val_dA = [data_A[j] for j in va]
+                val_dB = [data_B[j] for j in va]
+                test_dA = [data_A[j] for j in te]
+                test_dB = [data_B[j] for j in te]
+
+                train_ds = CopolymerDataset(train_dA, train_dB, fA[tr], fB[tr], featurizer_copoly)
+                val_ds = CopolymerDataset(val_dA, val_dB, fA[va], fB[va], featurizer_copoly)
+                test_ds = CopolymerDataset(test_dA, test_dB, fA[te], fB[te], featurizer_copoly)
 
             # Normalize targets (regression only)
             scaler = None

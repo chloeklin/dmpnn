@@ -15,6 +15,10 @@ from .copolymer import (
     CopolymerDatum,
     CopolymerTrainingBatch,
     collate_copolymer_batch,
+    MultiMonomerCopolymerDataset,
+    MultiMonomerCopolymerDatum,
+    MultiMonomerCopolymerBatch,
+    collate_multi_monomer_batch,
 )
 from .dataloader import build_dataloader
 from .datapoints import (
@@ -73,4 +77,8 @@ __all__ = [
     "CopolymerDatum",
     "CopolymerTrainingBatch",
     "collate_copolymer_batch",
+    "MultiMonomerCopolymerDataset",
+    "MultiMonomerCopolymerDatum",
+    "MultiMonomerCopolymerBatch",
+    "collate_multi_monomer_batch",
 ]

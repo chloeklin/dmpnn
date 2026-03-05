@@ -130,6 +130,41 @@ class CopolymerMPNN(pl.LightningModule):
         H = self.bn(H)
         return H
 
+    @staticmethod
+    def _weighted_block_embedding(
+        flat_embeddings: Tensor,
+        counts: Tensor,
+        fracs: Tensor,
+    ) -> Tensor:
+        """Compute per-sample block embeddings from variable-length monomer lists.
+
+        Parameters
+        ----------
+        flat_embeddings : Tensor [total_monomers, d]
+            Embeddings for all monomers (across all samples) concatenated.
+        counts : Tensor [batch_size] (long)
+            Number of monomers per sample.
+        fracs : Tensor [total_monomers]
+            Intra-block fractions for each monomer (aligned with flat_embeddings).
+
+        Returns
+        -------
+        Tensor [batch_size, d]
+            Fraction-weighted sum of monomer embeddings per sample.
+        """
+        d = flat_embeddings.size(1)
+        batch_size = counts.size(0)
+        device = flat_embeddings.device
+        result = flat_embeddings.new_zeros(batch_size, d)
+        offset = 0
+        for i in range(batch_size):
+            n = counts[i].item()
+            w = fracs[offset:offset + n].unsqueeze(1)   # [n, 1]
+            emb = flat_embeddings[offset:offset + n]     # [n, d]
+            result[i] = (w * emb).sum(dim=0)
+            offset += n
+        return result
+
     def fingerprint(
         self,
         bmg_A: BatchMolGraph,
@@ -147,6 +182,60 @@ class CopolymerMPNN(pl.LightningModule):
         """
         z_A = self._encode_single(bmg_A)  # [B, d]
         z_B = self._encode_single(bmg_B)  # [B, d]
+        return self._apply_mode(z_A, z_B, fracA, fracB, X_d)
+
+    def fingerprint_multi_monomer(
+        self,
+        bmg_A: BatchMolGraph,
+        bmg_B: BatchMolGraph,
+        fracs_A: Tensor,
+        fracs_B: Tensor,
+        counts_A: Tensor,
+        counts_B: Tensor,
+        X_d: Tensor | None = None,
+    ) -> Tensor:
+        """Compute copolymer fingerprint from multi-monomer blocks.
+
+        Each block has variable-length monomer lists. Block embeddings are
+        computed as fraction-weighted sums of monomer embeddings.
+
+        Parameters
+        ----------
+        bmg_A : BatchMolGraph
+            Batched mol-graphs for ALL block-A monomers (flattened across samples).
+        bmg_B : BatchMolGraph
+            Same for block B.
+        fracs_A : Tensor [total_A_monomers]
+            Intra-block fractions for block-A monomers.
+        fracs_B : Tensor [total_B_monomers]
+        counts_A : Tensor [batch_size]
+            Number of A-monomers per sample.
+        counts_B : Tensor [batch_size]
+        X_d : Tensor | None
+            Optional descriptor features.
+        """
+        # Encode all monomers at once
+        flat_z_A = self._encode_single(bmg_A)  # [total_A, d]
+        flat_z_B = self._encode_single(bmg_B)  # [total_B, d]
+
+        # Weighted average per sample
+        z_A = self._weighted_block_embedding(flat_z_A, counts_A, fracs_A)  # [B, d]
+        z_B = self._weighted_block_embedding(flat_z_B, counts_B, fracs_B)  # [B, d]
+
+        # For mix modes, fracA/fracB (block-level) are always 0.5/0.5
+        batch_size = counts_A.size(0)
+        half = flat_z_A.new_full((batch_size,), 0.5)
+        return self._apply_mode(z_A, z_B, half, half, X_d)
+
+    def _apply_mode(
+        self,
+        z_A: Tensor,
+        z_B: Tensor,
+        fracA: Tensor,
+        fracB: Tensor,
+        X_d: Tensor | None = None,
+    ) -> Tensor:
+        """Apply the copolymer integration mode to block-level embeddings."""
 
         # Keep fracA/fracB as column vectors for broadcasting
         fA = fracA.unsqueeze(1)  # [B, 1]
@@ -208,6 +297,26 @@ class CopolymerMPNN(pl.LightningModule):
         z_final = self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d)
         return {"z_A": z_A, "z_B": z_B, "z_final": z_final}
 
+    def fingerprint_components_multi_monomer(
+        self,
+        bmg_A: BatchMolGraph,
+        bmg_B: BatchMolGraph,
+        fracs_A: Tensor,
+        fracs_B: Tensor,
+        counts_A: Tensor,
+        counts_B: Tensor,
+        X_d: Tensor | None = None,
+    ) -> dict[str, Tensor]:
+        """Return individual embedding components for multi-monomer export."""
+        flat_z_A = self._encode_single(bmg_A)
+        flat_z_B = self._encode_single(bmg_B)
+        z_A = self._weighted_block_embedding(flat_z_A, counts_A, fracs_A)
+        z_B = self._weighted_block_embedding(flat_z_B, counts_B, fracs_B)
+        batch_size = counts_A.size(0)
+        half = flat_z_A.new_full((batch_size,), 0.5)
+        z_final = self._apply_mode(z_A, z_B, half, half, X_d)
+        return {"z_A": z_A, "z_B": z_B, "z_final": z_final}
+
     def forward(
         self,
         bmg_A: BatchMolGraph,
@@ -218,15 +327,56 @@ class CopolymerMPNN(pl.LightningModule):
     ) -> Tensor:
         return self.predictor(self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d))
 
+    def forward_multi_monomer(
+        self,
+        bmg_A: BatchMolGraph,
+        bmg_B: BatchMolGraph,
+        fracs_A: Tensor,
+        fracs_B: Tensor,
+        counts_A: Tensor,
+        counts_B: Tensor,
+        X_d: Tensor | None = None,
+    ) -> Tensor:
+        return self.predictor(
+            self.fingerprint_multi_monomer(bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d)
+        )
+
+    # ------------------------------------------------------------------ batch dispatch helpers
+    def _is_multi_monomer_batch(self, batch) -> bool:
+        """Detect whether batch is a MultiMonomerCopolymerBatch (11 fields) vs CopolymerTrainingBatch (9 fields)."""
+        return len(batch) == 11
+
+    def _unpack_batch(self, batch):
+        """Unpack batch and return (Z, targets, weights, lt_mask, gt_mask, batch_size)."""
+        if self._is_multi_monomer_batch(batch):
+            bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d, targets, weights, lt_mask, gt_mask = batch
+            Z = self.fingerprint_multi_monomer(bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d)
+            batch_size = counts_A.size(0)
+        else:
+            bmg_A, bmg_B, fracA, fracB, X_d, targets, weights, lt_mask, gt_mask = batch
+            Z = self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d)
+            batch_size = len(fracA)
+        return Z, targets, weights, lt_mask, gt_mask, batch_size
+
+    def _unpack_batch_for_pred(self, batch):
+        """Unpack batch and return predictions (for val/test/predict)."""
+        if self._is_multi_monomer_batch(batch):
+            bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d, targets, weights, lt_mask, gt_mask = batch
+            preds = self.forward_multi_monomer(bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d)
+            batch_size = counts_A.size(0)
+        else:
+            bmg_A, bmg_B, fracA, fracB, X_d, targets, weights, lt_mask, gt_mask = batch
+            preds = self(bmg_A, bmg_B, fracA, fracB, X_d)
+            batch_size = len(fracA)
+        return preds, targets, weights, lt_mask, gt_mask, batch_size
+
     # ------------------------------------------------------------------ training
     def training_step(self, batch, batch_idx):
-        bmg_A, bmg_B, fracA, fracB, X_d, targets, weights, lt_mask, gt_mask = batch
-        batch_size = len(fracA)
+        Z, targets, weights, lt_mask, gt_mask, batch_size = self._unpack_batch(batch)
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
 
-        Z = self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d)
         preds = self.predictor.train_step(Z)
         l = self.criterion(preds, targets, mask, weights, lt_mask, gt_mask)
 
@@ -245,14 +395,11 @@ class CopolymerMPNN(pl.LightningModule):
             self.predictor.output_transform.train()
 
     def validation_step(self, batch, batch_idx: int = 0):
-        bmg_A, bmg_B, fracA, fracB, X_d, targets, weights, lt_mask, gt_mask = batch
-        batch_size = len(fracA)
+        preds, targets, weights, lt_mask, gt_mask, batch_size = self._unpack_batch_for_pred(batch)
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
 
-        # Compute predictions for metric logging
-        preds = self(bmg_A, bmg_B, fracA, fracB, X_d)
         weights_ones = torch.ones_like(weights)
 
         # Log all non-loss metrics
@@ -264,7 +411,7 @@ class CopolymerMPNN(pl.LightningModule):
                          logger=True, prog_bar=False)
 
         # Log val_loss using train_step (for scaled loss computation)
-        Z = self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d)
+        Z, _, _, _, _, _ = self._unpack_batch(batch)
         preds_train = self.predictor.train_step(Z)
         self.metrics[-1](preds_train, targets, mask, weights, lt_mask, gt_mask)
         self.log("val_loss", self.metrics[-1], batch_size=batch_size, prog_bar=True,
@@ -274,13 +421,11 @@ class CopolymerMPNN(pl.LightningModule):
         self._evaluate_batch(batch, "test")
 
     def _evaluate_batch(self, batch, label: str) -> None:
-        bmg_A, bmg_B, fracA, fracB, X_d, targets, weights, lt_mask, gt_mask = batch
-        batch_size = len(fracA)
+        preds, targets, weights, lt_mask, gt_mask, batch_size = self._unpack_batch_for_pred(batch)
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
 
-        preds = self(bmg_A, bmg_B, fracA, fracB, X_d)
         weights = torch.ones_like(weights)
 
         for m in self.metrics[:-1]:
@@ -291,6 +436,9 @@ class CopolymerMPNN(pl.LightningModule):
                          logger=True, prog_bar=False)
 
     def predict_step(self, batch, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
+        if self._is_multi_monomer_batch(batch):
+            bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d, *_ = batch
+            return self.forward_multi_monomer(bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d)
         bmg_A, bmg_B, fracA, fracB, X_d, *_ = batch
         return self(bmg_A, bmg_B, fracA, fracB, X_d)
 
@@ -313,4 +461,6 @@ class CopolymerMPNN(pl.LightningModule):
         return {"optimizer": opt, "lr_scheduler": {"scheduler": lr_sched, "interval": "step"}}
 
     def get_batch_size(self, batch) -> int:
+        if self._is_multi_monomer_batch(batch):
+            return batch[4].size(0)  # counts_A tensor length = batch size
         return len(batch[2])  # fracA tensor length = batch size
