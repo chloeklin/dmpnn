@@ -355,14 +355,7 @@ experiments:
   #   copolymer_mode: interact_meta
   #   targets: *eaip_targets
 
-  # Tabular baselines for copolymers
-    - <<: *eaip_base
-      model: tabular
-      polymer_type: copolymer
-      incl_desc: true
-      walltime: "2:00:00"
-      targets: *eaip_targets
-    
+  # Tabular baselines for copolymers (ea_ip has no descriptor columns)
     - <<: *eaip_base
       model: tabular
       polymer_type: copolymer
@@ -381,7 +374,7 @@ experiments:
       model: tabular
       polymer_type: copolymer
       incl_ab: true
-      incl_desc: true
+      incl_rdkit: true
       walltime: "2:00:00"
       targets: *eaip_targets
 
