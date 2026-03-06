@@ -9,6 +9,8 @@ global:
 # Dataset-specific descriptors
 # Note: If not specified, descriptors are auto-detected as all columns after the last target column
 dataset_descriptors:
+  block:
+    - Mn
   pae_tg:
     - Mn_kDa
     - Mw_kDa
