@@ -31,7 +31,7 @@ eaip_base: &eaip_base
 
 block_base: &block_base
   dataset: block
-  task_type: reg
+  task_type: multi
   polymer_type: copolymer
   export_embeddings: true
 
