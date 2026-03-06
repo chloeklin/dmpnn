@@ -409,7 +409,7 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     
     # Define desired feature order for combined plots, including batch norm variants
     base_features = [
-        'AB', 'AB+RDKit', 'AB+Desc+RDKit',  # Tabular features
+        'AB', 'RDKit', 'Desc', 'AB+RDKit', 'AB+Desc', 'Desc+RDKit', 'AB+Desc+RDKit',  # Tabular features
         'Baseline_DMPNN', 'Baseline_DMPNN+RDKit', 'Baseline_DMPNN+Desc+RDKit',  # DMPNN Baseline features
         'Baseline_DMPNN (BN)', 'Baseline_DMPNN+RDKit (BN)', 'Baseline_DMPNN+Desc+RDKit (BN)',  # DMPNN Baseline with batch norm
         'Baseline_wDMPNN', 'Baseline_wDMPNN+RDKit', 'Baseline_wDMPNN+Desc+RDKit',  # wDMPNN Baseline features
