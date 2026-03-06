@@ -381,12 +381,12 @@ experiments:
 # # =====================================================================
 # # PAE Tg Dataset - Multi-monomer copolymer experiments
 # # =====================================================================
-    - <<: *pae_tg_base
-      model: tabular
-      polymer_type: copolymer
-      incl_desc: true
-      walltime: "2:00:00"
-      targets: *pae_tg_targets
+    # - <<: *pae_tg_base
+    #   model: tabular
+    #   polymer_type: copolymer
+    #   incl_desc: true
+    #   walltime: "2:00:00"
+    #   targets: *pae_tg_targets
     
     # - <<: *pae_tg_base
     #   model: tabular
@@ -395,20 +395,20 @@ experiments:
     #   walltime: "2:00:00"
     #   targets: *pae_tg_targets
     
-    # - <<: *pae_tg_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_rdkit: true
-    #   walltime: "2:00:00"
-    #   targets: *pae_tg_targets
-    
     - <<: *pae_tg_base
       model: tabular
       polymer_type: copolymer
-      incl_ab: true
-      incl_desc: true
-      walltime: "2:00:00"
+      incl_rdkit: true
+      walltime: "1:00:00"
       targets: *pae_tg_targets
+    
+    # - <<: *pae_tg_base
+    #   model: tabular
+    #   polymer_type: copolymer
+    #   incl_ab: true
+    #   incl_desc: true
+    #   walltime: "2:00:00"
+    #   targets: *pae_tg_targets
       
   # DMPNN - Mix family
   # - <<: *pae_tg_base
