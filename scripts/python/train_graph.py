@@ -229,7 +229,7 @@ if args.pretrain_monomer:
     metric_list = []
 
     # Paths and model
-    checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = \
+    checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix, copoly_suffix = \
         build_experiment_paths(args, chemprop_dir, checkpoint_dir, "__multitask__", descriptor_columns, 0)
 
     processed_descriptor_data = None
@@ -460,7 +460,7 @@ if args.polymer_type == "copolymer":
             metric_list = get_metric_list(args.task_type, target=target, n_classes=n_classes_arg, df_input=df_input)
 
             # Build experiment paths
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix, copoly_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
 
@@ -581,7 +581,7 @@ if args.polymer_type == "copolymer":
                 # Save predictions with IDs and training configuration metadata
                 save_predictions(
                     y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
-                    desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, i, logger,
+                    desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,
                     test_ids=test_ids,
                     copolymer_mode=copolymer_mode,
                     polymer_type=args.polymer_type,
@@ -842,7 +842,7 @@ for target in target_columns:
     if combined_descriptor_data is not None:
             
         for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix, copoly_suffix = build_experiment_paths(
                 args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
             )
             # Try to load cached preprocessing BEFORE doing any heavy work
@@ -1018,7 +1018,7 @@ for target in target_columns:
     num_splits = len(train_data)  # robust for both CV and holdout
     for i in range(num_splits):
         # Build experiment paths
-        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix = build_experiment_paths(
+        checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix, copoly_suffix = build_experiment_paths(
             args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
         )
 
@@ -1284,7 +1284,7 @@ for target in target_columns:
             # Save predictions with IDs and training configuration metadata
             save_predictions(
                 y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
-                desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, i, logger,
+                desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,
                 test_ids=test_ids,
                 copolymer_mode=None,
                 polymer_type=getattr(args, 'polymer_type', None),

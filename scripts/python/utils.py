@@ -1782,7 +1782,7 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     # This saves disk space since preprocessing is identical for DMPNN/wDMPNN/DMPNN_DiffPool
     preprocessing_path = chemprop_dir / "preprocessing" / base_name
     
-    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix
+    return checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix, copoly_suffix
 
 
 def validate_checkpoint_compatibility(checkpoint_path, preprocessing_path, i, descriptor_dim, logger):
@@ -2766,7 +2766,7 @@ def select_features_remove_constant_and_correlated(
 
 
 def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, model_name, 
-                    desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, split_idx, logger,
+                    desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, split_idx, logger,
                     test_ids=None, copolymer_mode=None, polymer_type=None, task_type=None,
                     fusion_mode=None, aux_task=None):
     """Save predictions for learning curve analysis.
@@ -2778,10 +2778,11 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
         dataset_name: Dataset name
         target: Target name
         model_name: Model name (e.g., 'DMPNN')
-        desc_suffix: Descriptor suffix
-        rdkit_suffix: RDKit suffix
-        batch_norm_suffix: Batch norm suffix
-        size_suffix: Train size suffix
+        desc_suffix: Descriptor suffix (e.g., "__desc" or "")
+        rdkit_suffix: RDKit suffix (e.g., "__rdkit" or "")
+        batch_norm_suffix: Batch norm suffix (e.g., "__batch_norm" or "")
+        size_suffix: Train size suffix (e.g., "__size1000" or "")
+        copoly_suffix: Copolymer mode suffix (e.g., "__copoly_mix" or "")
         split_idx: Split index
         logger: Logger instance
         test_ids: Optional list of IDs/identifiers for order verification
@@ -2798,8 +2799,8 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
     model_pred_dir = predictions_dir / model_name
     model_pred_dir.mkdir(parents=True, exist_ok=True)
     
-    # Build filename with all relevant identifiers
-    filename = f"{dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__split{split_idx}.npz"
+    # Build filename with all relevant identifiers including copolymer mode
+    filename = f"{dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{copoly_suffix}{size_suffix}__split{split_idx}.npz"
     pred_file = model_pred_dir / filename
     
     # Prepare metadata with model-specific training configuration
@@ -2820,14 +2821,14 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
     if aux_task is not None:
         metadata['aux_task'] = aux_task
     
-    # Add suffix flags for quick identification
-    if desc_suffix:
+    # Add suffix flags for quick identification (suffixes are lowercase strings like "__desc")
+    if desc_suffix:  # "__desc" if present, "" if not
         metadata['incl_desc'] = True
-    if rdkit_suffix:
+    if rdkit_suffix:  # "__rdkit" if present, "" if not
         metadata['incl_rdkit'] = True
-    if batch_norm_suffix:
+    if batch_norm_suffix:  # "__batch_norm" if present, "" if not
         metadata['batch_norm'] = True
-    if size_suffix:
+    if size_suffix:  # "__size{value}" if present, "" if not
         metadata['train_size'] = size_suffix.replace('__size', '')
     
     # Prepare data to save
