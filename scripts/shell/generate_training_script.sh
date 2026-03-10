@@ -68,9 +68,9 @@ LAMBDA_AUX=""
 
 # Validate model
 case $MODEL in
-  tabular|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG|GAT|GATv2|GIN|GIN0|GINE) ;;
+  tabular|identity_baseline|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG|GAT|GATv2|GIN|GIN0|GINE) ;;
   *)
-    echo "Error: Invalid model '$MODEL'. Available: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE"
+    echo "Error: Invalid model '$MODEL'. Available: tabular, identity_baseline, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE"
     exit 1
     ;;
 esac
@@ -89,9 +89,12 @@ for arg in "${@:4}"; do
     binary|multi)       TASK_TYPE=$arg ;;
     --no-submit)        SUBMIT_JOB=false ;;
     target=*)           TARGET="${arg#target=}" ;;
+    targets=*)          TARGETS="${arg#targets=}" ;;
     train_size=*)       TRAIN_SIZE="${arg#train_size=}" ;;
     polymer_type=*)     POLYMER_TYPE="${arg#polymer_type=}" ;;
     copolymer_mode=*)   COPOLYMER_MODE="${arg#copolymer_mode=}" ;;
+    identity_mode=*)    IDENTITY_MODE="${arg#identity_mode=}" ;;
+    embed_dim=*)        EMBED_DIM="${arg#embed_dim=}" ;;
     fusion_mode=*)      FUSION_MODE="${arg#fusion_mode=}" ;;
     film_layers=*)      FILM_LAYERS="${arg#film_layers=}" ;;
     film_hidden_dim=*)  FILM_HIDDEN_DIM="${arg#film_hidden_dim=}" ;;
@@ -116,6 +119,10 @@ if [ "$MODEL" = "tabular" ]; then
   ARGS="--dataset_name $DATASET"
   SCRIPT_NAME="train_tabular.py"
   OUTPUT_PREFIX="tabular"
+elif [ "$MODEL" = "identity_baseline" ]; then
+  ARGS="--dataset_name $DATASET"
+  SCRIPT_NAME="train_identity_baseline.py"
+  OUTPUT_PREFIX="IdentityBaseline"
 elif [ "$MODEL" = "AttentiveFP" ]; then
   ARGS="--dataset_name $DATASET"
   SCRIPT_NAME="train_attentivefp.py"
@@ -147,6 +154,10 @@ fi
 [ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
 [ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
+[ -n "$TARGETS" ]            && ARGS="$ARGS --targets $TARGETS"
+# Identity baseline specific args
+[ -n "$IDENTITY_MODE" ]      && ARGS="$ARGS --mode $IDENTITY_MODE"
+[ -n "$EMBED_DIM" ]          && ARGS="$ARGS --embed_dim $EMBED_DIM"
 # Graph-only key=value args (not supported by train_tabular.py)
 if [ "$MODEL" != "tabular" ]; then
   [ -n "$TARGET" ]             && ARGS="$ARGS --target \"$TARGET\""
@@ -174,6 +185,8 @@ SUFFIX="_${MODEL}"
 [ -n "$FILM_HIDDEN_DIM" ]  && SUFFIX="${SUFFIX}_fhd${FILM_HIDDEN_DIM}"
 [ -n "$AUX_TASK" ]         && SUFFIX="${SUFFIX}_${AUX_TASK}"
 [ -n "$LAMBDA_AUX" ]       && SUFFIX="${SUFFIX}_la${LAMBDA_AUX}"
+[ -n "$IDENTITY_MODE" ]    && SUFFIX="${SUFFIX}_${IDENTITY_MODE}"
+[ -n "$EMBED_DIM" ]        && SUFFIX="${SUFFIX}_ed${EMBED_DIM}"
 # Sanitize target name for PBS job name compatibility (alphanumeric, dash, underscore only)
 if [ -n "$TARGET" ]; then
   SANITIZED_TARGET=$(echo "$TARGET" | sed 's/[^a-zA-Z0-9_-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//')

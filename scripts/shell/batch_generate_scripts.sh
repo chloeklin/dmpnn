@@ -242,35 +242,36 @@ try:
         if lambda_aux is not None:
             args.append(f'lambda_aux={lambda_aux}')
         
+        # Identity baseline specific args
+        identity_mode = exp.get('identity_mode')
+        if identity_mode:
+            args.append(f'identity_mode={identity_mode}')
+        
+        embed_dim = exp.get('embed_dim')
+        if embed_dim:
+            args.append(f'embed_dim={embed_dim}')
+        
         # Handle targets: can be a list, single value, or omitted
         targets = exp.get('targets')  # List of targets
         single_target = exp.get('target')  # Single target
         
-        # Determine target list
-        target_list = []
-        if targets:  # If 'targets' list is provided
-            target_list = targets if isinstance(targets, list) else [targets]
-        elif single_target:  # If single 'target' is provided
-            target_list = [single_target]
-        else:  # No targets specified - generate one script for all targets
-            target_list = [None]
-        
-        # Generate a script for each target (or one script if no targets specified)
-        for target in target_list:
+        # For tabular and identity_baseline: pass targets as comma-separated --targets string
+        # For graph models: generate separate scripts per target
+        if model in ('tabular', 'identity_baseline'):
             target_args = args.copy()
+            if targets:
+                tlist = targets if isinstance(targets, list) else [targets]
+                target_args.append(f'targets={",".join(str(t) for t in tlist)}')
+            elif single_target:
+                target_args.append(f'targets={single_target}')
             
-            if target:
-                target_args.append(f'target={target}')
-            
-            # Add no-submit flag if specified
             if '$NO_SUBMIT':
                 target_args.append('$NO_SUBMIT')
             
-            target_info = f" [target: {target}]" if target else " [all targets]"
+            target_info = f" [targets: {targets or single_target or 'all'}]"
             print(f"Generating: {dataset} {model}{target_info}")
             
             # Call the generate_training_script.sh
-            # Use shlex.quote to properly escape arguments with spaces
             import shlex
             cmd_str = ' '.join(shlex.quote(arg) for arg in target_args)
             result = subprocess.run(cmd_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -281,6 +282,38 @@ try:
                 print(f"  ✅ {result.stdout.strip()}")
             
             print()
+        else:
+            # Graph models: generate separate script per target
+            target_list = []
+            if targets:
+                target_list = targets if isinstance(targets, list) else [targets]
+            elif single_target:
+                target_list = [single_target]
+            else:
+                target_list = [None]
+            
+            for target in target_list:
+                target_args = args.copy()
+                
+                if target:
+                    target_args.append(f'target={target}')
+                
+                if '$NO_SUBMIT':
+                    target_args.append('$NO_SUBMIT')
+                
+                target_info = f" [target: {target}]" if target else " [all targets]"
+                print(f"Generating: {dataset} {model}{target_info}")
+                
+                import shlex
+                cmd_str = ' '.join(shlex.quote(arg) for arg in target_args)
+                result = subprocess.run(cmd_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                
+                if result.returncode != 0:
+                    print(f"  ❌ Error: {result.stderr}")
+                else:
+                    print(f"  ✅ {result.stdout.strip()}")
+                
+                print()
 
 except yaml.YAMLError as e:
     print(f"Error parsing YAML file: {e}")
