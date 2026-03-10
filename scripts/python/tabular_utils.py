@@ -742,18 +742,17 @@ def eval_multi(y_true, y_pred, y_proba, labels=None) -> Dict[str, float]:
         # Use labels parameter to handle cases where test set doesn't contain all classes
         out["logloss"] = log_loss(y_true, y_proba, labels=labels)
         # Add ROC-AUC for multi-class using one-vs-rest approach
+        # Use labels (all training classes) for binarization to match y_proba column count
         try:
             from sklearn.preprocessing import label_binarize
-            n_classes = len(np.unique(y_true))
+            all_cls = list(labels) if labels is not None else sorted(np.unique(y_true).tolist())
+            n_classes = len(all_cls)
             if n_classes == 2:
-                # Binary classification
                 out["roc_auc"] = roc_auc_score(y_true, y_proba[:, 1])
             else:
-                # Multi-class classification
-                y_bin = label_binarize(y_true, classes=list(range(n_classes)))
+                y_bin = label_binarize(y_true, classes=all_cls)
                 out["roc_auc"] = roc_auc_score(y_bin, y_proba, average="macro", multi_class="ovr")
-        except Exception as e:
-            # Skip ROC-AUC if calculation fails
+        except Exception:
             pass
     return out
 

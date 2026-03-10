@@ -3,48 +3,45 @@
 Plot Truth vs Prediction Scatter Plots for Model Comparison
 
 Generates truth-vs-prediction scatter plots from saved .npz prediction files
-produced by train_graph.py --save_predictions. Supports comparing multiple models
-on the same dataset/target with consistent axis limits.
+produced by train_graph.py --save_predictions.
+
+Filename format: {dataset}__{target}[__desc][__rdkit][__batch_norm][__copoly_{mode}][__size{N}]__split{i}.npz
+
+All variants are auto-discovered; use filter flags to narrow down what is shown.
 
 Usage:
-    # Compare DMPNN and AttentiveFP on opv_camb3lyp gap target (largest size, split 0)
+    # Auto-discover all variants for GIN on pae_tg Tg (split 0, no size suffix)
     python plot_truth_vs_prediction.py \\
-        --dataset opv_camb3lyp \\
-        --target gap \\
-        --models DMPNN AttentiveFP \\
-        --size 12000
+        --dataset pae_tg --target Tg --models GIN
 
-    # Aggregate across all 5 splits
+    # Compare all three models, only copolymer mix and interact modes, with descriptors
     python plot_truth_vs_prediction.py \\
-        --dataset opv_camb3lyp \\
-        --target gap \\
-        --models DMPNN AttentiveFP \\
-        --size 12000 \\
+        --dataset pae_tg --target Tg \\
+        --models DMPNN GIN GAT \\
+        --copoly_mode mix interact \\
+        --desc yes
+
+    # Compare all copoly modes for DMPNN (aggregated across all splits)
+    python plot_truth_vs_prediction.py \\
+        --dataset pae_tg --target Tg \\
+        --models DMPNN \\
         --aggregate_splits
 
-    # Include residual plots
+    # Homopolymer files only (no copoly suffix)
     python plot_truth_vs_prediction.py \\
-        --dataset opv_camb3lyp \\
-        --target gap \\
-        --models DMPNN AttentiveFP \\
-        --size 12000 \\
-        --residuals
+        --dataset block --target phase_label \\
+        --models GIN --copoly_mode none
 
-    # Include RDKit variant for DMPNN
+    # Size-filtered with residuals
     python plot_truth_vs_prediction.py \\
-        --dataset opv_camb3lyp \\
-        --target gap \\
+        --dataset opv_camb3lyp --target gap \\
         --models DMPNN AttentiveFP \\
-        --size 12000 \\
-        --rdkit
+        --size 12000 --residuals
 
-    # Use specific split(s)
+    # Specific splits
     python plot_truth_vs_prediction.py \\
-        --dataset opv_camb3lyp \\
-        --target gap \\
-        --models DMPNN \\
-        --size 12000 \\
-        --splits 0 2 4
+        --dataset pae_tg --target Tg \\
+        --models DMPNN --splits 0 2 4
 """
 
 import argparse
@@ -74,14 +71,24 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Generate truth-vs-prediction scatter plots from saved predictions."
     )
-    parser.add_argument("--dataset", required=True, help="Dataset name (e.g. opv_camb3lyp)")
-    parser.add_argument("--target", required=True, help="Target property name (e.g. gap)")
+    parser.add_argument("--dataset", required=True, help="Dataset name (e.g. pae_tg)")
+    parser.add_argument("--target", required=True, help="Target property name (e.g. Tg)")
     parser.add_argument("--models", nargs="+", required=True,
-                        help="List of model names (e.g. DMPNN AttentiveFP)")
+                        help="Model names to compare (e.g. DMPNN GIN GAT)")
+
+    # --- Variant filters (all optional; if omitted, all matching variants are loaded) ---
+    parser.add_argument("--copoly_mode", nargs="+", default=None,
+                        help="Filter to specific copolymer mode(s) (e.g. mix interact mix_frac). "
+                             "Use 'none' for homopolymer/no-copoly files. If omitted, all modes are loaded.")
     parser.add_argument("--size", type=str, default=None,
-                        help="Training size filter (e.g. 12000). If omitted, uses full-run predictions (no size suffix).")
-    parser.add_argument("--rdkit", action="store_true",
-                        help="Also load __rdkit variant for each model")
+                        help="Training size filter (e.g. 1000). If omitted, only files WITHOUT a size suffix are loaded.")
+    parser.add_argument("--desc", choices=["yes", "no"], default=None,
+                        help="Filter by descriptor flag: 'yes' = only __desc files, 'no' = only non-desc.")
+    parser.add_argument("--rdkit", choices=["yes", "no"], default=None,
+                        help="Filter by rdkit flag: 'yes' = only __rdkit files, 'no' = only non-rdkit.")
+    parser.add_argument("--batch_norm", choices=["yes", "no"], default=None,
+                        help="Filter by batch norm flag: 'yes' = only __batch_norm files, 'no' = only non-BN.")
+
     parser.add_argument("--splits", nargs="+", type=int, default=[0],
                         help="Which split indices to plot (default: 0)")
     parser.add_argument("--aggregate_splits", action="store_true",
@@ -99,53 +106,106 @@ def parse_args():
 # File discovery
 # --------------------------------------------------------------------------- #
 
-def find_prediction_files(predictions_dir, model_name, dataset, target, size=None,
-                          rdkit=False, splits=None):
-    """
-    Find .npz prediction files matching the given filters.
+# Filename format produced by train_graph.py:
+#   {dataset}__{target}[__desc][__rdkit][__batch_norm][__copoly_{mode}][__size{N}]__split{i}.npz
 
-    Returns a dict: {variant_label: {split_idx: path}}
+def find_prediction_files(predictions_dir, model_name, dataset, target, splits=None,
+                          size=None, copoly_mode=None, desc=None, rdkit=None, batch_norm=None):
+    """
+    Auto-discover all prediction file variants for a given model/dataset/target.
+
+    Returns dict: {variant_label: {split_idx: path}}
+
+    Filters (all optional):
+        size        : if set, only files with __size{size}; if None, only files WITHOUT a size suffix
+        copoly_mode : list of mode strings to include (e.g. ["mix", "interact"]);
+                      use ["none"] to match homopolymer files with no copoly suffix;
+                      if None, all modes are loaded
+        desc        : "yes" = only __desc files, "no" = only non-desc, None = both
+        rdkit       : "yes" = only __rdkit files, "no" = only non-rdkit, None = both
+        batch_norm  : "yes" = only __batch_norm files, "no" = only non-BN, None = both
     """
     model_dir = predictions_dir / model_name
     if not model_dir.exists():
         return {}
 
-    # Build the base prefix that must appear in the filename
-    # Filename format: {dataset}__{target}[__rdkit][__size{N}]__split{i}.npz
-    size_suffix = f"__size{size}" if size else ""
+    # Match everything between {dataset}__{target} and __split{i}
+    prefix_re = re.compile(
+        r"^" + re.escape(f"{dataset}__{target}") + r"(.*)__split(\d+)$"
+    )
 
-    variants = {}  # label -> {split: path}
+    variants = defaultdict(dict)  # label -> {split_idx: path}
 
-    # Base variant (no rdkit)
-    base_prefix = f"{dataset}__{target}{size_suffix}"
-    base_label = model_name
-    variants[base_label] = _match_files(model_dir, base_prefix, exclude_rdkit=True, splits=splits)
-
-    # RDKit variant
-    if rdkit:
-        rdkit_prefix = f"{dataset}__{target}__rdkit{size_suffix}"
-        rdkit_label = f"{model_name} + RDKit"
-        variants[rdkit_label] = _match_files(model_dir, rdkit_prefix, exclude_rdkit=False, splits=splits)
-
-    # Remove empty variants
-    return {k: v for k, v in variants.items() if v}
-
-
-def _match_files(model_dir, prefix, exclude_rdkit=False, splits=None):
-    """Return {split_idx: Path} for files matching prefix__split{i}.npz"""
-    matched = {}
     for f in sorted(model_dir.glob("*.npz")):
-        name = f.stem  # without .npz
-        # Must start with prefix and end with __split{i}
-        m = re.match(re.escape(prefix) + r"__split(\d+)$", name)
-        if m:
-            # If we want to exclude rdkit variant, skip files that have __rdkit
-            if exclude_rdkit and "__rdkit" in name:
+        name = f.stem
+        m = prefix_re.match(name)
+        if not m:
+            continue
+
+        suffix_str = m.group(1)   # e.g. "__desc__rdkit__copoly_mix__size1000" or ""
+        split_idx  = int(m.group(2))
+
+        # Parse flags from suffix_str
+        has_desc       = "__desc"       in suffix_str
+        has_rdkit      = "__rdkit"      in suffix_str
+        has_batch_norm = "__batch_norm" in suffix_str
+
+        size_m    = re.search(r"__size(\w+)",      suffix_str)
+        copoly_m  = re.search(r"__copoly_([a-z_]+)", suffix_str)
+        file_size   = size_m.group(1)   if size_m   else None
+        file_copoly = copoly_m.group(1) if copoly_m else None
+
+        # --- Apply filters ---
+        if size is not None:
+            if file_size != str(size):
                 continue
-            split_idx = int(m.group(1))
-            if splits is None or split_idx in splits:
-                matched[split_idx] = f
-    return matched
+        else:
+            if file_size is not None:
+                continue
+
+        if desc == "yes" and not has_desc:
+            continue
+        if desc == "no"  and has_desc:
+            continue
+
+        if rdkit == "yes" and not has_rdkit:
+            continue
+        if rdkit == "no"  and has_rdkit:
+            continue
+
+        if batch_norm == "yes" and not has_batch_norm:
+            continue
+        if batch_norm == "no"  and has_batch_norm:
+            continue
+
+        if copoly_mode is not None:
+            if file_copoly is None:
+                if "none" not in copoly_mode:
+                    continue
+            else:
+                if file_copoly not in copoly_mode:
+                    continue
+
+        if splits is not None and split_idx not in splits:
+            continue
+
+        # Build human-readable variant label from suffix flags
+        parts = [model_name]
+        if has_desc:
+            parts.append("desc")
+        if has_rdkit:
+            parts.append("rdkit")
+        if has_batch_norm:
+            parts.append("bn")
+        if file_copoly:
+            parts.append(file_copoly)
+        if file_size:
+            parts.append(f"size={file_size}")
+
+        label = " | ".join(parts)
+        variants[label][split_idx] = f
+
+    return dict(variants)
 
 
 def load_predictions(file_dict):
@@ -154,12 +214,23 @@ def load_predictions(file_dict):
 
     Returns (y_true, y_pred) arrays.  When multiple splits are present,
     predictions are concatenated.
+
+    Handles 2D y_pred from classification tasks:
+      - shape (n, 1)  → squeeze to 1D (regression with extra dim)
+      - shape (n, k)  → argmax over classes (multi-class classification)
     """
     y_true_all, y_pred_all = [], []
     for split_idx in sorted(file_dict.keys()):
         data = np.load(file_dict[split_idx], allow_pickle=True)
         yt = data["y_true"].flatten()
-        yp = data["y_pred"].flatten()
+        yp = data["y_pred"]
+        if yp.ndim == 2:
+            if yp.shape[1] == 1:
+                yp = yp.squeeze(1)          # regression with trailing dim
+            else:
+                yp = np.argmax(yp, axis=1)  # classification: predicted class
+        else:
+            yp = yp.flatten()
         y_true_all.append(yt)
         y_pred_all.append(yp)
     return np.concatenate(y_true_all), np.concatenate(y_pred_all)
@@ -358,15 +429,18 @@ def main():
     else:
         splits = args.splits
 
-    print(f"Dataset:    {args.dataset}")
-    print(f"Target:     {args.target}")
-    print(f"Models:     {args.models}")
-    print(f"Size:       {args.size if args.size else 'full'}")
-    print(f"Splits:     {'all (aggregated)' if args.aggregate_splits else splits}")
-    print(f"RDKit:      {args.rdkit}")
-    print(f"Residuals:  {args.residuals}")
-    print(f"Pred dir:   {predictions_dir}")
-    print(f"Output dir: {output_dir}")
+    print(f"Dataset:     {args.dataset}")
+    print(f"Target:      {args.target}")
+    print(f"Models:      {args.models}")
+    print(f"Size:        {args.size if args.size else 'full (no size suffix)'}")
+    print(f"Copoly mode: {args.copoly_mode if args.copoly_mode else 'all'}")
+    print(f"Desc:        {args.desc if args.desc else 'all'}")
+    print(f"RDKit:       {args.rdkit if args.rdkit else 'all'}")
+    print(f"Batch norm:  {args.batch_norm if args.batch_norm else 'all'}")
+    print(f"Splits:      {'all (aggregated)' if args.aggregate_splits else splits}")
+    print(f"Residuals:   {args.residuals}")
+    print(f"Pred dir:    {predictions_dir}")
+    print(f"Output dir:  {output_dir}")
     print()
 
     # Collect predictions for all model variants
@@ -375,7 +449,8 @@ def main():
     for model in args.models:
         variants = find_prediction_files(
             predictions_dir, model, args.dataset, args.target,
-            size=args.size, rdkit=args.rdkit, splits=splits
+            splits=splits, size=args.size, copoly_mode=args.copoly_mode,
+            desc=args.desc, rdkit=args.rdkit, batch_norm=args.batch_norm
         )
         if not variants:
             print(f"  WARNING: No prediction files found for {model} "
