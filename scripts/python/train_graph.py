@@ -466,6 +466,10 @@ if args.polymer_type == "copolymer":
 
             processed_descriptor_data = combined_descriptor_data
 
+            # Set n_classes on args for multi-class classification
+            if args.task_type == 'multi':
+                args._n_classes = n_classes_arg
+
             # Build model and trainer
             mpnn, trainer = build_copolymer_model_and_trainer(
                 args=args,
