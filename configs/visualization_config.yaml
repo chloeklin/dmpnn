@@ -1,0 +1,197 @@
+# Visualization Configuration
+# This file controls how models and features are discovered and displayed in plots
+
+# Model discovery settings
+model_discovery:
+  # Directories to exclude from auto-discovery
+  exclude_dirs:
+    - tabular
+    - embeddings
+    - .checkpoints
+  
+  # Method types and their file patterns
+  methods:
+    Graph:
+      suffix: "_results.csv"
+      auto_discover: true  # Auto-discover model directories
+      exclude_dirs: ["tabular", "IdentityBaseline"]
+    
+    Baseline:
+      suffix: "_baseline.csv"
+      auto_discover: true
+      exclude_dirs: ["tabular", "IdentityBaseline"]
+    
+    IdentityBaseline:
+      suffix: "_results.csv"
+      auto_discover: false  # Use specific directory
+      directories: ["IdentityBaseline"]
+    
+    Tabular:
+      suffix: ".csv"
+      auto_discover: false
+      directories: ["tabular"]
+
+# Feature display order and grouping
+# Features will be plotted in this order. Any discovered features not listed here
+# will be appended at the end in alphabetical order.
+feature_order:
+  # Tabular features
+  - group: "Tabular"
+    features:
+      - AB
+      - RDKit
+      - Desc
+      - AB+RDKit
+      - AB+Desc
+      - Desc+RDKit
+      - AB+Desc+RDKit
+  
+  # Baseline features (DMPNN)
+  - group: "DMPNN Baseline"
+    features:
+      - Baseline_DMPNN
+      - Baseline_DMPNN+RDKit
+      - Baseline_DMPNN+Desc+RDKit
+      - Baseline_DMPNN (BN)
+      - Baseline_DMPNN+RDKit (BN)
+      - Baseline_DMPNN+Desc+RDKit (BN)
+  
+  # Baseline features (wDMPNN)
+  - group: "wDMPNN Baseline"
+    features:
+      - Baseline_wDMPNN
+      - Baseline_wDMPNN+RDKit
+      - Baseline_wDMPNN+Desc+RDKit
+      - Baseline_wDMPNN (BN)
+      - Baseline_wDMPNN+RDKit (BN)
+      - Baseline_wDMPNN+Desc+RDKit (BN)
+  
+  # Other baseline models
+  - group: "Other Baselines"
+    features:
+      - Baseline_DMPNN_DiffPool
+      - Baseline_DMPNN_DiffPool+RDKit
+      - Baseline_DMPNN_DiffPool+Desc+RDKit
+      - Baseline_PPG
+      - Baseline_PPG+RDKit
+      - Baseline_PPG+Desc+RDKit
+      - Baseline_AttentiveFP
+      - Baseline_AttentiveFP+RDKit
+      - Baseline_AttentiveFP+Desc+RDKit
+  
+  # Graph features
+  - group: "Graph Models"
+    features:
+      - Graph
+      - Graph+RDKit
+      - Graph+Desc+RDKit
+      - Graph (BN)
+      - Graph+RDKit (BN)
+      - Graph+Desc+RDKit (BN)
+  
+  # Copolymer variants (auto-generated patterns)
+  - group: "Copolymer Variants"
+    pattern: "Graph \\((mix|interact|mix_meta|interact_meta|mix_frac|mix_frac_meta)\\)"
+    # This will match any Graph (mode) pattern
+  
+  # IdentityBaseline variants
+  - group: "Identity Baseline"
+    pattern: "IdentityBaseline \\((mix|interact)\\)"
+    # This will match IdentityBaseline (mix) and IdentityBaseline (interact)
+
+# Color scheme for different model types
+# Uses Paul Tol's colorblind-friendly palette
+color_scheme:
+  Tabular:
+    primary: "#4477AA"      # Blue
+    secondary: "#66CCEE"    # Cyan
+  
+  Baseline:
+    DMPNN: "#228833"        # Green
+    wDMPNN: "#CCBB44"       # Yellow
+    DMPNN_DiffPool: "#EE6677"  # Red
+    PPG: "#AA3377"          # Purple
+    AttentiveFP: "#BBBBBB"  # Grey
+  
+  Graph:
+    DMPNN: "#004488"        # Dark blue
+    GAT: "#994455"          # Wine
+    GIN: "#997700"          # Brown
+    wDMPNN: "#EE7733"       # Orange
+    DMPNN_DiffPool: "#009988"  # Teal
+    PPG: "#CC3311"          # Brick red
+    AttentiveFP: "#33BBEE"  # Light blue
+  
+  IdentityBaseline:
+    primary: "#EE3377"      # Magenta
+
+# Marker styles for different model types
+marker_styles:
+  Tabular: "s"              # Square
+  Baseline_DMPNN: "^"       # Triangle up
+  Baseline_wDMPNN: "v"      # Triangle down
+  Baseline_DMPNN_DiffPool: "<"  # Triangle left
+  Baseline_PPG: ">"         # Triangle right
+  Baseline_AttentiveFP: "D" # Diamond
+  Graph_DMPNN: "o"          # Circle
+  Graph_GAT: "p"            # Pentagon
+  Graph_GIN: "h"            # Hexagon
+  Graph_wDMPNN: "*"         # Star
+  Graph_DMPNN_DiffPool: "X" # X
+  Graph_PPG: "P"            # Plus
+  Graph_AttentiveFP: "d"    # Thin diamond
+  IdentityBaseline: "8"     # Octagon
+
+# Plot settings
+plot_settings:
+  figure_size: [14, 10]
+  dpi: 300
+  font_size: 10
+  title_font_size: 12
+  legend_font_size: 9
+  error_bar_capsize: 3
+  error_bar_alpha: 0.3
+  
+  # Metric-specific settings
+  metrics:
+    regression:
+      - mae
+      - rmse
+      - r2
+    classification:
+      - acc
+      - f1_macro
+      - logloss
+      - roc_auc
+  
+  # Higher is better for these metrics
+  higher_is_better:
+    - r2
+    - acc
+    - f1_macro
+    - roc_auc
+  
+  # Lower is better for these metrics
+  lower_is_better:
+    - mae
+    - rmse
+    - mse
+    - logloss
+
+# OPV dataset target filtering
+opv_datasets:
+  allowed_targets:
+    - delta_optical_lumo
+    - gap
+    - gap_extrapolated
+    - homo
+    - homo_extrapolated
+    - lumo
+    - optical_lumo
+    - spectral_overlap
+  
+  excluded_targets:
+    - delta_homo
+    - delta_lumo
+    - lumo_extrapolated
+    - optical_lumo_extrapolated

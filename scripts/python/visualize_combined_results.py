@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Dict, List
 import argparse
 import sys
+import yaml
+import re
 
 # Import combine_target_results function
 try:
@@ -23,6 +25,25 @@ except ImportError:
     print("Error: Could not import combine_results from combine_target_results.py")
     print("Make sure combine_target_results.py is in the same directory.")
     sys.exit(1)
+
+# Load visualization configuration
+def load_config(config_path: Path = None) -> dict:
+    """Load visualization configuration from YAML file."""
+    if config_path is None:
+        # Default config path relative to script location
+        script_dir = Path(__file__).parent
+        config_path = script_dir.parent.parent / "configs" / "visualization_config.yaml"
+    
+    if not config_path.exists():
+        print(f"Warning: Config file not found at {config_path}")
+        print("Using default configuration")
+        return {}
+    
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+# Load config globally
+CONFIG = load_config()
 
 def parse_filename(filename: str) -> tuple:
     """Parse CSV filename to extract dataset and feature information."""
@@ -139,18 +160,17 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     return dataset, features
 
 def apply_opv_target_filtering(results: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
-    """Filter OPV datasets to only include specific targets."""
-    # Define allowed targets for OPV dataset
-    opv_allowed_targets = {
-        'optical_lumo',
-        'gap', 
-        'homo',
-        'lumo',
-        'spectral_overlap',
-        'delta_optical_lumo',
-        'homo_extrapolated',
-        'gap_extrapolated'
-    }
+    """Filter OPV dataset results to only include allowed targets from config."""
+    # Get allowed targets from config
+    opv_config = CONFIG.get('opv_datasets', {})
+    opv_allowed_targets = set(opv_config.get('allowed_targets', []))
+    
+    # Fallback to hardcoded list if config not available
+    if not opv_allowed_targets:
+        opv_allowed_targets = {
+            'optical_lumo', 'gap', 'homo', 'lumo', 'spectral_overlap',
+            'delta_optical_lumo', 'homo_extrapolated', 'gap_extrapolated'
+        }
     
     filtered_results = {}
     for dataset, df in results.items():
@@ -176,28 +196,40 @@ def apply_opv_target_filtering(results: Dict[str, pd.DataFrame]) -> Dict[str, pd
     return filtered_results
 
 def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataFrame]:
-    """Load results CSV files for a specific method (Graph, Baseline, IdentityBaseline, or Tabular)."""
+    """Load results CSV files for a specific method using config-based discovery."""
     results = {}
+    csv_files = []
     
-    if method == 'IdentityBaseline':
-        # Load IdentityBaseline results from IdentityBaseline directory
-        csv_files = []
-        identity_dir = results_dir / 'IdentityBaseline'
-        if identity_dir.exists():
-            csv_files.extend(list(identity_dir.glob("*_results.csv")))
-    elif method in ['Graph', 'Baseline']:
-        # First pass: collect all CSV files by auto-discovering model directories
-        csv_files = []
-        # Auto-discover model directories (exclude 'tabular', 'IdentityBaseline' and hidden dirs)
+    # Get method config
+    method_config = CONFIG.get('model_discovery', {}).get('methods', {}).get(method, {})
+    
+    if not method_config:
+        # Fallback to default behavior if config not found
+        print(f"Warning: No config found for method '{method}', using defaults")
+        method_config = {'suffix': '_results.csv', 'auto_discover': True, 'exclude_dirs': ['tabular']}
+    
+    suffix = method_config.get('suffix', '_results.csv')
+    auto_discover = method_config.get('auto_discover', True)
+    
+    if auto_discover:
+        # Auto-discover model directories
+        exclude_dirs = method_config.get('exclude_dirs', [])
+        exclude_dirs_lower = [d.lower() for d in exclude_dirs]
+        
         model_dirs = [d for d in results_dir.iterdir() 
-                     if d.is_dir() and not d.name.startswith('.') 
-                     and d.name.lower() not in ['tabular', 'identitybaseline']]
+                     if d.is_dir() 
+                     and not d.name.startswith('.') 
+                     and d.name.lower() not in exclude_dirs_lower]
         
         for model_dir in model_dirs:
-            model_name = model_dir.name
-                
-            suffix = '_results.csv' if method == 'Graph' else '_baseline.csv'
             csv_files.extend(list(model_dir.glob(f"*{suffix}")))
+    else:
+        # Use specific directories from config
+        directories = method_config.get('directories', [])
+        for dir_name in directories:
+            dir_path = results_dir / dir_name
+            if dir_path.exists():
+                csv_files.extend(list(dir_path.glob(f"*{suffix}")))
     
     # Process CSV files for Graph, Baseline, and IdentityBaseline methods
     if method in ['Graph', 'Baseline', 'IdentityBaseline']:
@@ -433,6 +465,32 @@ def create_combined_comparison_plots(data: pd.DataFrame, dataset: str, metric: s
     """Create bar plots comparing both tabular and graph feature combinations for a specific metric."""
     _create_comparison_plots_internal(data, dataset, metric, output_dir, '')
 
+def get_feature_order_from_config(available_features: List[str]) -> List[str]:
+    """Build feature order list from config, matching available features."""
+    if not CONFIG or 'feature_order' not in CONFIG:
+        # Fallback to available features in alphabetical order
+        return sorted(available_features)
+    
+    ordered_features = []
+    
+    for group in CONFIG['feature_order']:
+        if 'features' in group:
+            # Explicit feature list
+            for feature in group['features']:
+                if feature in available_features:
+                    ordered_features.append(feature)
+        elif 'pattern' in group:
+            # Pattern matching for dynamic features
+            pattern = re.compile(group['pattern'])
+            matching = [f for f in available_features if pattern.search(f)]
+            ordered_features.extend(sorted(matching))
+    
+    # Add any remaining features not in config (alphabetically)
+    remaining = [f for f in available_features if f not in ordered_features]
+    ordered_features.extend(sorted(remaining))
+    
+    return ordered_features
+
 def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: str, output_dir: Path, suffix: str = ''):
     """Internal function to create bar plots with optional filename suffix."""
     
@@ -441,28 +499,9 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
     unique_targets = data['target'].dropna().unique()
     targets = sorted([str(t) for t in unique_targets])
     
-    # Define desired feature order for combined plots, including batch norm variants
-    base_features = [
-        'AB', 'RDKit', 'Desc', 'AB+RDKit', 'AB+Desc', 'Desc+RDKit', 'AB+Desc+RDKit',  # Tabular features
-        'Baseline_DMPNN', 'Baseline_DMPNN+RDKit', 'Baseline_DMPNN+Desc+RDKit',  # DMPNN Baseline features
-        'Baseline_DMPNN (BN)', 'Baseline_DMPNN+RDKit (BN)', 'Baseline_DMPNN+Desc+RDKit (BN)',  # DMPNN Baseline with batch norm
-        'Baseline_wDMPNN', 'Baseline_wDMPNN+RDKit', 'Baseline_wDMPNN+Desc+RDKit',  # wDMPNN Baseline features
-        'Baseline_wDMPNN (BN)', 'Baseline_wDMPNN+RDKit (BN)', 'Baseline_wDMPNN+Desc+RDKit (BN)',  # wDMPNN Baseline with batch norm
-        'Baseline_DMPNN_DiffPool', 'Baseline_DMPNN_DiffPool+RDKit', 'Baseline_DMPNN_DiffPool+Desc+RDKit',  # DMPNN_DiffPool Baseline
-        'Baseline_PPG', 'Baseline_PPG+RDKit', 'Baseline_PPG+Desc+RDKit',  # PPG Baseline features
-        'Baseline_AttentiveFP', 'Baseline_AttentiveFP+RDKit', 'Baseline_AttentiveFP+Desc+RDKit',  # AttentiveFP Baseline features
-        'Graph', 'Graph+RDKit', 'Graph+Desc+RDKit',  # Graph features
-        'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)',  # Graph with batch norm
-        # Copolymer mode variants
-        'Graph (mix)', 'Graph (mix_meta)', 'Graph (mix_frac)', 'Graph (mix_frac_meta)',
-        'Graph (interact)', 'Graph (interact_meta)',
-        # IdentityBaseline variants
-        'IdentityBaseline (mix)', 'IdentityBaseline (interact)'
-    ]
-    
-    # Get available features and sort them according to our desired order
+    # Get available features and sort them according to config
     available_features = data['features'].unique()
-    features = [f for f in base_features if f in available_features]
+    features = get_feature_order_from_config(available_features)
     
     # Check if metric exists in data
     if metric not in data.columns:
