@@ -450,8 +450,13 @@ if args.polymer_type == "copolymer":
                 val_ds.normalize_inputs("X_d", desc_scaler)
                 test_ds.normalize_inputs("X_d", desc_scaler)
 
-            # Metrics
+            # Metrics - determine n_classes for multi-class classification
             n_classes_arg = None
+            if args.task_type == 'multi':
+                # Get unique classes from the target column
+                unique_classes = df_input[target].dropna().unique()
+                n_classes_arg = len(unique_classes)
+                logger.info(f"[{target}] Detected {n_classes_arg} classes for multi-class classification")
             metric_list = get_metric_list(args.task_type, target=target, n_classes=n_classes_arg, df_input=df_input)
 
             # Build experiment paths
