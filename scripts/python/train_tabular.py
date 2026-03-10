@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 import joblib
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 
 # Local imports
 from tabular_utils import (
@@ -238,21 +238,31 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                 y_pred = model.predict(Xte_fit)
                 metrics = eval_binary(y_te, y_pred, prob1)
             else:  # multi
+                # Encode labels to contiguous 0-indexed integers (required by XGBoost)
+                le = LabelEncoder()
+                le.fit(y_valid)  # fit on all valid labels to cover every class
+                y_tr_enc = le.transform(y_tr)
+                y_val_enc = le.transform(y_val)
+                y_te_enc = le.transform(y_te)
+
                 if name == "XGB":
                     model.set_params(early_stopping_rounds=30, eval_metric="mlogloss")
-                    model.fit(Xtr_fit, y_tr, eval_set=[(Xval_fit, y_val)], verbose=False)
+                    model.fit(Xtr_fit, y_tr_enc, eval_set=[(Xval_fit, y_val_enc)], verbose=False)
                 else:
-                    model.fit(Xtr_fit, y_tr)
+                    model.fit(Xtr_fit, y_tr_enc)
                 y_proba_fn = getattr(model, "predict_proba", None)
                 proba = y_proba_fn(Xte_fit) if y_proba_fn is not None else None
-                y_pred = model.predict(Xte_fit)
-                # All classes from the full dataset (before splitting)
+                y_pred_enc = model.predict(Xte_fit)
+                # Decode predictions back to original labels
+                y_pred = le.inverse_transform(y_pred_enc.astype(int))
+                # All classes from the full dataset (original labels)
                 all_classes = np.sort(np.unique(y_valid))
                 # Pad proba to cover all classes if model didn't see every class
                 if proba is not None and hasattr(model, 'classes_') and len(model.classes_) < len(all_classes):
                     full_proba = np.zeros((proba.shape[0], len(all_classes)), dtype=proba.dtype)
-                    for j, c in enumerate(model.classes_):
-                        col = np.searchsorted(all_classes, c)
+                    for j, c_enc in enumerate(model.classes_):
+                        c_orig = le.inverse_transform([int(c_enc)])[0]
+                        col = np.searchsorted(all_classes, c_orig)
                         full_proba[:, col] = proba[:, j]
                     proba = full_proba
                 metrics = eval_multi(y_te, y_pred, proba, labels=all_classes)
