@@ -239,8 +239,10 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                 metrics = eval_binary(y_te, y_pred, prob1)
             else:  # multi
                 # Encode labels to contiguous 0-indexed integers (required by XGBoost)
+                # Fit on union of train/val/test to handle all classes in this split
                 le = LabelEncoder()
-                le.fit(y_tr)  # fit on training set to create contiguous encoding
+                all_split_labels = np.concatenate([y_tr, y_val, y_te])
+                le.fit(all_split_labels)
                 y_tr_enc = le.transform(y_tr)
                 y_val_enc = le.transform(y_val)
                 y_te_enc = le.transform(y_te)
