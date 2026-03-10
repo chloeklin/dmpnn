@@ -159,6 +159,11 @@ def eval_classification(y_true, y_pred, y_proba, task_type, all_labels=None):
                 out["logloss"] = log_loss(y_true, y_proba, labels=all_labels)
             except Exception:
                 pass
+            try:
+                # Multi-class ROC-AUC using one-vs-rest
+                out["roc_auc"] = roc_auc_score(y_true, y_proba, average="macro", multi_class="ovr")
+            except Exception:
+                pass
     return out
 
 
