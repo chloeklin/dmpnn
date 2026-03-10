@@ -70,6 +70,18 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
         base = base.replace('_results', '')
     elif method == 'Baseline':
         base = base.replace('_baseline', '')
+    elif method == 'IdentityBaseline':
+        base = base.replace('_results', '')
+    
+    # Extract identity mode if present (for IdentityBaseline)
+    identity_mode = None
+    if '__identity_' in base:
+        import re
+        match = re.search(r'__identity_([a-z_]+)', base)
+        if match:
+            identity_mode = match.group(1)
+            # Remove the identity suffix from base for further processing
+            base = base.replace(f'__identity_{identity_mode}', '')
     
     # Extract copolymer mode if present
     copoly_mode = None
@@ -91,6 +103,8 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     # For baseline methods, include the model name
     if method == 'Baseline' and model_name:
         method_name = f'Baseline_{model_name}'
+    elif method == 'IdentityBaseline':
+        method_name = 'IdentityBaseline'
     else:
         method_name = method
     
@@ -108,8 +122,11 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
         dataset = base
         features = method_name
     
+    # Add identity mode to features if present
+    if identity_mode:
+        features = f"{features} ({identity_mode})"
     # Add copolymer mode to features if present
-    if copoly_mode:
+    elif copoly_mode:
         features = f"{features} ({copoly_mode})"
     
     # Clean up any trailing underscores in dataset name
@@ -159,15 +176,22 @@ def apply_opv_target_filtering(results: Dict[str, pd.DataFrame]) -> Dict[str, pd
     return filtered_results
 
 def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataFrame]:
-    """Load results CSV files for a specific method (Graph, Baseline, or Tabular)."""
+    """Load results CSV files for a specific method (Graph, Baseline, IdentityBaseline, or Tabular)."""
     results = {}
     
-    if method in ['Graph', 'Baseline']:
+    if method == 'IdentityBaseline':
+        # Load IdentityBaseline results from IdentityBaseline directory
+        csv_files = []
+        identity_dir = results_dir / 'IdentityBaseline'
+        if identity_dir.exists():
+            csv_files.extend(list(identity_dir.glob("*_results.csv")))
+    elif method in ['Graph', 'Baseline']:
         # First pass: collect all CSV files by auto-discovering model directories
         csv_files = []
-        # Auto-discover model directories (exclude 'tabular' and hidden dirs)
+        # Auto-discover model directories (exclude 'tabular', 'IdentityBaseline' and hidden dirs)
         model_dirs = [d for d in results_dir.iterdir() 
-                     if d.is_dir() and not d.name.startswith('.') and d.name.lower() != 'tabular']
+                     if d.is_dir() and not d.name.startswith('.') 
+                     and d.name.lower() not in ['tabular', 'identitybaseline']]
         
         for model_dir in model_dirs:
             model_name = model_dir.name
@@ -313,14 +337,15 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
     return results
 
 def load_combined_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
-    """Load and combine tabular, graph, and baseline results."""
+    """Load and combine tabular, graph, baseline, and identity baseline results."""
     tabular_results = load_results_by_method(results_dir, 'Tabular')
     graph_results = load_results_by_method(results_dir, 'Graph')
     baseline_results = load_results_by_method(results_dir, 'Baseline')
+    identity_results = load_results_by_method(results_dir, 'IdentityBaseline')
     
     # Combine results
     combined_results = {}
-    all_datasets = set(tabular_results.keys()) | set(graph_results.keys()) | set(baseline_results.keys())
+    all_datasets = set(tabular_results.keys()) | set(graph_results.keys()) | set(baseline_results.keys()) | set(identity_results.keys())
     
     for dataset in all_datasets:
         dataset_dfs = []
@@ -333,6 +358,9 @@ def load_combined_results(results_dir: Path) -> Dict[str, pd.DataFrame]:
             
         if dataset in baseline_results:
             dataset_dfs.append(baseline_results[dataset])
+        
+        if dataset in identity_results:
+            dataset_dfs.append(identity_results[dataset])
         
         if dataset_dfs:
             combined_results[dataset] = pd.concat(dataset_dfs, ignore_index=True)
