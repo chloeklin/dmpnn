@@ -243,11 +243,18 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                     model.fit(Xtr_fit, y_tr, eval_set=[(Xval_fit, y_val)], verbose=False)
                 else:
                     model.fit(Xtr_fit, y_tr)
-                y_proba = getattr(model, "predict_proba", None)
-                proba = y_proba(Xte_fit) if y_proba is not None else None
+                y_proba_fn = getattr(model, "predict_proba", None)
+                proba = y_proba_fn(Xte_fit) if y_proba_fn is not None else None
                 y_pred = model.predict(Xte_fit)
-                # Pass union of classes from train and test sets for proper log_loss calculation
-                all_classes = np.unique(np.concatenate([y_tr, y_te]))
+                # All classes from the full dataset (before splitting)
+                all_classes = np.sort(np.unique(y_valid))
+                # Pad proba to cover all classes if model didn't see every class
+                if proba is not None and hasattr(model, 'classes_') and len(model.classes_) < len(all_classes):
+                    full_proba = np.zeros((proba.shape[0], len(all_classes)), dtype=proba.dtype)
+                    for j, c in enumerate(model.classes_):
+                        col = np.searchsorted(all_classes, c)
+                        full_proba[:, col] = proba[:, j]
+                    proba = full_proba
                 metrics = eval_multi(y_te, y_pred, proba, labels=all_classes)
 
             row = {"target": target_name, "split": i, "model": name}
