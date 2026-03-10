@@ -733,13 +733,14 @@ def eval_binary(y_true, y_pred, y_prob) -> Dict[str, float]:
         out["logloss"] = log_loss(y_true, np.vstack([1-y_prob, y_prob]).T, labels=[0,1])
     return out
 
-def eval_multi(y_true, y_pred, y_proba) -> Dict[str, float]:
+def eval_multi(y_true, y_pred, y_proba, labels=None) -> Dict[str, float]:
     out = {
         "acc": accuracy_score(y_true, y_pred),
         "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0)
     }
     if y_proba is not None:
-        out["logloss"] = log_loss(y_true, y_proba)
+        # Use labels parameter to handle cases where test set doesn't contain all classes
+        out["logloss"] = log_loss(y_true, y_proba, labels=labels)
         # Add ROC-AUC for multi-class using one-vs-rest approach
         try:
             from sklearn.preprocessing import label_binarize

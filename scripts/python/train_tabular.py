@@ -246,7 +246,9 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                 y_proba = getattr(model, "predict_proba", None)
                 proba = y_proba(Xte_fit) if y_proba is not None else None
                 y_pred = model.predict(Xte_fit)
-                metrics = eval_multi(y_te, y_pred, proba)
+                # Pass all class labels from training set for proper log_loss calculation
+                all_classes = np.unique(y_tr)
+                metrics = eval_multi(y_te, y_pred, proba, labels=all_classes)
 
             row = {"target": target_name, "split": i, "model": name}
             row.update({k: float(v) for k, v in metrics.items()})
