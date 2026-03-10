@@ -255,7 +255,7 @@ experiments:
     targets: *block_targets
 
 
-  # # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
+  # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
   - <<: *block_base
     model: GIN
     walltime: "0:30:00"
@@ -290,7 +290,7 @@ experiments:
     walltime: "0:30:00"
     incl_desc: true
     copolymer_mode: interact_meta
-    targets: *block_targets
+  #   targets: *block_targets
 
     # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
   - <<: *block_base
@@ -366,14 +366,14 @@ experiments:
   # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
   - <<: *eaip_base
     model: GAT
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix
     targets: *eaip_targets
 
   #  Mix + frac: head gets [z || fracA || fracB]
   - <<: *eaip_base
     model: GAT
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix_frac
     targets: *eaip_targets
    
@@ -381,21 +381,21 @@ experiments:
   # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
   - <<: *eaip_base
     model: GAT
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: interact
     targets: *eaip_targets
 
 
   - <<: *eaip_base
     model: GIN
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix
     targets: *eaip_targets
 
    # Mix + frac: head gets [z || fracA || fracB]
   - <<: *eaip_base
     model: GIN
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix_frac
     targets: *eaip_targets
    
@@ -403,21 +403,21 @@ experiments:
   # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
   - <<: *eaip_base
     model: GIN
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: interact
     targets: *eaip_targets
 
 
   - <<: *eaip_base
     model: DMPNN
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix
     targets: *eaip_targets
 
    # Mix + frac: head gets [z || fracA || fracB]
   - <<: *eaip_base
     model: DMPNN
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix_frac
     targets: *eaip_targets
    
@@ -425,7 +425,7 @@ experiments:
   # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
   - <<: *eaip_base
     model: DMPNN
-    walltime: "5:30:00"
+    walltime: "0:30:00"
     copolymer_mode: interact
     targets: *eaip_targets
 
@@ -451,17 +451,17 @@ experiments:
     #   incl_rdkit: true
     #   walltime: "2:00:00"
     #   targets: *eaip_targets
-  - <<: *eaip_base
-    model: identity_baseline
-    copolymer_mode: mix
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
     
-  - <<: *eaip_base
-    model: identity_baseline
-    copolymer_mode: interact
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
 # # =====================================================================
 # # PAE Tg Dataset - Multi-monomer copolymer experiments
@@ -498,20 +498,20 @@ experiments:
   # DMPNN - Mix family
   - <<: *pae_tg_base
     model: DMPNN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix
     targets: *pae_tg_targets
 
 
   - <<: *pae_tg_base
     model: DMPNN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix_frac
     targets: *pae_tg_targets
 
   - <<: *pae_tg_base
     model: DMPNN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     incl_desc: true
     copolymer_mode: mix_frac_meta
     targets: *pae_tg_targets
@@ -519,13 +519,13 @@ experiments:
   # DMPNN - Interact family
   - <<: *pae_tg_base
     model: DMPNN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: interact
     targets: *pae_tg_targets
 
   - <<: *pae_tg_base
     model: DMPNN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     incl_desc: true
     copolymer_mode: interact_meta
     targets: *pae_tg_targets
@@ -533,20 +533,20 @@ experiments:
   # GIN - Mix family
   - <<: *pae_tg_base
     model: GIN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix
     targets: *pae_tg_targets
 
 
   - <<: *pae_tg_base
     model: GIN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix_frac
     targets: *pae_tg_targets
 
   - <<: *pae_tg_base
     model: GIN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     incl_desc: true
     copolymer_mode: mix_frac_meta
     targets: *pae_tg_targets
@@ -554,13 +554,13 @@ experiments:
   # GIN - Interact family
   - <<: *pae_tg_base
     model: GIN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: interact
     targets: *pae_tg_targets
 
   - <<: *pae_tg_base
     model: GIN
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     incl_desc: true
     copolymer_mode: interact_meta
     targets: *pae_tg_targets
@@ -568,34 +568,34 @@ experiments:
   # GAT - Mix family
   - <<: *pae_tg_base
     model: GAT
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix
     targets: *pae_tg_targets
 
 
   - <<: *pae_tg_base
     model: GAT
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: mix_frac
     targets: *pae_tg_targets
 
-  - <<: *pae_tg_base
-    model: GAT
-    walltime: "2:30:00"
-    incl_desc: true
-    copolymer_mode: mix_frac_meta
-    targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GAT
+  #   walltime: "2:30:00"
+  #   incl_desc: true
+  #   copolymer_mode: mix_frac_meta
+  #   targets: *pae_tg_targets
 
   # GAT - Interact family
   - <<: *pae_tg_base
     model: GAT
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     copolymer_mode: interact
     targets: *pae_tg_targets
 
   - <<: *pae_tg_base
     model: GAT
-    walltime: "2:30:00"
+    walltime: "0:30:00"
     incl_desc: true
     copolymer_mode: interact_meta
     targets: *pae_tg_targets
