@@ -238,32 +238,56 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                 y_pred = model.predict(Xte_fit)
                 metrics = eval_binary(y_te, y_pred, prob1)
             else:  # multi
-                # Encode labels to contiguous 0-indexed integers (required by XGBoost)
-                # Fit on union of train/val/test to handle all classes in this split
-                le = LabelEncoder()
-                all_split_labels = np.concatenate([y_tr, y_val, y_te])
-                le.fit(all_split_labels)
-                y_tr_enc = le.transform(y_tr)
-                y_val_enc = le.transform(y_val)
-                y_te_enc = le.transform(y_te)
-
                 if name == "XGB":
+                    # XGBoost requires truly contiguous labels [0, 1, ..., n-1] in training set
+                    # Create custom mapping based on training set only
+                    unique_train = np.unique(y_tr)
+                    train_to_contiguous = {orig: idx for idx, orig in enumerate(unique_train)}
+                    
+                    # Map training labels to contiguous indices
+                    y_tr_enc = np.array([train_to_contiguous[y] for y in y_tr])
+                    
+                    # Map val/test labels, using -1 for unseen classes (will handle separately)
+                    y_val_enc = np.array([train_to_contiguous.get(y, -1) for y in y_val])
+                    y_te_enc = np.array([train_to_contiguous.get(y, -1) for y in y_te])
+                    
+                    # Store reverse mapping for decoding
+                    contiguous_to_train = {idx: orig for orig, idx in train_to_contiguous.items()}
+                    
                     model.set_params(early_stopping_rounds=30, eval_metric="mlogloss")
                     model.fit(Xtr_fit, y_tr_enc, eval_set=[(Xval_fit, y_val_enc)], verbose=False)
                 else:
+                    # For other models, use standard LabelEncoder on union of splits
+                    le = LabelEncoder()
+                    all_split_labels = np.concatenate([y_tr, y_val, y_te])
+                    le.fit(all_split_labels)
+                    y_tr_enc = le.transform(y_tr)
+                    y_val_enc = le.transform(y_val)
+                    y_te_enc = le.transform(y_te)
                     model.fit(Xtr_fit, y_tr_enc)
                 y_proba_fn = getattr(model, "predict_proba", None)
                 proba = y_proba_fn(Xte_fit) if y_proba_fn is not None else None
                 y_pred_enc = model.predict(Xte_fit)
+                
                 # Decode predictions back to original labels
-                y_pred = le.inverse_transform(y_pred_enc.astype(int))
+                if name == "XGB":
+                    # Use custom mapping for XGBoost
+                    y_pred = np.array([contiguous_to_train[int(p)] for p in y_pred_enc])
+                else:
+                    # Use LabelEncoder for other models
+                    y_pred = le.inverse_transform(y_pred_enc.astype(int))
+                
                 # All classes from training + test (original labels) for log_loss
                 all_classes = np.sort(np.unique(np.concatenate([y_tr, y_te])))
+                
                 # Pad proba to cover all classes if model didn't see every class
                 if proba is not None and hasattr(model, 'classes_') and len(model.classes_) < len(all_classes):
                     full_proba = np.zeros((proba.shape[0], len(all_classes)), dtype=proba.dtype)
                     for j, c_enc in enumerate(model.classes_):
-                        c_orig = le.inverse_transform([int(c_enc)])[0]
+                        if name == "XGB":
+                            c_orig = contiguous_to_train[int(c_enc)]
+                        else:
+                            c_orig = le.inverse_transform([int(c_enc)])[0]
                         col = np.searchsorted(all_classes, c_orig)
                         full_proba[:, col] = proba[:, j]
                     proba = full_proba
