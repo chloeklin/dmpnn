@@ -2767,7 +2767,8 @@ def select_features_remove_constant_and_correlated(
 
 def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, model_name, 
                     desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, split_idx, logger,
-                    test_ids=None):
+                    test_ids=None, copolymer_mode=None, polymer_type=None, task_type=None,
+                    fusion_mode=None, aux_task=None):
     """Save predictions for learning curve analysis.
     
     Args:
@@ -2784,6 +2785,11 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
         split_idx: Split index
         logger: Logger instance
         test_ids: Optional list of IDs/identifiers for order verification
+        copolymer_mode: Copolymer mode (mix, mix_frac, mix_frac_meta, interact, interact_meta)
+        polymer_type: Polymer type (copolymer, homopolymer, etc.)
+        task_type: Task type (reg, binary, multi)
+        fusion_mode: Fusion mode (none, late_concat, film)
+        aux_task: Auxiliary task (off, predict_descriptors)
     """
     import numpy as np
     from pathlib import Path
@@ -2796,20 +2802,39 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
     filename = f"{dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}__split{split_idx}.npz"
     pred_file = model_pred_dir / filename
     
+    # Prepare metadata with model-specific training configuration
+    # Note: dataset, target, split, task_type are already in preprocessing metadata
+    # Only store model-specific parameters that differentiate training runs
+    metadata = {
+        'model': model_name,
+        'split': split_idx,  # Keep for quick reference
+    }
+    
+    # Add model-specific configuration details
+    if copolymer_mode is not None:
+        metadata['copolymer_mode'] = copolymer_mode
+    if polymer_type is not None:
+        metadata['polymer_type'] = polymer_type
+    if fusion_mode is not None:
+        metadata['fusion_mode'] = fusion_mode
+    if aux_task is not None:
+        metadata['aux_task'] = aux_task
+    
+    # Add suffix flags for quick identification
+    if desc_suffix:
+        metadata['incl_desc'] = True
+    if rdkit_suffix:
+        metadata['incl_rdkit'] = True
+    if batch_norm_suffix:
+        metadata['batch_norm'] = True
+    if size_suffix:
+        metadata['train_size'] = size_suffix.replace('__size', '')
+    
     # Prepare data to save
     save_data = {
         'y_true': np.array(y_true),
         'y_pred': np.array(y_pred),
-        'metadata': {
-            'dataset': dataset_name,
-            'target': target,
-            'model': model_name,
-            'split': split_idx,
-            'desc_suffix': desc_suffix,
-            'rdkit_suffix': rdkit_suffix,
-            'batch_norm_suffix': batch_norm_suffix,
-            'size_suffix': size_suffix
-        }
+        'metadata': metadata
     }
     
     # Add IDs if provided

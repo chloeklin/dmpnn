@@ -547,6 +547,49 @@ if args.polymer_type == "copolymer":
             test_metrics["split"] = i
             results_all.append(test_metrics)
 
+            # Save predictions if requested
+            if args.save_predictions:
+                logger.info(f"Extracting predictions for split {i}, target {target}")
+                
+                # Use trainer.predict for unscaled outputs (applies same transform as trainer.test)
+                y_pred = trainer.predict(model=mpnn, dataloaders=test_loader)
+                
+                # Extract y_true directly from test dataset to match loader order
+                if is_multi_monomer:
+                    y_true = np.array([test_ds[j].y for j in range(len(test_ds))], dtype=float)
+                else:
+                    y_true = np.array([test_ds[j].y for j in range(len(test_ds))], dtype=float)
+                
+                # Extract IDs/indices for order verification
+                test_ids = []
+                for j in range(len(test_ds)):
+                    dp = test_ds[j]
+                    if hasattr(dp, 'id') and dp.id is not None:
+                        test_ids.append(dp.id)
+                    elif hasattr(dp, 'smiles'):
+                        test_ids.append(dp.smiles)
+                    else:
+                        test_ids.append(f"idx_{j}")
+                
+                # Convert predictions to numpy - handle list of tensors properly
+                if isinstance(y_pred, list):
+                    import torch
+                    y_pred = torch.cat(y_pred, dim=0).cpu().numpy()
+                elif hasattr(y_pred, 'cpu'):
+                    y_pred = y_pred.cpu().numpy()
+                
+                # Save predictions with IDs and training configuration metadata
+                save_predictions(
+                    y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
+                    desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, i, logger,
+                    test_ids=test_ids,
+                    copolymer_mode=copolymer_mode,
+                    polymer_type=args.polymer_type,
+                    task_type=args.task_type,
+                    fusion_mode=getattr(args, 'fusion_mode', None),
+                    aux_task=getattr(args, 'aux_task', None)
+                )
+
             # Export embeddings if requested
             if args.export_embeddings:
                 logger.info(f"Exporting copolymer embeddings for split {i}, target {target}")
@@ -1238,11 +1281,16 @@ for target in target_columns:
             elif hasattr(y_pred, 'cpu'):
                 y_pred = y_pred.cpu().numpy()
             
-            # Save predictions with IDs
+            # Save predictions with IDs and training configuration metadata
             save_predictions(
                 y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
                 desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, i, logger,
-                test_ids=test_ids
+                test_ids=test_ids,
+                copolymer_mode=None,
+                polymer_type=getattr(args, 'polymer_type', None),
+                task_type=args.task_type,
+                fusion_mode=getattr(args, 'fusion_mode', None),
+                aux_task=getattr(args, 'aux_task', None)
             )
         
         # Export embeddings if requested
