@@ -172,7 +172,7 @@ dataset_descriptors:
 
 dataset_ignore:
   block:
-    ["BigSMILES"]
+    ["BigSMILES", "wdmpnn_input"]
   combined_homopolymer:
     ["dataset_source"]
 
