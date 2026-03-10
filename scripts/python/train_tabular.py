@@ -247,15 +247,20 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                     # Map training labels to contiguous indices
                     y_tr_enc = np.array([train_to_contiguous[y] for y in y_tr])
                     
-                    # Map val/test labels, using -1 for unseen classes (will handle separately)
+                    # Map val/test labels, using -1 for unseen classes
                     y_val_enc = np.array([train_to_contiguous.get(y, -1) for y in y_val])
                     y_te_enc = np.array([train_to_contiguous.get(y, -1) for y in y_te])
                     
                     # Store reverse mapping for decoding
                     contiguous_to_train = {idx: orig for orig, idx in train_to_contiguous.items()}
                     
-                    model.set_params(early_stopping_rounds=30, eval_metric="mlogloss")
-                    model.fit(Xtr_fit, y_tr_enc, eval_set=[(Xval_fit, y_val_enc)], verbose=False)
+                    # Only use eval_set if validation has no unseen classes
+                    if -1 not in y_val_enc:
+                        model.set_params(early_stopping_rounds=30, eval_metric="mlogloss")
+                        model.fit(Xtr_fit, y_tr_enc, eval_set=[(Xval_fit, y_val_enc)], verbose=False)
+                    else:
+                        # Train without early stopping if val has unseen classes
+                        model.fit(Xtr_fit, y_tr_enc)
                 else:
                     # For other models, use standard LabelEncoder on union of splits
                     le = LabelEncoder()
