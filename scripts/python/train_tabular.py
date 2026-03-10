@@ -240,7 +240,7 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
             else:  # multi
                 # Encode labels to contiguous 0-indexed integers (required by XGBoost)
                 le = LabelEncoder()
-                le.fit(y_valid)  # fit on all valid labels to cover every class
+                le.fit(y_tr)  # fit on training set to create contiguous encoding
                 y_tr_enc = le.transform(y_tr)
                 y_val_enc = le.transform(y_val)
                 y_te_enc = le.transform(y_te)
@@ -255,8 +255,8 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                 y_pred_enc = model.predict(Xte_fit)
                 # Decode predictions back to original labels
                 y_pred = le.inverse_transform(y_pred_enc.astype(int))
-                # All classes from the full dataset (original labels)
-                all_classes = np.sort(np.unique(y_valid))
+                # All classes from training + test (original labels) for log_loss
+                all_classes = np.sort(np.unique(np.concatenate([y_tr, y_te])))
                 # Pad proba to cover all classes if model didn't see every class
                 if proba is not None and hasattr(model, 'classes_') and len(model.classes_) < len(all_classes):
                     full_proba = np.zeros((proba.shape[0], len(all_classes)), dtype=proba.dtype)

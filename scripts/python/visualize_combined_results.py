@@ -163,12 +163,14 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
     results = {}
     
     if method in ['Graph', 'Baseline']:
-        # First pass: collect all CSV files
+        # First pass: collect all CSV files by auto-discovering model directories
         csv_files = []
-        for model_name in ['DMPNN', 'wDMPNN', 'DMPNN_DiffPool', 'PPG', 'AttentiveFP', 'GAT', 'GIN']:
-            model_dir = results_dir / model_name
-            if not model_dir.exists():
-                continue
+        # Auto-discover model directories (exclude 'tabular' and hidden dirs)
+        model_dirs = [d for d in results_dir.iterdir() 
+                     if d.is_dir() and not d.name.startswith('.') and d.name.lower() != 'tabular']
+        
+        for model_dir in model_dirs:
+            model_name = model_dir.name
                 
             suffix = '_results.csv' if method == 'Graph' else '_baseline.csv'
             csv_files.extend(list(model_dir.glob(f"*{suffix}")))
@@ -884,19 +886,19 @@ def main():
     # First, combine target-specific results into single files
     print("Combining target-specific result files...")
     
-    # List of model directories to process
-    model_dirs = ['DMPNN', 'wDMPNN', 'DMPNN_DiffPool', 'PPG', 'AttentiveFP', 'GAT', 'GIN']
+    # Auto-discover model directories (exclude 'tabular' and hidden dirs)
+    model_dirs = [d for d in results_dir.iterdir() 
+                 if d.is_dir() and not d.name.startswith('.') and d.name.lower() != 'tabular']
     
     # Combine results in each model subdirectory first
-    for model_name in model_dirs:
-        model_dir = results_dir / model_name
-        if model_dir.exists():
-            print(f"  Processing {model_name} results...")
-            try:
-                combine_results(str(model_dir))
-                print(f"  ✅ {model_name} results combined successfully!")
-            except Exception as e:
-                print(f"  Warning: Could not combine {model_name} results: {e}")
+    for model_dir in model_dirs:
+        model_name = model_dir.name
+        print(f"  Processing {model_name} results...")
+        try:
+            combine_results(str(model_dir))
+            print(f"  ✅ {model_name} results combined successfully!")
+        except Exception as e:
+            print(f"  Warning: Could not combine {model_name} results: {e}")
     
     # Also combine any results in the main results directory
     try:
