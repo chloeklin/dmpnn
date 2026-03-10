@@ -354,7 +354,11 @@ experiments:
   #   targets: *block_targets
     
 <<<<<<< HEAD
+<<<<<<< HEAD
   # - <<: *eaip_base
+=======
+  # - <<: *block_base
+>>>>>>> 5ca23d8548d953aab636d55659a9b6e1c071e1c5
 =======
   # - <<: *block_base
 >>>>>>> 5ca23d8548d953aab636d55659a9b6e1c071e1c5
@@ -363,8 +367,13 @@ experiments:
   #   identity_mode: mix       
   #   walltime: "0:30:00"
 <<<<<<< HEAD
+<<<<<<< HEAD
   #   targets: *eaip_targets
   # - <<: *eaip_base
+=======
+  #   targets: *block_targets
+  # - <<: *block_base
+>>>>>>> 5ca23d8548d953aab636d55659a9b6e1c071e1c5
 =======
   #   targets: *block_targets
   # - <<: *block_base
@@ -374,6 +383,7 @@ experiments:
   #   identity_mode: interact    
   #   walltime: "0:30:00"
 <<<<<<< HEAD
+<<<<<<< HEAD
   #   targets: *eaip_targets
   # - <<: *pae_tg_base
   #   model: identity_baseline
@@ -388,6 +398,8 @@ experiments:
   #   walltime: "0:30:00"
   #   targets: *pae_tg_targets
 =======
+=======
+>>>>>>> 5ca23d8548d953aab636d55659a9b6e1c071e1c5
   #   targets: *block_targets
 
 >>>>>>> 5ca23d8548d953aab636d55659a9b6e1c071e1c5
