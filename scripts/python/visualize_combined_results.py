@@ -198,8 +198,9 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                 
             suffix = '_results.csv' if method == 'Graph' else '_baseline.csv'
             csv_files.extend(list(model_dir.glob(f"*{suffix}")))
-        
-        # Process each CSV file
+    
+    # Process CSV files for Graph, Baseline, and IdentityBaseline methods
+    if method in ['Graph', 'Baseline', 'IdentityBaseline']:
         for csv_file in csv_files:
             # Skip files with __size in the name (learning curve experiments)
             if '__size' in csv_file.name:
@@ -269,6 +270,9 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                     # Group by baseline model type, not encoder
                     df['model'] = df['model']  # Keep original baseline model name
                     df['method'] = f"Baseline_{model_name}"  # Include encoder name in method
+                elif method == 'IdentityBaseline':
+                    df['model'] = 'IdentityBaseline'
+                    df['method'] = 'IdentityBaseline'
                 
                 # Convert MSE to RMSE if MSE column exists
                 if 'mse' in df.columns:
