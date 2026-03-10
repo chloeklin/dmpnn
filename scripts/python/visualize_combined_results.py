@@ -455,7 +455,9 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
         'Graph (BN)', 'Graph+RDKit (BN)', 'Graph+Desc+RDKit (BN)',  # Graph with batch norm
         # Copolymer mode variants
         'Graph (mix)', 'Graph (mix_meta)', 'Graph (mix_frac)', 'Graph (mix_frac_meta)',
-        'Graph (interact)', 'Graph (interact_meta)'
+        'Graph (interact)', 'Graph (interact_meta)',
+        # IdentityBaseline variants
+        'IdentityBaseline (mix)', 'IdentityBaseline (interact)'
     ]
     
     # Get available features and sort them according to our desired order
