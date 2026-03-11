@@ -472,6 +472,89 @@ experiments:
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
 
+  # ----- EA IP (a_held_out split) -----
+
+  - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: mix
+    split_type: a_held_out
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: DMPNN
+    walltime: "2:30:00"
+    copolymer_mode: interact
+    split_type: a_held_out
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: mix
+    split_type: a_held_out
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: GIN
+    walltime: "2:30:00"
+    copolymer_mode: interact
+    split_type: a_held_out
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: GAT
+    walltime: "2:30:00"
+    copolymer_mode: mix
+    split_type: a_held_out
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: GAT
+    walltime: "2:30:00"
+    copolymer_mode: interact
+    split_type: a_held_out
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: identity_baseline
+    copolymer_mode: mix
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: identity_baseline
+    copolymer_mode: interact
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_rdkit: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_ab: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_ab: true
+    incl_rdkit: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+
 # # =====================================================================
 # # PAE Tg Dataset - Multi-monomer copolymer experiments
 # # =====================================================================

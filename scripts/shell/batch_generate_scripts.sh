@@ -242,6 +242,11 @@ try:
         if lambda_aux is not None:
             args.append(f'lambda_aux={lambda_aux}')
         
+        # Add split_type if specified (random | a_held_out)
+        split_type = exp.get('split_type')
+        if split_type:
+            args.append(f'split_type={split_type}')
+        
         # Identity baseline specific args
         identity_mode = exp.get('identity_mode')
         if identity_mode:

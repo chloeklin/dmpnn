@@ -26,7 +26,8 @@ from utils import (
     load_and_preprocess_data,
     determine_split_strategy,
     generate_data_splits,
-    
+    generate_a_held_out_splits,
+    save_fold_assignments,
 )
 
 
@@ -69,7 +70,20 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     # Determine split strategy and generate splits
     n_splits, local_reps = determine_split_strategy(len(y_valid), replicates)
 
-    if args.polymer_type == "copolymer":
+    split_type = getattr(args, 'split_type', 'random')
+    if split_type == "a_held_out" and args.polymer_type == "copolymer":
+        # A-held-out: GroupKFold by canonicalized smiles_A
+        sA_col = "smilesA" if "smilesA" in df_valid.columns else "smiles_A"
+        valid_smiles_A = df_valid[sA_col].astype(str).values
+        n_splits = 5  # enforce 5-fold for a_held_out
+        train_indices, val_indices, test_indices = generate_a_held_out_splits(
+            valid_smiles_A, len(y_valid), seed, n_splits=n_splits, logger=logger,
+        )
+        save_fold_assignments(
+            train_indices, val_indices, test_indices,
+            valid_smiles_A, args.dataset_name, seed, out_dir.parent.parent, logger=logger,
+        )
+    elif args.polymer_type == "copolymer":
         # produce repeats by reseeding group splits
         train_indices, val_indices, test_indices = [], [], []
         for r in range(local_reps):
@@ -334,6 +348,9 @@ def main():
                     help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
     parser.add_argument('--targets', type=str, nargs='+', default=None,
                     help='Specific target columns to train on. If not specified, trains on all numeric target columns.')
+    parser.add_argument('--split_type', type=str, choices=['random', 'a_held_out'],
+                    default='random',
+                    help='Split strategy: random (default) or a_held_out (group by smiles_A)')
     
     args = parser.parse_args()
     
@@ -379,6 +396,8 @@ def main():
 
     # Check for existing results and determine what needs to be run
     suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "") + ("_ab" if args.incl_ab else "")
+    if args.split_type != "random":
+        suffix += f"__{args.split_type}"
     train_size = getattr(args, 'train_size', None)
     if train_size is not None and train_size.lower() != "full":
         size_suffix = f"__size{train_size}"
