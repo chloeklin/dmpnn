@@ -41,6 +41,7 @@ from sklearn.preprocessing import StandardScaler
 from utils import (
     set_seed, setup_training_environment, load_and_preprocess_data,
     determine_split_strategy, save_model_results,
+    generate_a_held_out_splits, save_fold_assignments,
 )
 from tabular_utils import group_splits
 
@@ -396,11 +397,15 @@ def parse_args():
     parser.add_argument("--train_size", type=str, default=None,
                         help="Subsample training set to this size")
 
+    # Split type
+    parser.add_argument("--split_type", type=str, choices=["random", "a_held_out"],
+                        default="random",
+                        help="Split strategy: random (default) or a_held_out (group by smiles_A)")
+
     # Compatibility flags (silently accepted for batch script compatibility)
     parser.add_argument("--incl_rdkit", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--incl_ab", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--batch_norm", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--copolymer_mode", type=str, default="mix", help=argparse.SUPPRESS)
     parser.add_argument("--export_embeddings", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--save_predictions", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--save_checkpoint", action="store_true", help=argparse.SUPPRESS)
@@ -538,15 +543,28 @@ def main():
         else:
             y_valid = y_valid.astype(np.float32)
 
-        # ---- Splits (group-based for copolymers) ----
+        # ---- Splits ----
         n_splits, local_reps = determine_split_strategy(len(y_valid), REPLICATES)
 
         train_indices, val_indices, test_indices = [], [], []
-        for r in range(local_reps):
-            tr, va, te = group_splits(df_valid, y_valid, args.task_type, n_splits, SEED + r)
-            train_indices.extend(tr)
-            val_indices.extend(va)
-            test_indices.extend(te)
+        if args.split_type == "a_held_out":
+            # A-held-out: GroupKFold by canonicalized smiles_A
+            sA_col = "smilesA" if "smilesA" in df_valid.columns else "smiles_A"
+            valid_smiles_A = df_valid[sA_col].astype(str).values
+            n_splits = 5  # enforce 5-fold for a_held_out
+            train_indices, val_indices, test_indices = generate_a_held_out_splits(
+                valid_smiles_A, len(y_valid), SEED, n_splits=n_splits, logger=logger,
+            )
+            save_fold_assignments(
+                train_indices, val_indices, test_indices,
+                valid_smiles_A, args.dataset_name, SEED, results_dir, logger=logger,
+            )
+        else:
+            for r in range(local_reps):
+                tr, va, te = group_splits(df_valid, y_valid, args.task_type, n_splits, SEED + r)
+                train_indices.extend(tr)
+                val_indices.extend(va)
+                test_indices.extend(te)
 
         num_splits = len(train_indices)
         logger.info(f"[{target}] {num_splits} splits (n_splits={n_splits}, reps={local_reps})")
@@ -656,6 +674,8 @@ def main():
                 filename_parts.append("desc")
             # Use copoly_{mode} to match other graph models, not identity_{mode}
             filename_parts.append(f"copoly_{args.copolymer_mode}")
+            if args.split_type != "random":
+                filename_parts.append(args.split_type)
             if args.train_size and args.train_size.lower() != "full":
                 filename_parts.append(f"size{args.train_size}")
             # Add target suffix for per-target files
@@ -679,6 +699,8 @@ def main():
         if args.incl_desc:
             filename_parts.append("desc")
         filename_parts.append(f"copoly_{args.copolymer_mode}")
+        if args.split_type != "random":
+            filename_parts.append(args.split_type)
         if args.train_size and args.train_size.lower() != "full":
             filename_parts.append(f"size{args.train_size}")
         filename = "__".join(filename_parts) + "_results.csv"

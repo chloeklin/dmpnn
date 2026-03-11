@@ -314,11 +314,32 @@ if args.polymer_type == "copolymer":
         fracA_arr = df_input["fracA"].values.astype(float)
         fracB_arr = df_input["fracB"].values.astype(float)
 
-    # Process descriptors (same logic as homopolymer path)
+    # Process descriptors with global cleaning (matches homopolymer branch)
     combined_descriptor_data = None
+    orig_Xd_copoly = None
+    copoly_constant_features = []
     if descriptor_columns:
         combined_descriptor_data = df_input[descriptor_columns].values.astype(np.float32)
         logger.info(f"Using {len(descriptor_columns)} descriptor columns: {descriptor_columns}")
+
+        # Global descriptor cleaning (inf→NaN, constant removal) — same as homopolymer
+        orig_Xd_copoly = np.asarray(combined_descriptor_data, dtype=np.float64)
+        inf_mask = np.isinf(orig_Xd_copoly)
+        if np.any(inf_mask):
+            logger.warning(f"Found {np.sum(inf_mask)} infinite values in descriptors, replacing with NaN")
+            orig_Xd_copoly[inf_mask] = np.nan
+
+        Xd_temp_df = pd.DataFrame(orig_Xd_copoly)
+        non_na_uniques = Xd_temp_df.nunique(dropna=True)
+        copoly_constant_features = non_na_uniques[non_na_uniques < 2].index.tolist()
+        if copoly_constant_features:
+            logger.info(f"Removing {len(copoly_constant_features)} constant descriptor features globally")
+            orig_Xd_copoly = np.delete(orig_Xd_copoly, copoly_constant_features, axis=1)
+
+        nan_mask = np.isnan(orig_Xd_copoly)
+        if np.any(nan_mask):
+            logger.warning(f"Found {np.sum(nan_mask)} NaN values in descriptors, will use per-split median imputation")
+        logger.info(f"Copolymer descriptor shape after global cleaning: {orig_Xd_copoly.shape}")
 
     featurizer_copoly = featurizers.SimpleMoleculeMolGraphFeaturizer()
 
@@ -446,6 +467,129 @@ if args.polymer_type == "copolymer":
         for i in range(num_splits):
             tr, va, te = train_indices[i], val_indices[i], test_indices[i]
 
+            # Build experiment paths FIRST (needed for preprocessing cache)
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix, copoly_suffix = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
+
+            # Per-split descriptor preprocessing (matches homopolymer branch)
+            descriptor_scaler = None
+            preprocessing_reused = False
+            processed_descriptor_data = None
+            if orig_Xd_copoly is not None:
+                from sklearn.impute import SimpleImputer
+                float32_max = np.finfo(np.float32).max
+                float32_min = np.finfo(np.float32).min
+
+                # Try to load cached preprocessing
+                preprocessing_reused, cached_scaler, cached_mask, cache_meta = manage_preprocessing_cache(
+                    preprocessing_path, i, orig_Xd_copoly, None, None, logger
+                )
+
+                if preprocessing_reused and cached_mask is not None and len(cached_mask) > 0:
+                    mask = cached_mask
+                    imputer_stats = None
+                    if cache_meta is not None:
+                        imputer_stats = (cache_meta.get("cleaning") or {}).get("imputer_statistics")
+                    if imputer_stats is not None:
+                        imputer = SimpleImputer(strategy='median')
+                        imputer.statistics_ = np.array(imputer_stats)
+                        imputer.n_features_in_ = orig_Xd_copoly.shape[1]
+                        all_data_clean = imputer.transform(orig_Xd_copoly)
+                    else:
+                        all_data_clean = orig_Xd_copoly.copy()
+                    all_data_clean = np.clip(all_data_clean, float32_min, float32_max).astype(np.float32)
+                    descriptor_scaler = cached_scaler
+                    logger.info(f"Split {i}: reused cached copolymer preprocessing.")
+                else:
+                    # Compute fresh preprocessing (leakage-free)
+                    imputer = SimpleImputer(strategy='median')
+                    imputer.fit(orig_Xd_copoly[tr])
+                    all_data_clean = imputer.transform(orig_Xd_copoly)
+                    all_data_clean = np.clip(all_data_clean, float32_min, float32_max).astype(np.float32)
+
+                    # Remove correlated features using training data only
+                    correlated_features = []
+                    if all_data_clean.shape[1] > 1:
+                        train_df = pd.DataFrame(all_data_clean[tr])
+                        corr_matrix = train_df.corr(method="pearson" if args.task_type == "reg" else "spearman").abs()
+                        upper_tri = corr_matrix.where(
+                            np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+                        )
+                        correlated_features = [col for col in upper_tri.columns if any(upper_tri[col] >= 0.90)]
+                        if correlated_features:
+                            logger.info(f"Split {i}: Removing {len(correlated_features)} correlated features")
+                            keep_features = [col for col in range(all_data_clean.shape[1]) if col not in correlated_features]
+                        else:
+                            keep_features = list(range(all_data_clean.shape[1]))
+                    else:
+                        keep_features = list(range(all_data_clean.shape[1]))
+
+                    mask = np.zeros(all_data_clean.shape[1], dtype=bool)
+                    mask[keep_features] = True
+
+                    # Build and save preprocessing metadata (includes split_type + seed)
+                    preprocessing_metadata = {
+                        "cleaning": {
+                            "imputation_strategy": "median",
+                            "float32_max": float(float32_max),
+                            "float32_min": float(float32_min),
+                            "imputer_statistics": imputer.statistics_.tolist()
+                        },
+                        "data_info": {
+                            "original_data_shape": list(orig_Xd_copoly.shape),
+                            "descriptor_columns": descriptor_columns,
+                            "rdkit_included": args.incl_rdkit,
+                            "constant_features_removed": copoly_constant_features,
+                            "post_constant_shape": list(orig_Xd_copoly.shape)
+                        },
+                        "splits": {
+                            "train_indices": tr.tolist(),
+                            "val_indices": va.tolist(),
+                            "test_indices": te.tolist(),
+                            "random_seed": SEED,
+                            "split_type": args.split_type,
+                            "correlation_threshold": 0.90,
+                            "correlation_method": "pearson" if args.task_type == "reg" else "spearman"
+                        },
+                        "split_specific": {
+                            "split_id": i,
+                            "correlated_features": correlated_features,
+                            "keep_features": keep_features,
+                            "correlation_mask": mask.tolist()
+                        },
+                        "target": target,
+                        "task_type": args.task_type,
+                        "split_type": args.split_type,
+                    }
+                    manage_preprocessing_cache(
+                        preprocessing_path, i, orig_Xd_copoly,
+                        {i: preprocessing_metadata}, None, logger
+                    )
+                    logger.info(f"Split {i}: computed fresh copolymer preprocessing, {int(mask.sum())} features kept")
+
+                # Update x_d on A-side datapoints from cleaned data
+                for j in range(n_datapoints):
+                    data_A[j].x_d = all_data_clean[j][mask].astype(np.float32)
+
+                processed_descriptor_data = orig_Xd_copoly[:, mask]
+            else:
+                # No descriptors: save split configuration metadata only
+                preprocessing_path.mkdir(parents=True, exist_ok=True)
+                split_config = {
+                    "split_type": args.split_type,
+                    "random_seed": SEED,
+                    "split_id": i,
+                    "target": target,
+                    "task_type": args.task_type,
+                    "train_size": len(tr),
+                    "val_size": len(va),
+                    "test_size": len(te),
+                }
+                split_config_file = preprocessing_path / f"split_config_{i}.json"
+                with open(split_config_file, "w") as f:
+                    json.dump(split_config, f, indent=2)
+
             # Build dataset for each split
             if is_multi_monomer:
                 train_dA = [data_A[j] for j in tr]
@@ -482,11 +626,22 @@ if args.polymer_type == "copolymer":
                 scaler = train_ds.normalize_targets()
                 val_ds.normalize_targets(scaler)
 
-            # Normalize descriptors if present
-            if combined_descriptor_data is not None:
-                desc_scaler = train_ds.normalize_inputs("X_d")
-                val_ds.normalize_inputs("X_d", desc_scaler)
-                test_ds.normalize_inputs("X_d", desc_scaler)
+            # Normalize descriptors with caching (matches homopolymer branch)
+            if orig_Xd_copoly is not None:
+                if descriptor_scaler is not None:
+                    # Use cached scaler
+                    train_ds.normalize_inputs("X_d", descriptor_scaler)
+                    val_ds.normalize_inputs("X_d", descriptor_scaler)
+                    test_ds.normalize_inputs("X_d", descriptor_scaler)
+                else:
+                    # Fit new scaler on training data
+                    desc_scaler = train_ds.normalize_inputs("X_d")
+                    val_ds.normalize_inputs("X_d", desc_scaler)
+                    test_ds.normalize_inputs("X_d", desc_scaler)
+                    # Persist the fitted scaler
+                    manage_preprocessing_cache(
+                        preprocessing_path, i, orig_Xd_copoly, None, desc_scaler, logger
+                    )
 
             # Metrics - determine n_classes for multi-class classification
             n_classes_arg = None
@@ -496,13 +651,6 @@ if args.polymer_type == "copolymer":
                 n_classes_arg = len(unique_classes)
                 logger.info(f"[{target}] Detected {n_classes_arg} classes for multi-class classification")
             metric_list = get_metric_list(args.task_type, target=target, n_classes=n_classes_arg, df_input=df_input)
-
-            # Build experiment paths
-            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix, copoly_suffix = build_experiment_paths(
-                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
-            )
-
-            processed_descriptor_data = combined_descriptor_data
 
             # Set n_classes on args for multi-class classification
             if args.task_type == 'multi':
@@ -617,6 +765,7 @@ if args.polymer_type == "copolymer":
                     y_pred = y_pred.cpu().numpy()
                 
                 # Save predictions with IDs and training configuration metadata
+                split_type_sfx = f"__{args.split_type}" if args.split_type != "random" else ""
                 save_predictions(
                     y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
                     desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,
@@ -625,7 +774,8 @@ if args.polymer_type == "copolymer":
                     polymer_type=args.polymer_type,
                     task_type=args.task_type,
                     fusion_mode=getattr(args, 'fusion_mode', None),
-                    aux_task=getattr(args, 'aux_task', None)
+                    aux_task=getattr(args, 'aux_task', None),
+                    split_type_suffix=split_type_sfx
                 )
 
             # Export embeddings if requested
@@ -670,7 +820,8 @@ if args.polymer_type == "copolymer":
 
                 embeddings_dir = results_dir / "embeddings"
                 embeddings_dir.mkdir(parents=True, exist_ok=True)
-                emb_prefix = f"{args.dataset_name}__{args.model_name}__{target}__copoly_{copolymer_mode}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{size_suffix}"
+                split_type_suffix = f"__{args.split_type}" if args.split_type != "random" else ""
+                emb_prefix = f"{args.dataset_name}__{args.model_name}__{target}__copoly_{copolymer_mode}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{split_type_suffix}{size_suffix}"
 
                 for key in ["z_A", "z_B", "z_final"]:
                     np.save(embeddings_dir / f"{emb_prefix}__{key}_train_split_{i}.npy", emb_train[key])
@@ -869,6 +1020,7 @@ for target in target_columns:
             "val_indices": [idx.tolist() for idx in val_indices], 
             "test_indices": [idx.tolist() for idx in test_indices],
             "random_seed": SEED,
+            "split_type": getattr(args, 'split_type', 'random'),
             "correlation_threshold": 0.90,
             "correlation_method": "pearson" if args.task_type == "reg" else "spearman"
         }

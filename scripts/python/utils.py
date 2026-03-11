@@ -2939,7 +2939,7 @@ def select_features_remove_constant_and_correlated(
 def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, model_name, 
                     desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, split_idx, logger,
                     test_ids=None, copolymer_mode=None, polymer_type=None, task_type=None,
-                    fusion_mode=None, aux_task=None):
+                    fusion_mode=None, aux_task=None, split_type_suffix=""):
     """Save predictions for learning curve analysis.
     
     Args:
@@ -2971,7 +2971,7 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
     model_pred_dir.mkdir(parents=True, exist_ok=True)
     
     # Build filename with all relevant identifiers including copolymer mode
-    filename = f"{dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{copoly_suffix}{size_suffix}__split{split_idx}.npz"
+    filename = f"{dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{copoly_suffix}{split_type_suffix}{size_suffix}__split{split_idx}.npz"
     pred_file = model_pred_dir / filename
     
     # Prepare metadata with model-specific training configuration

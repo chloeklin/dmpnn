@@ -26,6 +26,7 @@
 #   aux_task=<string>       # off | predict_descriptors
 #   aux_descriptor_cols=<string>  # comma-separated column names
 #   lambda_aux=<float>     # auxiliary loss weight
+#   split_type=<string>    # random | a_held_out
 
 # Check args
 if [ $# -lt 3 ]; then
@@ -65,6 +66,7 @@ FILM_HIDDEN_DIM=""
 AUX_TASK=""
 AUX_DESCRIPTOR_COLS=""
 LAMBDA_AUX=""
+SPLIT_TYPE=""
 
 # Validate model
 case $MODEL in
@@ -101,6 +103,7 @@ for arg in "${@:4}"; do
     aux_task=*)         AUX_TASK="${arg#aux_task=}" ;;
     aux_descriptor_cols=*) AUX_DESCRIPTOR_COLS="${arg#aux_descriptor_cols=}" ;;
     lambda_aux=*)       LAMBDA_AUX="${arg#lambda_aux=}" ;;
+    split_type=*)       SPLIT_TYPE="${arg#split_type=}" ;;
     *)
       echo "Warning: Unknown argument '$arg' ignored"
       ;;
@@ -153,6 +156,7 @@ if [ "$MODEL" != "tabular" ]; then
 fi
 [ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
 [ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
+[ -n "$SPLIT_TYPE" ]         && ARGS="$ARGS --split_type $SPLIT_TYPE"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
 [ -n "$TARGETS" ]            && ARGS="$ARGS --targets $TARGETS"
 # Identity baseline specific args
@@ -184,6 +188,7 @@ SUFFIX="_${MODEL}"
 [ -n "$FILM_HIDDEN_DIM" ]  && SUFFIX="${SUFFIX}_fhd${FILM_HIDDEN_DIM}"
 [ -n "$AUX_TASK" ]         && SUFFIX="${SUFFIX}_${AUX_TASK}"
 [ -n "$LAMBDA_AUX" ]       && SUFFIX="${SUFFIX}_la${LAMBDA_AUX}"
+[ -n "$SPLIT_TYPE" ]       && SUFFIX="${SUFFIX}_${SPLIT_TYPE}"
 [ -n "$IDENTITY_MODE" ]    && SUFFIX="${SUFFIX}_${IDENTITY_MODE}"
 [ -n "$EMBED_DIM" ]        && SUFFIX="${SUFFIX}_ed${EMBED_DIM}"
 # Sanitize target name for PBS job name compatibility (alphanumeric, dash, underscore only)
