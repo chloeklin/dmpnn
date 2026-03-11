@@ -367,8 +367,8 @@ def parse_args():
                         help="Name of the dataset file (without .csv)")
     parser.add_argument("--task_type", type=str, choices=["reg", "binary", "multi"],
                         default="reg", help="Task type")
-    parser.add_argument("--targets", type=str, default=None,
-                        help="Comma-separated list of target column names to train on")
+    parser.add_argument("--targets", type=str, nargs='+', default=None,
+                        help="Target column names to train on")
 
     # Polymer
     parser.add_argument("--polymer_type", type=str, default="copolymer",
@@ -450,7 +450,7 @@ def main():
 
     # ---- Filter targets if --targets is specified ----
     if args.targets:
-        requested = [t.strip() for t in args.targets.split(",")]
+        requested = [t.strip() for t in args.targets]
         valid = [t for t in requested if t in target_columns]
         if not valid:
             raise ValueError(f"None of the requested targets {requested} found in dataset. Available: {target_columns}")
