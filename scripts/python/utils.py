@@ -64,6 +64,11 @@ def create_base_argument_parser(description="Train a graph model"):
                              '"interact" = [z_A||z_B||diff||prod||fracs], '
                              '"interact_meta" = interact + descriptors')
     
+    # Split arguments
+    parser.add_argument('--split_type', type=str, default='random',
+                        choices=['random', 'a_held_out'],
+                        help='Split strategy: "random" (default) or "a_held_out" (group by smiles_A for copolymer datasets)')
+
     # Training arguments
     parser.add_argument('--train_size', type=str, default=None,
                         help='Number of training samples to use (e.g., "500", "5000", "full"). If not specified, uses full training set.')
@@ -248,6 +253,11 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
         copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
         filename_parts.append(f"copoly_{copolymer_mode}")
     
+    # Add split type suffix (only for non-default)
+    split_type = getattr(args, 'split_type', 'random')
+    if split_type != 'random':
+        filename_parts.append(split_type)
+
     # Add train size suffix
     if getattr(args, 'train_size', None) and args.train_size != "full":
         filename_parts.append(f"size{args.train_size}")
@@ -1773,7 +1783,13 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
         copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
         copoly_suffix = f"__copoly_{copolymer_mode}"
     
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{copoly_suffix}{size_suffix}__rep{i}"
+    # Add split type suffix (only for non-default)
+    split_suffix = ""
+    split_type = getattr(args, 'split_type', 'random')
+    if split_type != 'random':
+        split_suffix = f"__{split_type}"
+
+    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{copoly_suffix}{split_suffix}{size_suffix}__rep{i}"
     
     # Checkpoint path is model-specific
     checkpoint_path = checkpoint_dir / base_name
@@ -2393,6 +2409,161 @@ def generate_data_splits(args, ys, n_splits, local_reps, seed):
         )
     
     return train_indices, val_indices, test_indices
+
+
+def canonicalize_smiles(smi: str) -> str:
+    """Canonicalize a SMILES string using RDKit. Falls back to raw string on failure."""
+    try:
+        from rdkit import Chem
+        mol = Chem.MolFromSmiles(smi)
+        if mol is not None:
+            return Chem.MolToSmiles(mol)
+    except Exception:
+        pass
+    return str(smi).strip()
+
+
+def generate_a_held_out_splits(
+    smiles_A: np.ndarray,
+    n_datapoints: int,
+    seed: int,
+    n_splits: int = 5,
+    logger: Optional[logging.Logger] = None,
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
+    """Generate A-held-out splits: all samples with the same smiles_A stay in the same fold.
+
+    Uses GroupKFold with groups = canonicalized smiles_A.
+    Carves 10 % of the train-val chunk (by group) as validation.
+
+    Parameters
+    ----------
+    smiles_A : array-like of str, length n_datapoints
+        The smiles_A identity for every sample.
+    n_datapoints : int
+        Total number of samples.
+    seed : int
+        Random seed (used for the train/val sub-split within each fold).
+    n_splits : int
+        Number of folds (default 5).
+    logger : optional Logger
+
+    Returns
+    -------
+    (train_indices, val_indices, test_indices) – each a list of numpy arrays.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    from sklearn.model_selection import GroupKFold
+
+    # Canonicalize smiles_A for consistent grouping
+    groups = np.array([canonicalize_smiles(s) for s in smiles_A], dtype=str)
+    unique_groups = np.unique(groups)
+    logger.info(f"A-held-out split: {len(unique_groups)} unique smiles_A groups across {n_datapoints} samples")
+
+    if len(unique_groups) < n_splits:
+        raise ValueError(
+            f"Only {len(unique_groups)} unique smiles_A groups but {n_splits} folds requested. "
+            f"Reduce n_splits or use a dataset with more unique smiles_A."
+        )
+
+    idx_all = np.arange(n_datapoints)
+    gkf = GroupKFold(n_splits=n_splits)
+
+    train_indices: List[np.ndarray] = []
+    val_indices: List[np.ndarray] = []
+    test_indices: List[np.ndarray] = []
+
+    for fold_i, (train_val_idx, test_idx) in enumerate(gkf.split(idx_all, groups=groups)):
+        # Sub-split train_val into train / val BY GROUP so no smiles_A leaks
+        tv_groups = groups[train_val_idx]
+        tv_unique = np.unique(tv_groups)
+
+        rng = np.random.default_rng(seed + fold_i)
+        n_val_groups = max(1, int(round(0.1 * len(tv_unique))))
+        val_group_set = set(rng.choice(tv_unique, size=n_val_groups, replace=False))
+
+        val_mask = np.array([g in val_group_set for g in tv_groups])
+        va_idx = train_val_idx[val_mask]
+        tr_idx = train_val_idx[~val_mask]
+
+        train_indices.append(tr_idx)
+        val_indices.append(va_idx)
+        test_indices.append(test_idx)
+
+        # --- Sanity checks ---
+        train_groups = set(groups[tr_idx])
+        val_groups = set(groups[va_idx])
+        test_groups = set(groups[test_idx])
+
+        assert not (train_groups & val_groups), \
+            f"Fold {fold_i}: train/val smiles_A overlap: {train_groups & val_groups}"
+        assert not (train_groups & test_groups), \
+            f"Fold {fold_i}: train/test smiles_A overlap: {train_groups & test_groups}"
+        assert not (val_groups & test_groups), \
+            f"Fold {fold_i}: val/test smiles_A overlap: {val_groups & test_groups}"
+
+        logger.info(
+            f"  Fold {fold_i}: train={len(tr_idx)} ({len(train_groups)} groups), "
+            f"val={len(va_idx)} ({len(val_groups)} groups), "
+            f"test={len(test_idx)} ({len(test_groups)} groups)"
+        )
+
+    return train_indices, val_indices, test_indices
+
+
+def save_fold_assignments(
+    train_indices: List[np.ndarray],
+    val_indices: List[np.ndarray],
+    test_indices: List[np.ndarray],
+    smiles_A: np.ndarray,
+    dataset_name: str,
+    seed: int,
+    results_dir: Path,
+    logger: Optional[logging.Logger] = None,
+) -> Path:
+    """Save A-held-out fold assignments to a JSON file for reproducibility.
+
+    File: results/splits/{dataset}_aheldout_seed{seed}.json
+    Contains per-fold: train/val/test indices + unique smiles_A per split.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    groups = np.array([canonicalize_smiles(s) for s in smiles_A], dtype=str)
+
+    splits_dir = Path(results_dir) / "splits"
+    splits_dir.mkdir(parents=True, exist_ok=True)
+    out_path = splits_dir / f"{dataset_name}_aheldout_seed{seed}.json"
+
+    folds = []
+    for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
+        folds.append({
+            "fold": i,
+            "train_indices": tr.tolist(),
+            "val_indices": va.tolist(),
+            "test_indices": te.tolist(),
+            "train_smiles_A": sorted(set(groups[tr].tolist())),
+            "val_smiles_A": sorted(set(groups[va].tolist())),
+            "test_smiles_A": sorted(set(groups[te].tolist())),
+        })
+
+    payload = {
+        "dataset": dataset_name,
+        "split_type": "a_held_out",
+        "seed": seed,
+        "n_folds": len(folds),
+        "n_samples": len(smiles_A),
+        "n_unique_smiles_A": len(np.unique(groups)),
+        "folds": folds,
+    }
+
+    with open(out_path, "w") as f:
+        json.dump(payload, f, indent=2)
+
+    logger.info(f"Saved A-held-out fold assignments -> {out_path}")
+    return out_path
+
 
 def unordered_pair(a: str, b: str):
     """Stable, order-invariant key for a monomer pair."""

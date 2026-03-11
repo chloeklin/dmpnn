@@ -15,7 +15,8 @@ from utils import (set_seed, process_data,
                   create_base_argument_parser, add_model_specific_args, validate_train_size_argument,
                   setup_model_environment, save_model_results, pick_best_checkpoint,
                   create_copolymer_data, create_multi_monomer_copolymer_data,
-                  build_copolymer_model_and_trainer)
+                  build_copolymer_model_and_trainer,
+                  generate_a_held_out_splits, save_fold_assignments, canonicalize_smiles)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,6 +30,10 @@ args = parser.parse_args()
 
 # Validate arguments
 validate_train_size_argument(args, parser)
+
+# Validate split_type compatibility
+if getattr(args, 'split_type', 'random') == 'a_held_out' and getattr(args, 'polymer_type', 'homo') != 'copolymer':
+    parser.error("--split_type a_held_out requires --polymer_type copolymer (needs smiles_A column)")
 
 # Validate auxiliary task arguments
 aux_task = getattr(args, 'aux_task', 'off')
@@ -283,6 +288,7 @@ if args.polymer_type == "copolymer":
     logger.info(f"Target columns   : {target_columns}")
     logger.info(f"Copolymer mode   : {copolymer_mode}")
     logger.info(f"Multi-monomer    : {is_multi_monomer}")
+    logger.info(f"Split type       : {args.split_type}")
     logger.info("================================\n")
 
     # Filter to specific target if specified
@@ -336,60 +342,92 @@ if args.polymer_type == "copolymer":
             n_datapoints = len(data_A)
         logger.info(f"[{target}] Created {n_datapoints} copolymer datapoints")
 
-        # Determine splits (use group-based splitting to avoid leakage)
-        n_splits, local_reps = determine_split_strategy(n_datapoints, REPLICATES)
-
-        # Generate splits using group keys if available
-        if "group_key" in df_input.columns:
-            # Build group array aligned with data (after filtering)
-            valid_indices = []
+        # Determine splits
+        if args.split_type == "a_held_out":
+            # --- A-held-out: group by smiles_A identity, always 5-fold CV ---
+            # Build smiles_A array aligned with valid datapoints (after filtering)
+            valid_smiles_A = []
             for idx in range(len(df_input)):
                 y_val = ys[idx]
                 if is_multi_monomer:
                     has_A = bool(smiles_A_lists[idx])
                     has_B = bool(smiles_B_lists[idx])
+                    sA_val = smiles_A_lists[idx][0] if has_A else ""
                 else:
                     has_A = bool(smis_A[idx])
                     has_B = bool(smis_B[idx])
+                    sA_val = smis_A[idx] if has_A else ""
                 if has_A and has_B and pd.notna(y_val).any():
-                    valid_indices.append(idx)
-            groups = df_input["group_key"].values[valid_indices]
+                    valid_smiles_A.append(sA_val)
+            valid_smiles_A = np.array(valid_smiles_A, dtype=str)
+            assert len(valid_smiles_A) == n_datapoints, \
+                f"smiles_A length ({len(valid_smiles_A)}) != n_datapoints ({n_datapoints})"
 
-            from sklearn.model_selection import GroupKFold, GroupShuffleSplit
-            train_indices_list, val_indices_list, test_indices_list = [], [], []
-            idx_all = np.arange(n_datapoints)
+            n_splits = 5
+            train_indices, val_indices, test_indices = generate_a_held_out_splits(
+                valid_smiles_A, n_datapoints, SEED, n_splits=n_splits, logger=logger
+            )
 
-            if n_splits > 1:
-                for rep in range(local_reps):
-                    gkf = GroupKFold(n_splits=n_splits)
-                    for train_val_idx, test_idx in gkf.split(idx_all, groups=groups):
-                        tv_groups = groups[train_val_idx]
-                        unique_groups = np.unique(tv_groups)
-                        rng = np.random.default_rng(SEED + rep)
-                        n_val_groups = max(1, int(0.1 * len(unique_groups)))
-                        val_group_set = set(rng.choice(unique_groups, size=n_val_groups, replace=False))
-                        val_mask = np.array([g in val_group_set for g in tv_groups])
-                        val_idx = train_val_idx[val_mask]
-                        tr_idx = train_val_idx[~val_mask]
-                        train_indices_list.append(tr_idx)
-                        val_indices_list.append(val_idx)
-                        test_indices_list.append(test_idx)
-            else:
-                for rep in range(local_reps):
-                    gss = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=SEED + rep)
-                    train_val_idx, test_idx = next(gss.split(idx_all, groups=groups))
-                    tv_groups = groups[train_val_idx]
-                    gss_inner = GroupShuffleSplit(n_splits=1, test_size=1/9, random_state=SEED + rep)
-                    tr_local, val_local = next(gss_inner.split(np.arange(len(train_val_idx)), groups=tv_groups))
-                    train_indices_list.append(train_val_idx[tr_local])
-                    val_indices_list.append(train_val_idx[val_local])
-                    test_indices_list.append(test_idx)
-
-            train_indices = train_indices_list
-            val_indices = val_indices_list
-            test_indices = test_indices_list
+            # Save fold assignments for reproducibility
+            save_fold_assignments(
+                train_indices, val_indices, test_indices,
+                valid_smiles_A, args.dataset_name, SEED, results_dir, logger=logger
+            )
         else:
-            train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+            # --- Default: existing split logic ---
+            n_splits, local_reps = determine_split_strategy(n_datapoints, REPLICATES)
+
+            # Generate splits using group keys if available
+            if "group_key" in df_input.columns:
+                # Build group array aligned with data (after filtering)
+                valid_indices = []
+                for idx in range(len(df_input)):
+                    y_val = ys[idx]
+                    if is_multi_monomer:
+                        has_A = bool(smiles_A_lists[idx])
+                        has_B = bool(smiles_B_lists[idx])
+                    else:
+                        has_A = bool(smis_A[idx])
+                        has_B = bool(smis_B[idx])
+                    if has_A and has_B and pd.notna(y_val).any():
+                        valid_indices.append(idx)
+                groups = df_input["group_key"].values[valid_indices]
+
+                from sklearn.model_selection import GroupKFold, GroupShuffleSplit
+                train_indices_list, val_indices_list, test_indices_list = [], [], []
+                idx_all = np.arange(n_datapoints)
+
+                if n_splits > 1:
+                    for rep in range(local_reps):
+                        gkf = GroupKFold(n_splits=n_splits)
+                        for train_val_idx, test_idx in gkf.split(idx_all, groups=groups):
+                            tv_groups = groups[train_val_idx]
+                            unique_groups = np.unique(tv_groups)
+                            rng = np.random.default_rng(SEED + rep)
+                            n_val_groups = max(1, int(0.1 * len(unique_groups)))
+                            val_group_set = set(rng.choice(unique_groups, size=n_val_groups, replace=False))
+                            val_mask = np.array([g in val_group_set for g in tv_groups])
+                            val_idx = train_val_idx[val_mask]
+                            tr_idx = train_val_idx[~val_mask]
+                            train_indices_list.append(tr_idx)
+                            val_indices_list.append(val_idx)
+                            test_indices_list.append(test_idx)
+                else:
+                    for rep in range(local_reps):
+                        gss = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=SEED + rep)
+                        train_val_idx, test_idx = next(gss.split(idx_all, groups=groups))
+                        tv_groups = groups[train_val_idx]
+                        gss_inner = GroupShuffleSplit(n_splits=1, test_size=1/9, random_state=SEED + rep)
+                        tr_local, val_local = next(gss_inner.split(np.arange(len(train_val_idx)), groups=tv_groups))
+                        train_indices_list.append(train_val_idx[tr_local])
+                        val_indices_list.append(train_val_idx[val_local])
+                        test_indices_list.append(test_idx)
+
+                train_indices = train_indices_list
+                val_indices = val_indices_list
+                test_indices = test_indices_list
+            else:
+                train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
 
         # Apply train_size subsampling
         if args.train_size is not None and args.train_size.lower() != "full":

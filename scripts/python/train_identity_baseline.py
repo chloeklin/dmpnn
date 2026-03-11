@@ -378,8 +378,8 @@ def parse_args():
     parser.add_argument("--incl_desc", action="store_true",
                         help="Include dataset-specific descriptor columns as meta features")
 
-    # Mode
-    parser.add_argument("--mode", type=str, choices=["mix", "interact"], default="mix",
+    # Mode (use --copolymer_mode to match other graph models)
+    parser.add_argument("--copolymer_mode", type=str, choices=["mix", "interact"], default="mix",
                         help="Composition mode: mix or interact")
     parser.add_argument("--embed_dim", type=int, default=128,
                         help="Dimensionality of monomer identity embeddings")
@@ -605,7 +605,7 @@ def main():
             model = IdentityBaselineModel(
                 num_monomers=num_monomers,
                 embed_dim=args.embed_dim,
-                mode=args.mode,
+                mode=args.copolymer_mode,
                 meta_dim=meta_dim,
                 hidden_dims=hidden_dims,
                 task_type=args.task_type,
@@ -638,7 +638,7 @@ def main():
             metric_strs = [f"{k}={v:.4f}" for k, v in metrics.items() if k != "split"]
             logger.info(f"  Split {i}: {', '.join(metric_strs)}")
 
-        # Aggregate results for this target
+        # Aggregate and save results for this target
         if target_results:
             results_df = pd.DataFrame(target_results)
             numeric_cols = [c for c in results_df.columns if c != "split"]
@@ -648,28 +648,45 @@ def main():
             for c in numeric_cols:
                 logger.info(f"  {c}: {mean_metrics[c]:.4f} ± {std_metrics[c]:.4f}")
             results_df["target"] = target
+            
+            # Save separate file per target (matches graph model behavior)
+            model_name = "IdentityBaseline"
+            filename_parts = [args.dataset_name]
+            if args.incl_desc:
+                filename_parts.append("desc")
+            # Use copoly_{mode} to match other graph models, not identity_{mode}
+            filename_parts.append(f"copoly_{args.copolymer_mode}")
+            if args.train_size and args.train_size.lower() != "full":
+                filename_parts.append(f"size{args.train_size}")
+            # Add target suffix for per-target files
+            filename_parts.append(f"target_{target}")
+            filename = "__".join(filename_parts) + "_results.csv"
+
+            out_dir = results_dir / model_name
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / filename
+            results_df.to_csv(out_path, index=False)
+            logger.info(f"✓ Saved results to {out_path}")
+            
             all_results.append(results_df)
 
-    # ---- Save final results ----
-    if all_results:
+    # ---- Save combined results (optional, for convenience) ----
+    if all_results and len(target_columns) > 1:
         combined = pd.concat(all_results, ignore_index=True)
-
-        # Build filename aligned with save_model_results convention
+        
         model_name = "IdentityBaseline"
         filename_parts = [args.dataset_name]
         if args.incl_desc:
             filename_parts.append("desc")
-        # Use copoly_{mode} to match other graph models, not identity_{mode}
-        filename_parts.append(f"copoly_{args.mode}")
+        filename_parts.append(f"copoly_{args.copolymer_mode}")
         if args.train_size and args.train_size.lower() != "full":
             filename_parts.append(f"size{args.train_size}")
         filename = "__".join(filename_parts) + "_results.csv"
 
         out_dir = results_dir / model_name
-        out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / filename
         combined.to_csv(out_path, index=False)
-        logger.info(f"\n✓ Saved results to {out_path}")
+        logger.info(f"\n✓ Saved combined results to {out_path}")
 
         # Summary
         logger.info(f"\n{'='*70}")
