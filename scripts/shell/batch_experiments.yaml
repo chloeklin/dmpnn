@@ -358,17 +358,17 @@ experiments:
   #   incl_desc: true
   #   walltime: "0:30:00"
   #   targets: *block_targets
-  - <<: *block_base
-    model: identity_baseline
-    copolymer_mode: mix
-    walltime: "0:30:00"
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
     
-  - <<: *block_base
-    model: identity_baseline
-    copolymer_mode: interact
-    walltime: "0:30:00"
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
 
   # ----- EA IP -----
 
@@ -503,7 +503,20 @@ experiments:
     #   incl_desc: true
     #   walltime: "2:00:00"
     #   targets: *pae_tg_targets
-      
+
+  - <<: *pae_tg_base
+    model: identity_baseline
+    copolymer_mode: mix
+    walltime: "2:00:00"
+    targets: *pae_tg_targets
+    
+  - <<: *pae_tg_base
+    model: identity_baseline
+    copolymer_mode: interact
+    walltime: "2:00:00"
+    targets: *pae_tg_targets
+
+
   # # DMPNN - Mix family
   # - <<: *pae_tg_base
   #   model: DMPNN
