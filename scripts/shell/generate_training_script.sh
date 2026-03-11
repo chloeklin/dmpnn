@@ -152,11 +152,15 @@ if [ "$MODEL" != "tabular" ]; then
   [ -n "$EXPORT_EMBEDDINGS" ]  && ARGS="$ARGS $EXPORT_EMBEDDINGS"
 fi
 [ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
-[ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
+# For graph models: --copolymer_mode, for IdentityBaseline: --mode (but both use same YAML key)
+if [ "$MODEL" = "identity_baseline" ]; then
+  [ -n "$COPOLYMER_MODE" ]   && ARGS="$ARGS --mode $COPOLYMER_MODE"
+else
+  [ -n "$COPOLYMER_MODE" ]   && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
+fi
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
 [ -n "$TARGETS" ]            && ARGS="$ARGS --targets $TARGETS"
 # Identity baseline specific args
-[ -n "$IDENTITY_MODE" ]      && ARGS="$ARGS --mode $IDENTITY_MODE"
 [ -n "$EMBED_DIM" ]          && ARGS="$ARGS --embed_dim $EMBED_DIM"
 # Graph-only key=value args (not supported by train_tabular.py)
 if [ "$MODEL" != "tabular" ]; then
