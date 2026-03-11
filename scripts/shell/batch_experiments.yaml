@@ -330,36 +330,45 @@ experiments:
   #   targets: *block_targets
 
 # Tabular baselines for copolymers (ea_ip has no descriptor columns)
-  - <<: *block_base
-    model: tabular
-    polymer_type: copolymer
-    incl_ab: true
-    walltime: "0:30:00"
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
 
-  - <<: *block_base
-    model: tabular
-    polymer_type: copolymer
-    incl_rdkit: true
-    walltime: "0:30:00"
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
   
-  - <<: *block_base
-    model: tabular
-    polymer_type: copolymer
-    incl_desc: true
-    walltime: "0:30:00"
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
 
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
   - <<: *block_base
-    model: tabular
-    polymer_type: copolymer
-    incl_ab: true
-    incl_desc: true
+    model: identity_baseline
+    copolymer_mode: mix
     walltime: "0:30:00"
     targets: *block_targets
     
-
+  - <<: *block_base
+    model: identity_baseline
+    copolymer_mode: interact
+    walltime: "0:30:00"
+    targets: *block_targets
 
   # ----- EA IP -----
 
