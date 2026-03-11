@@ -215,7 +215,8 @@ def load_predictions(file_dict):
     Returns (y_true, y_pred) arrays.  When multiple splits are present,
     predictions are concatenated.
 
-    Handles 2D y_pred from classification tasks:
+    Handles multi-dim y_pred from classification tasks:
+      - shape (n, 1, k) → reshape to (n, k) then argmax (3D classification output)
       - shape (n, 1)  → squeeze to 1D (regression with extra dim)
       - shape (n, k)  → argmax over classes (multi-class classification)
     """
@@ -224,6 +225,8 @@ def load_predictions(file_dict):
         data = np.load(file_dict[split_idx], allow_pickle=True)
         yt = data["y_true"].flatten()
         yp = data["y_pred"]
+        if yp.ndim > 2:
+            yp = yp.reshape(yp.shape[0], -1)  # (n, 1, k) → (n, k)
         if yp.ndim == 2:
             if yp.shape[1] == 1:
                 yp = yp.squeeze(1)          # regression with trailing dim

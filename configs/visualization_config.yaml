@@ -94,13 +94,16 @@ feature_order:
     pattern: "Graph \\((mix|interact|mix_meta|interact_meta|mix_frac|mix_frac_meta)\\)"
     # This will match any Graph (mode) pattern
   
-  # IdentityBaseline variants
-  - group: "Identity Baseline"
-    pattern: "IdentityBaseline \\((mix|interact)\\)"
-    # This will match IdentityBaseline (mix) and IdentityBaseline (interact)
+  # Note: IdentityBaseline uses 'Graph' feature prefix so it is matched by
+  # the "Graph Models" and "Copolymer Variants" groups above.
 
 # Color scheme for different model types
-# Uses Paul Tol's colorblind-friendly palette
+# Uses Paul Tol's colorblind-friendly palette - the scientific publication standard
+# Reference: https://personal.sron.nl/~pault/
+# These colors are:
+#   - Distinguishable in grayscale (for print)
+#   - Accessible to colorblind readers (deuteranopia, protanopia, tritanopia)
+#   - Widely used in Nature, Science, Cell, and other top-tier journals
 color_scheme:
   Tabular:
     primary: "#4477AA"      # Blue
@@ -121,9 +124,8 @@ color_scheme:
     DMPNN_DiffPool: "#009988"  # Teal
     PPG: "#CC3311"          # Brick red
     AttentiveFP: "#33BBEE"  # Light blue
-  
-  IdentityBaseline:
-    primary: "#EE3377"      # Magenta
+    IdentityBaseline: "#EE3377"  # Magenta
+    # To add a new graph model: add one line here (ModelName: "#hexcolor")
 
 # Marker styles for different model types
 marker_styles:
@@ -140,7 +142,8 @@ marker_styles:
   Graph_DMPNN_DiffPool: "X" # X
   Graph_PPG: "P"            # Plus
   Graph_AttentiveFP: "d"    # Thin diamond
-  IdentityBaseline: "8"     # Octagon
+  Graph_IdentityBaseline: "8"  # Octagon
+  # To add a new graph model marker: add Graph_ModelName here
 
 # Plot settings
 plot_settings:

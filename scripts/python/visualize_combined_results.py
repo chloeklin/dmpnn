@@ -104,11 +104,15 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
             # Remove the identity suffix from base for further processing
             base = base.replace(f'__identity_{identity_mode}', '')
     
+    # Remove __target_<name> suffix if present (to avoid duplicate feature labels)
+    # Match entire target name including underscores (e.g., __target_phase_label)
+    import re
+    base = re.sub(r'__target_.+?(?=__|$)', '', base)
+    
     # Extract copolymer mode if present
     copoly_mode = None
     if '__copoly_' in base:
         # Extract the mode (e.g., mix, interact, mix_frac_meta, etc.)
-        import re
         match = re.search(r'__copoly_([a-z_]+)', base)
         if match:
             copoly_mode = match.group(1)
@@ -125,7 +129,7 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     if method == 'Baseline' and model_name:
         method_name = f'Baseline_{model_name}'
     elif method == 'IdentityBaseline':
-        method_name = 'IdentityBaseline'
+        method_name = 'Graph'
     else:
         method_name = method
     
@@ -304,7 +308,7 @@ def load_results_by_method(results_dir: Path, method: str) -> Dict[str, pd.DataF
                     df['method'] = f"Baseline_{model_name}"  # Include encoder name in method
                 elif method == 'IdentityBaseline':
                     df['model'] = 'IdentityBaseline'
-                    df['method'] = 'IdentityBaseline'
+                    df['method'] = 'Graph_IdentityBaseline'
                 
                 # Convert MSE to RMSE if MSE column exists
                 if 'mse' in df.columns:
@@ -585,14 +589,9 @@ def _create_comparison_plots_internal(data: pd.DataFrame, dataset: str, metric: 
             'LogReg': '#882255'    # Wine
         },
         
-        # Graph models - bold, saturated colors from Paul Tol's vibrant scheme
-        'Graph_DMPNN': '#EE7733',        # Orange
-        'Graph_wDMPNN': '#0077BB',       # Blue
-        'Graph_PPG': '#33BBEE',          # Cyan
-        'Graph_AttentiveFP': '#EE3377',  # Magenta
-        'Graph_DMPNN_DiffPool': '#009988', # Teal
-        'Graph_GAT': '#CC3311',          # Red
-        'Graph_GIN': '#BBBBBB'           # Grey
+        # Graph models - loaded dynamically from visualization_config.yaml color_scheme.Graph
+        # To add a new graph model, add it there instead of here
+        **{f'Graph_{m}': c for m, c in CONFIG.get('color_scheme', {}).get('Graph', {}).items()},
     }
     
     for i, target in enumerate(targets):

@@ -140,30 +140,41 @@ def eval_regression(y_true, y_pred):
 
 
 def eval_classification(y_true, y_pred, y_proba, task_type, all_labels=None):
+    """Evaluate classification metrics matching train_graph.py conventions."""
     out = {"acc": accuracy_score(y_true, y_pred)}
     if task_type == "binary":
-        out["f1"] = f1_score(y_true, y_pred, zero_division=0)
+        out["f1_macro"] = f1_score(y_true, y_pred, zero_division=0)  # Use f1_macro for consistency
         if y_proba is not None:
             try:
                 out["roc_auc"] = roc_auc_score(y_true, y_proba[:, 1])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to calculate roc_auc: {e}")
+                out["roc_auc"] = float('nan')
             try:
                 out["logloss"] = log_loss(y_true, y_proba, labels=all_labels)
-            except Exception:
-                pass
-    else:
+            except Exception as e:
+                logger.warning(f"Failed to calculate logloss: {e}")
+                out["logloss"] = float('nan')
+        else:
+            out["roc_auc"] = float('nan')
+            out["logloss"] = float('nan')
+    else:  # multiclass
         out["f1_macro"] = f1_score(y_true, y_pred, average="macro", zero_division=0)
         if y_proba is not None:
             try:
                 out["logloss"] = log_loss(y_true, y_proba, labels=all_labels)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to calculate logloss: {e}")
+                out["logloss"] = float('nan')
             try:
                 # Multi-class ROC-AUC using one-vs-rest
                 out["roc_auc"] = roc_auc_score(y_true, y_proba, average="macro", multi_class="ovr")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to calculate roc_auc: {e}")
+                out["roc_auc"] = float('nan')
+        else:
+            out["roc_auc"] = float('nan')
+            out["logloss"] = float('nan')
     return out
 
 
@@ -648,7 +659,8 @@ def main():
         filename_parts = [args.dataset_name]
         if args.incl_desc:
             filename_parts.append("desc")
-        filename_parts.append(f"identity_{args.mode}")
+        # Use copoly_{mode} to match other graph models, not identity_{mode}
+        filename_parts.append(f"copoly_{args.mode}")
         if args.train_size and args.train_size.lower() != "full":
             filename_parts.append(f"size{args.train_size}")
         filename = "__".join(filename_parts) + "_results.csv"

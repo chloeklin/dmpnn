@@ -751,9 +751,15 @@ def eval_multi(y_true, y_pred, y_proba, labels=None) -> Dict[str, float]:
                 out["roc_auc"] = roc_auc_score(y_true, y_proba[:, 1])
             else:
                 y_bin = label_binarize(y_true, classes=all_cls)
+                # Ensure y_proba has correct number of columns
+                if y_proba.shape[1] != len(all_cls):
+                    print(f"Warning: y_proba shape {y_proba.shape} doesn't match n_classes {len(all_cls)}")
                 out["roc_auc"] = roc_auc_score(y_bin, y_proba, average="macro", multi_class="ovr")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: Failed to calculate roc_auc: {e}")
+            import traceback
+            traceback.print_exc()
+            out["roc_auc"] = float('nan')
     return out
 
 def summarize(results: List[Dict[str, float]]) -> Dict[str, float]:
