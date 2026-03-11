@@ -158,7 +158,14 @@ fi
 [ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
 [ -n "$SPLIT_TYPE" ]         && ARGS="$ARGS --split_type $SPLIT_TYPE"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
-[ -n "$TARGETS" ]            && ARGS="$ARGS --targets $TARGETS"
+if [ -n "$TARGETS" ]; then
+  # Split comma-separated targets and quote each individually (handles spaces/parens)
+  ARGS="$ARGS --targets"
+  IFS=',' read -ra TARGET_ARRAY <<< "$TARGETS"
+  for t in "${TARGET_ARRAY[@]}"; do
+    ARGS="$ARGS \"$t\""
+  done
+fi
 # Identity baseline specific args
 [ -n "$EMBED_DIM" ]          && ARGS="$ARGS --embed_dim $EMBED_DIM"
 # Graph-only key=value args (not supported by train_tabular.py)
