@@ -50,6 +50,12 @@ def parse_filename(filename: str) -> tuple:
     # Remove .csv extension
     base = filename.replace('.csv', '')
     
+    # Extract split type suffix before other parsing
+    split_type = None
+    if '__a_held_out' in base:
+        split_type = 'a_held_out'
+        base = base.replace('__a_held_out', '')
+    
     # Handle tabular files - order matters! Check most specific patterns first
     if '_descriptors_rdkit_ab' in base:
         dataset = base.replace('_descriptors_rdkit_ab', '')
@@ -80,6 +86,10 @@ def parse_filename(filename: str) -> tuple:
         dataset = base
         features = 'AB'
     
+    # Append split type to features if present
+    if split_type:
+        features = f"{features} [{split_type}]"
+    
     return dataset, features
 
 def parse_model_filename(filename: str, method: str, model_name: str = None) -> tuple:
@@ -108,6 +118,12 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     # Match entire target name including underscores (e.g., __target_phase_label)
     import re
     base = re.sub(r'__target_.+?(?=__|$)', '', base)
+    
+    # Extract split type suffix before copoly parsing
+    split_type = None
+    if '__a_held_out' in base:
+        split_type = 'a_held_out'
+        base = base.replace('__a_held_out', '')
     
     # Extract copolymer mode if present
     copoly_mode = None
@@ -160,6 +176,10 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     # Add batch norm to features if present
     if batch_norm and method in ['Graph', 'Baseline']:  # Only add (BN) for Graph and Baseline methods
         features = f"{features} (BN)"
+    
+    # Append split type to features if present
+    if split_type:
+        features = f"{features} [{split_type}]"
     
     return dataset, features
 

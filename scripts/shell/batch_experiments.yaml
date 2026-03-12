@@ -516,44 +516,44 @@ experiments:
   #   split_type: a_held_out
   #   targets: *eaip_targets
 
-  - <<: *eaip_base
-    model: identity_baseline
-    copolymer_mode: mix
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
-  - <<: *eaip_base
-    model: identity_baseline
-    copolymer_mode: interact
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_rdkit: true
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_rdkit: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_ab: true
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_ab: true
-    incl_rdkit: true
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
 # # =====================================================================
 # # PAE Tg Dataset - Multi-monomer copolymer experiments
@@ -717,10 +717,10 @@ experiments:
   #   model: DMPNN
   #   incl_rdkit: true
   #   walltime: "1:10:00"
-  # - <<: *tc_base
-  #   model: DMPNN
-  #   incl_desc: true
-  #   walltime: "1:10:00"
+  - <<: *tc_base
+    model: DMPNN
+    incl_desc: true
+    walltime: "1:10:00"
   # - <<: *tc_base
   #   model: DMPNN
   #   walltime: "1:10:00"
@@ -735,13 +735,6 @@ experiments:
   #   walltime: "1:30:00"
 
     
-  # - <<: *insulator_base
-  #   model: DMPNN
-  #   walltime: "1:30:00"
-  # - <<: *insulator_base
-  #   model: DMPNN
-  #   incl_rdkit: true
-  #   walltime: "1:30:00"
 
     
   # - <<: *htpmd_base
@@ -807,6 +800,21 @@ experiments:
   #   incl_rdkit: true
   #   walltime: "6:30:00"
 
+
+  # - <<: *insulator_base
+  #   model: DMPNN
+  #   walltime: "1:30:00"
+  # - <<: *insulator_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "1:30:00"
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:30:00"
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "4:30:00"
     
   # - <<: *insulator_base
   #   model: wDMPNN
@@ -815,8 +823,22 @@ experiments:
   #   model: wDMPNN
   #   incl_rdkit: true
   #   walltime: "1:30:00"
+    
+  - <<: *insulator_base
+    model: PPG
+    walltime: "4:30:00"
+  - <<: *insulator_base
+    model: PPG
+    incl_rdkit: true
+    walltime: "4:30:00"
 
-
+  - <<: *insulator_base
+    model: AttentiveFP
+    walltime: "4:30:00"
+  - <<: *insulator_base
+    model: AttentiveFP
+    incl_rdkit: true
+    walltime: "4:30:00"
 
   # - <<: *eaip_base
   #   model: wDMPNN
@@ -858,14 +880,7 @@ experiments:
   #   incl_rdkit: true
   #   walltime: "4:30:00"
 
-    
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "4:30:00"
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   walltime: "4:30:00"
+
 
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
