@@ -297,10 +297,10 @@ experiments:
   # - <<: *polyinfo_base
   #   model: DMPNN
   #   walltime: "1:30:00"
-  - <<: *polyinfo_base
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "1:30:00"
+  # - <<: *polyinfo_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "1:30:00"
 
   # -- GIN --
   # - <<: *polyinfo_base
@@ -661,10 +661,10 @@ experiments:
 # NOTE: opv_targets list is currently commented out above
 
   # -- DMPNN --
-  - <<: *opv_base
-    model: DMPNN
-    walltime: "1:30:00"
-    targets: *opv_targets
+  # - <<: *opv_base
+  #   model: DMPNN
+  #   walltime: "1:30:00"
+  #   targets: *opv_targets
   # - <<: *opv_base
   #   model: DMPNN
   #   incl_rdkit: true
@@ -672,59 +672,37 @@ experiments:
   #   targets: *opv_targets
 
   # -- GIN --
-  - <<: *opv_base
-    model: GIN
-    walltime: "0:30:00"
-    targets: *opv_targets
-  - <<: *opv_base
-    model: GIN
-    incl_rdkit: true
-    walltime: "0:30:00"
-    targets: *opv_targets
+  # - <<: *opv_base
+  #   model: GIN
+  #   walltime: "0:30:00"
+  #   targets: *opv_targets
+  # - <<: *opv_base
+  #   model: GIN
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  #   targets: *opv_targets
 
   # -- GAT --
-  - <<: *opv_base
-    model: GAT
-    walltime: "0:30:00"
-    targets: *opv_targets
-  - <<: *opv_base
-    model: GAT
-    incl_rdkit: true
-    walltime: "0:30:00"
-    targets: *opv_targets
+  # - <<: *opv_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  #   targets: *opv_targets
+  # - <<: *opv_base
+  #   model: GAT
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  #   targets: *opv_targets
 
   # -- DMPNN_DiffPool --
-  - <<: *opv_base
-    model: DMPNN_DiffPool
-    walltime: "2:30:00"
-    targets: *opv_targets
-  - <<: *opv_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    walltime: "2:30:00"
-    targets: *opv_targets
-
-  # -- PPG --
-  - <<: *opv_base
-    model: PPG
-    walltime: "2:30:00"
-    targets: *opv_targets
-  - <<: *opv_base
-    model: PPG
-    incl_rdkit: true
-    walltime: "2:30:00"
-    targets: *opv_targets
-
-  # -- AttentiveFP --
   # - <<: *opv_base
-  #   model: AttentiveFP
+  #   model: DMPNN_DiffPool
   #   walltime: "2:30:00"
   #   targets: *opv_targets
-  - <<: *opv_base
-    model: AttentiveFP
-    incl_rdkit: true
-    walltime: "2:30:00"
-    targets: *opv_targets
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "2:30:00"
+  #   targets: *opv_targets
 
   # -- Tabular --
   # - <<: *opv_base
