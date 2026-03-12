@@ -241,13 +241,15 @@ def main():
                         imputer.n_features_in_ = stats.shape[0]
                         imputer._fit_dtype = np.asarray(combined_descriptor_data, dtype=np.float64).dtype
                     
-                    # Apply preprocessing
+                    # Apply preprocessing - MUST clean inf values first
                     base = combined_descriptor_data.copy()
+                    base = np.where(np.isinf(base), np.nan, base)  # Replace inf with NaN
+                    
                     if imputer is not None:
                         base = imputer.transform(base)
                     elif np.isnan(base).any():
                         tmp_imputer = SimpleImputer(strategy="median")
-                        tmp_imputer.fit(combined_descriptor_data[tr])
+                        tmp_imputer.fit(base[tr])  # Fit on cleaned data
                         base = tmp_imputer.transform(base)
                     
                     base = np.clip(base, np.finfo(np.float32).min, np.finfo(np.float32).max).astype(np.float32)
