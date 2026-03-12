@@ -412,11 +412,16 @@ class MPNN(pl.LightningModule):
             ):
                 hparams["predictor"]["criterion"] = cls._rebuild_metric(metric)
 
-        submodules |= {
-            key: hparams[key].pop("cls")(**hparams[key])
-            for key in ("message_passing", "agg", "predictor")
-            if key not in submodules
-        }
+        # Build submodules from hparams, handling both old and new checkpoint formats
+        for key in ("message_passing", "agg", "predictor"):
+            if key not in submodules:
+                if "cls" in hparams[key]:
+                    # New format: has 'cls' key
+                    submodules[key] = hparams[key].pop("cls")(**hparams[key])
+                else:
+                    # Old format: checkpoint already contains instantiated objects
+                    # Just use the object directly
+                    submodules[key] = hparams[key]
 
         return submodules, state_dict, hparams
 
