@@ -530,30 +530,30 @@ experiments:
     walltime: "2:00:00"
     targets: *eaip_targets
 
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_rdkit: true
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_rdkit: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
 
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_ab: true
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_ab: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
 
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_ab: true
-  #   incl_rdkit: true
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_ab: true
+    incl_rdkit: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
 
 # # =====================================================================
 # # PAE Tg Dataset - Multi-monomer copolymer experiments
