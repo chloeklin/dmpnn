@@ -128,10 +128,10 @@ block_targets: &block_targets
 
 htpmd_targets: &htpmd_targets
   - Conductivity
-  - Li Diffusivity
-  - TFSI Diffusivity
-  - Poly Diffusivity
-  - Transference Number
+  # - Li Diffusivity
+  # - TFSI Diffusivity
+  # - Poly Diffusivity
+  # - Transference Number
 
 pae_tg_targets: &pae_tg_targets
   - Tg
@@ -157,10 +157,10 @@ experiments:
   #   model: DMPNN
   #   incl_rdkit: true
   #   walltime: "1:10:00"
-  - <<: *tc_base
-    model: DMPNN
-    incl_desc: true
-    walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: DMPNN
+  #   incl_desc: true
+  #   walltime: "1:10:00"
   # - <<: *tc_base
   #   model: DMPNN
   #   incl_rdkit: true
@@ -243,19 +243,19 @@ experiments:
   # - <<: *tc_base
   #   model: AttentiveFP
   #   walltime: "0:30:00"
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_rdkit: true
-  #   walltime: "0:30:00"
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_desc: true
-  #   walltime: "0:30:00"
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "0:30:00"
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_rdkit: true
+    walltime: "0:30:00"
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_desc: true
+    walltime: "0:30:00"
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "0:30:00"
 
   # -- PPG --
   # - <<: *tc_base
@@ -328,6 +328,16 @@ experiments:
   #   model: wDMPNN
   #   incl_rdkit: true
   #   walltime: "6:30:00"
+
+  # -- PPG --
+  - <<: *polyinfo_base
+    model: PPG
+    walltime: "6:30:00"
+  - <<: *polyinfo_base
+    model: PPG
+    incl_rdkit: true
+    walltime: "6:30:00"
+
 
   # -- DMPNN_DiffPool --
   # - <<: *polyinfo_base
@@ -435,23 +445,23 @@ experiments:
   #   model: DMPNN
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "1:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "1:30:00"
+  #   targets: *htpmd_targets
   # - <<: *htpmd_base
   #   model: DMPNN
   #   incl_desc: true
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
   #   export_embeddings: true
-  - <<: *htpmd_base
-    model: DMPNN
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "1:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "1:30:00"
+  #   targets: *htpmd_targets
 
   # -- DMPNN + FiLM (requires incl_desc or incl_rdkit) --
   # - <<: *htpmd_base
@@ -496,14 +506,13 @@ experiments:
   #   targets: *htpmd_targets
 
   # -- GIN + FiLM --
-  # - <<: *htpmd_base
-  #   model: GIN
-  #   incl_desc: true
-  #   fusion_mode: film
-  #   film_layers: last
-  #   walltime: "0:30:00"
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
+  - <<: *htpmd_base
+    model: GIN
+    incl_desc: true
+    fusion_mode: film
+    film_layers: last
+    walltime: "0:30:00"
+    targets: *htpmd_targets
 
   # -- GIN + Aux Task --
   # - <<: *htpmd_base
@@ -562,22 +571,22 @@ experiments:
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
   #   export_embeddings: true
-  - <<: *htpmd_base
-    model: wDMPNN
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: wDMPNN
-    incl_rdkit: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: wDMPNN
-    incl_desc: true
-    incl_rdkit: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: wDMPNN
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: wDMPNN
+  #   incl_rdkit: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: wDMPNN
+  #   incl_desc: true
+  #   incl_rdkit: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
     
 
   # -- DMPNN_DiffPool --
@@ -585,34 +594,34 @@ experiments:
   #   model: DMPNN_DiffPool
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
 
   # -- AttentiveFP --
   # - <<: *htpmd_base
   #   model: AttentiveFP
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: AttentiveFP
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: AttentiveFP
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
 
   # -- PPG --
   # - <<: *htpmd_base
@@ -620,17 +629,17 @@ experiments:
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
   #   export_embeddings: true
-  - <<: *htpmd_base
-    model: PPG
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: PPG
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: PPG
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: PPG
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
 
   # -- Tabular --
   # - <<: *htpmd_base
@@ -663,26 +672,26 @@ experiments:
   #   targets: *opv_targets
 
   # -- GIN --
-  # - <<: *opv_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   targets: *opv_targets
-  # - <<: *opv_base
-  #   model: GIN
-  #   incl_rdkit: true
-  #   walltime: "0:30:00"
-  #   targets: *opv_targets
+  - <<: *opv_base
+    model: GIN
+    walltime: "0:30:00"
+    targets: *opv_targets
+  - <<: *opv_base
+    model: GIN
+    incl_rdkit: true
+    walltime: "0:30:00"
+    targets: *opv_targets
 
   # -- GAT --
-  # - <<: *opv_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   targets: *opv_targets
-  # - <<: *opv_base
-  #   model: GAT
-  #   incl_rdkit: true
-  #   walltime: "0:30:00"
-  #   targets: *opv_targets
+  - <<: *opv_base
+    model: GAT
+    walltime: "0:30:00"
+    targets: *opv_targets
+  - <<: *opv_base
+    model: GAT
+    incl_rdkit: true
+    walltime: "0:30:00"
+    targets: *opv_targets
 
   # -- DMPNN_DiffPool --
   - <<: *opv_base
