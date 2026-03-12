@@ -215,11 +215,105 @@ def main():
             descriptor_dim = 0
             
             if combined_descriptor_data is not None:
-                from utils import load_dmpnn_preproc, apply_dmpnn_preproc
+                from utils import manage_preprocessing_cache, apply_dmpnn_preproc
+                from sklearn.impute import SimpleImputer
+                from sklearn.preprocessing import StandardScaler
                 
-                # Load preprocessing artifacts for this split
-                arts = load_dmpnn_preproc(preprocessing_path, i)
-                X_all_proc = apply_dmpnn_preproc(combined_descriptor_data, arts)
+                # Try to load cached preprocessing (same as train_graph.py)
+                preprocessing_reused, cached_scaler, cached_mask, cache_meta = manage_preprocessing_cache(
+                    preprocessing_path, i, combined_descriptor_data, None, None, logger
+                )
+                
+                if preprocessing_reused and cached_mask is not None:
+                    # Reuse existing preprocessing
+                    logger.info(f"[{target}] split {i}: Reusing cached preprocessing")
+                    
+                    # Reconstruct preprocessing from cached artifacts
+                    imputer_stats = None
+                    if cache_meta is not None:
+                        imputer_stats = ((cache_meta.get("cleaning") or {}).get("imputer_statistics"))
+                    
+                    imputer = None
+                    if imputer_stats is not None:
+                        stats = np.asarray(imputer_stats, dtype=float)
+                        imputer = SimpleImputer(strategy="median")
+                        imputer.statistics_ = stats
+                        imputer.n_features_in_ = stats.shape[0]
+                        imputer._fit_dtype = np.asarray(combined_descriptor_data, dtype=np.float64).dtype
+                    
+                    # Apply preprocessing
+                    base = combined_descriptor_data.copy()
+                    if imputer is not None:
+                        base = imputer.transform(base)
+                    elif np.isnan(base).any():
+                        tmp_imputer = SimpleImputer(strategy="median")
+                        tmp_imputer.fit(combined_descriptor_data[tr])
+                        base = tmp_imputer.transform(base)
+                    
+                    base = np.clip(base, np.finfo(np.float32).min, np.finfo(np.float32).max).astype(np.float32)
+                    mask = np.array(cached_mask, dtype=bool)
+                    X_all_proc = base[:, mask]
+                    
+                    # Apply scaler if available
+                    if cached_scaler is not None:
+                        X_all_proc = cached_scaler.transform(X_all_proc)
+                else:
+                    # Create new preprocessing (same logic as train_graph.py)
+                    logger.info(f"[{target}] split {i}: Creating new preprocessing")
+                    
+                    X_all = combined_descriptor_data.copy()
+                    X_all = np.where(np.isinf(X_all), np.nan, X_all)
+                    
+                    # Remove constant features
+                    non_constant_mask = np.var(X_all, axis=0) > 1e-8
+                    constant_indices = np.where(~non_constant_mask)[0]
+                    X_all = X_all[:, non_constant_mask]
+                    logger.info(f"[{target}] split {i}: Removed {len(constant_indices)} constant features")
+                    
+                    # Fit imputer on training data only
+                    imputer = SimpleImputer(strategy='median')
+                    imputer.fit(X_all[tr])
+                    X_all = imputer.transform(X_all)
+                    
+                    # Clip to float32 range
+                    X_all = np.clip(X_all, np.finfo(np.float32).min, np.finfo(np.float32).max).astype(np.float32)
+                    
+                    # Remove correlated features using training data only
+                    corr_matrix = np.corrcoef(X_all[tr], rowvar=False)
+                    upper_tri = np.triu(np.abs(corr_matrix), k=1)
+                    to_drop = set()
+                    for idx in range(upper_tri.shape[0]):
+                        if np.any(upper_tri[idx, :] > 0.95):
+                            to_drop.add(idx)
+                    correlation_mask = np.ones(X_all.shape[1], dtype=bool)
+                    correlation_mask[list(to_drop)] = False
+                    X_all = X_all[:, correlation_mask]
+                    logger.info(f"[{target}] split {i}: Removed {len(to_drop)} correlated features")
+                    
+                    # Fit scaler on training data
+                    scaler = StandardScaler()
+                    scaler.fit(X_all[tr])
+                    X_all_proc = scaler.transform(X_all)
+                    
+                    # Save preprocessing via manage_preprocessing_cache
+                    split_meta = {
+                        "cleaning": {
+                            "imputer_statistics": imputer.statistics_.tolist(),
+                            "float32_min": float(np.finfo(np.float32).min),
+                            "float32_max": float(np.finfo(np.float32).max)
+                        },
+                        "split_specific": {
+                            "correlation_mask": correlation_mask.tolist()
+                        },
+                        "data_info": {
+                            "constant_features_removed": constant_indices.tolist(),
+                            "n_features_after_preprocessing": int(correlation_mask.sum())
+                        }
+                    }
+                    
+                    manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, {i: split_meta}, None, logger)
+                    manage_preprocessing_cache(preprocessing_path, i, combined_descriptor_data, None, scaler, logger)
+                    logger.info(f"[{target}] split {i}: Saved preprocessing artifacts")
                 
                 # Slice rows for each fold
                 X_tr = X_all_proc[tr]

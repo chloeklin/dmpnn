@@ -352,6 +352,10 @@ def apply_dmpnn_preproc(X_all: np.ndarray, artifacts: dict) -> np.ndarray:
     if im_stats is not None:
         imp = SimpleImputer(strategy="median")
         imp.statistics_ = np.asarray(im_stats, dtype=np.float64)
+        # Set additional attributes required by newer scikit-learn versions
+        imp._fit_dtype = X.dtype
+        imp.n_features_in_ = X.shape[1]
+        imp.feature_names_in_ = None
         X = imp.transform(X)
 
     # 3) clip & cast
