@@ -297,10 +297,10 @@ experiments:
   # - <<: *polyinfo_base
   #   model: DMPNN
   #   walltime: "1:30:00"
-  - <<: *polyinfo_base
-    model: DMPNN
-    incl_rdkit: true
-    walltime: "1:30:00"
+  # - <<: *polyinfo_base
+  #   model: DMPNN
+  #   incl_rdkit: true
+  #   walltime: "1:30:00"
 
   # -- GIN --
   # - <<: *polyinfo_base
@@ -599,23 +599,23 @@ experiments:
     incl_desc: true
     walltime: "3:30:00"
     targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
 
   # -- AttentiveFP --
-  - <<: *htpmd_base
-    model: AttentiveFP
-    walltime: "3:30:00"
-    targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: AttentiveFP
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
   - <<: *htpmd_base
     model: AttentiveFP
     incl_rdkit: true
@@ -634,11 +634,11 @@ experiments:
   #   incl_desc: true
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: PPG
-    incl_rdkit: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: PPG
+  #   incl_rdkit: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
   # - <<: *htpmd_base
   #   model: PPG
   #   incl_rdkit: true
@@ -897,7 +897,7 @@ experiments:
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
 
-  # -- Tabular (a_held_out) --
+  # -- Tabular (a_held_out) --htpmd
   # - <<: *eaip_base
   #   model: tabular
   #   polymer_type: copolymer
