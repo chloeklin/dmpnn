@@ -243,19 +243,19 @@ experiments:
   # - <<: *tc_base
   #   model: AttentiveFP
   #   walltime: "0:30:00"
-  - <<: *tc_base
-    model: AttentiveFP
-    incl_rdkit: true
-    walltime: "0:30:00"
-  - <<: *tc_base
-    model: AttentiveFP
-    incl_desc: true
-    walltime: "0:30:00"
-  - <<: *tc_base
-    model: AttentiveFP
-    incl_rdkit: true
-    incl_desc: true
-    walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
 
   # -- PPG --
   # - <<: *tc_base
@@ -412,22 +412,22 @@ experiments:
   #   walltime: "4:30:00"
 
   # -- AttentiveFP --
-  - <<: *insulator_base
-    model: AttentiveFP
-    walltime: "4:30:00"
-  - <<: *insulator_base
-    model: AttentiveFP
-    incl_rdkit: true
-    walltime: "4:30:00"
+  # - <<: *insulator_base
+  #   model: AttentiveFP
+  #   walltime: "4:30:00"
+  # - <<: *insulator_base
+  #   model: AttentiveFP
+  #   incl_rdkit: true
+  #   walltime: "4:30:00"
 
   # -- PPG --
-  - <<: *insulator_base
-    model: PPG
-    walltime: "4:30:00"
-  - <<: *insulator_base
-    model: PPG
-    incl_rdkit: true
-    walltime: "4:30:00"
+  # - <<: *insulator_base
+  #   model: PPG
+  #   walltime: "4:30:00"
+  # - <<: *insulator_base
+  #   model: PPG
+  #   incl_rdkit: true
+  #   walltime: "4:30:00"
 
   # -- Tabular --
   # - <<: *insulator_base
@@ -506,13 +506,13 @@ experiments:
   #   targets: *htpmd_targets
 
   # -- GIN + FiLM --
-  - <<: *htpmd_base
-    model: GIN
-    incl_desc: true
-    fusion_mode: film
-    film_layers: last
-    walltime: "0:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   incl_desc: true
+  #   fusion_mode: film
+  #   film_layers: last
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
 
   # -- GIN + Aux Task --
   # - <<: *htpmd_base
@@ -674,23 +674,23 @@ experiments:
   # -- GIN --
   # - <<: *opv_base
   #   model: GIN
-  #   walltime: "0:30:00"
+  #   walltime: "3:30:00"
   #   targets: *opv_targets
   # - <<: *opv_base
   #   model: GIN
   #   incl_rdkit: true
-  #   walltime: "0:30:00"
+  #   walltime: "3:30:00"
   #   targets: *opv_targets
 
   # -- GAT --
-  # - <<: *opv_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   targets: *opv_targets
+  - <<: *opv_base
+    model: GAT
+    walltime: "3:30:00"
+    targets: *opv_targets
   # - <<: *opv_base
   #   model: GAT
   #   incl_rdkit: true
-  #   walltime: "0:30:00"
+  #   walltime: "3:30:00"
   #   targets: *opv_targets
 
   # -- DMPNN_DiffPool --
