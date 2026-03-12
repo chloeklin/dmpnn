@@ -1,3 +1,64 @@
+# =====================================================================
+# BATCH EXPERIMENTS CONFIGURATION
+# =====================================================================
+#
+# AVAILABLE MODELS & CAPABILITIES
+# --------------------------------
+#
+# Graph Models (train_graph.py):
+#   DMPNN, GIN, GAT        - full feature support (see table below)
+#   wDMPNN                  - like DMPNN but no fusion/aux; copolymer OK
+#   DMPNN_DiffPool          - homopolymer only, no fusion/aux
+#   AttentiveFP             - homopolymer only, no fusion/aux
+#   PPG                     - homopolymer only, no fusion/aux
+#
+#   Feature support matrix:
+#     Option              DMPNN/GIN/GAT   wDMPNN   DiffPool/AFP/PPG
+#     ─────────────────   ─────────────   ──────   ────────────────
+#     incl_rdkit           yes             yes      yes
+#     incl_desc            yes             yes      yes
+#     copolymer_mode       yes             yes      no
+#     fusion_mode: film    yes             no       no
+#     film_layers          yes             no       no
+#     aux_task             yes             no       no
+#     split_type           yes             yes      no
+#     export_embeddings    yes             yes      yes
+#     save_predictions     yes             yes      yes
+#
+# Tabular (train_tabular.py):
+#   Features:  incl_rdkit, incl_desc, incl_ab
+#   Copolymer: polymer_type: copolymer, split_type: random|a_held_out
+#   Note: incl_ab is only meaningful for copolymer datasets
+#
+# Identity Baseline (train_identity_baseline.py):
+#   Copolymer only. Requires copolymer_mode: mix | interact
+#   Optional: incl_desc, split_type: random|a_held_out
+#
+# COPOLYMER MODES (graph models only)
+# ------------------------------------
+#   mix            head gets [z]                  where z = fracA*z_A + fracB*z_B
+#   mix_frac       head gets [z || fracA || fracB]
+#   mix_frac_meta  head gets [z || frac || descriptors]           (needs incl_desc)
+#   interact       head gets [z_A || z_B || |diff| || prod || frac]
+#   interact_meta  head gets [z_A || z_B || |diff| || prod || frac || descriptors]  (needs incl_desc)
+#
+# DATASET FEATURE AVAILABILITY
+# -----------------------------
+#   tc         : rdkit, desc           (single target)
+#   polyinfo   : rdkit                 (single target, classification)
+#   insulator  : rdkit                 (single target)
+#   htpmd      : rdkit, desc           (5 targets)
+#   opv        : rdkit                 (8 targets)
+#   ea_ip      : rdkit, ab             (2 targets, copolymer, NO desc)
+#   block      : rdkit, desc, ab       (1 target, copolymer, classification)
+#   pae_tg     : rdkit, desc, ab       (1 target, copolymer)
+#
+# =====================================================================
+
+# ─────────────────────────────────────────────────────────────────────
+# BASE CONFIGS
+# ─────────────────────────────────────────────────────────────────────
+
 polyinfo_base: &polyinfo_base
   dataset: polyinfo
   task_type: multi
@@ -44,11 +105,15 @@ pae_tg_base: &pae_tg_base
   export_embeddings: true
   save_predictions: true
 
+# ─────────────────────────────────────────────────────────────────────
+# TARGET LISTS
+# ─────────────────────────────────────────────────────────────────────
+
 opv_targets: &opv_targets
   # - optical_lumo
-  # - gap
+  - gap
   # - homo
-  # - lumo
+  - lumo
   # - spectral_overlap
   # - delta_optical_lumo
   # - homo_extrapolated
@@ -69,649 +134,24 @@ htpmd_targets: &htpmd_targets
   - Transference Number
 
 pae_tg_targets: &pae_tg_targets
-  - Tg  
-  
-experiments:
-#HTP-MD Dataset
-
-  # - <<: *htpmd_base
-  #   model: GAT
-  #   walltime: "00:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
-    
-    
-  # - <<: *htpmd_base
-  #   model: GIN
-  #   walltime: "00:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
-
-  # - <<: *htpmd_base
-  #   model: DMPNN
-  #   walltime: "03:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
-  
-  # - <<: *htpmd_base
-  #   model: GAT
-  #   walltime: "00:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   fusion_mode: film
-  #   film_layers: last
-  #   export_embeddings: true
-    
-    
-  # - <<: *htpmd_base
-  #   model: GIN
-  #   walltime: "00:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   fusion_mode: film
-  #   film_layers: last
-  #   export_embeddings: true
-
-  # - <<: *htpmd_base
-  #   model: DMPNN
-  #   walltime: "03:30:00"
-  #   incl_desc: true
-  #   targets: *htpmd_targets
-  #   fusion_mode: film
-  #   film_layers: last
-  #   export_embeddings: true
-
-  # - <<: *htpmd_base
-  #   model: GAT
-  #   walltime: "00:40:00"
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
-  #   aux_task: predict_descriptors
-  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
-    
-    
-  # - <<: *htpmd_base
-  #   model: GIN
-  #   walltime: "00:40:00"
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
-  #   aux_task: predict_descriptors
-  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
-
-  # - <<: *htpmd_base
-  #   model: DMPNN
-  #   walltime: "03:30:00"
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
-  #   aux_task: predict_descriptors
-  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
-
-    
-  # - <<: *htpmd_base
-  #   model: tabular
-  #   walltime: "03:30:00"
-  #   incl_desc: true
-  #   # targets: *htpmd_targets
-    
-  # - <<: *htpmd_base
-  #   model: PPG
-  #   walltime: "3:30:00"
-  #   # incl_desc: true
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
-
-  # - <<: *htpmd_base
-  #   model: wDMPNN
-  #   walltime: "3:30:00"
-  #   # incl_desc: true
-  #   targets: *htpmd_targets
-  #   export_embeddings: true
-  
-  # - <<: *htpmd_base
-  #   model: DMPNN
-  #   walltime: "3:30:00"
-  #   # incl_desc: true
-  #   targets: *htpmd_targets
-    
-  # - <<: *htpmd_base
-  #   model: AttentiveFP
-  #   walltime: "3:30:00"
-  #   # incl_desc: true
-  #   targets: *htpmd_targets
-    
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "3:30:00"
-  #   # incl_desc: true
-  #   targets: *htpmd_targets
-
-
-  
-  # AttentiveFP    
-
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "0:30:00"
-
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_rdkit: true
-  #   walltime: "0:30:00"
-
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_desc: true
-  #   walltime: "0:30:00"
-
-
-
-
-  # ========== COPOLYMER DATASETS ==========
-  # 5 modes: mix, mix_meta, mix_frac_meta, interact, interact_meta
-  # "meta" modes require --incl_desc and/or --incl_rdkit for descriptor input
-  
-  # ----- Block copolymer -----
-  
-  # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
-  # - <<: *block_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *block_targets
-
-  #  # Mix + frac: head gets [z || fracA || fracB]
-  # - <<: *block_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *block_targets
-   
-  # # Mix + frac + meta: head gets [z || fracA || fracB || descriptors]
-  # - <<: *block_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: mix_frac_meta
-  #   targets: *block_targets
-  
-  # # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
-  # - <<: *block_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *block_targets
-
-  # # Interact+meta: head gets [z_A || z_B || |diff| || prod || fracA || fracB || descriptors]
-  # - <<: *block_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: interact_meta
-  #   targets: *block_targets
-
-
-  # # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
-  # - <<: *block_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *block_targets
-
-  #  # Mix + frac: head gets [z || fracA || fracB]
-  # - <<: *block_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *block_targets
-   
-  # # Mix + frac + meta: head gets [z || fracA || fracB || descriptors]
-  # - <<: *block_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: mix_frac_meta
-  #   targets: *block_targets
-  
-  # # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
-  # - <<: *block_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *block_targets
-
-  # # Interact+meta: head gets [z_A || z_B || |diff| || prod || fracA || fracB || descriptors]
-  # - <<: *block_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: interact_meta
-  # #   targets: *block_targets
-
-  #   # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
-  # - <<: *block_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *block_targets
-
-  #  # Mix + frac: head gets [z || fracA || fracB]
-  # - <<: *block_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *block_targets
-   
-  # # Mix + frac + meta: head gets [z || fracA || fracB || descriptors]
-  # - <<: *block_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: mix_frac_meta
-  #   targets: *block_targets
-  
-  # # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
-  # - <<: *block_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *block_targets
-
-  # # Interact+meta: head gets [z_A || z_B || |diff| || prod || fracA || fracB || descriptors]
-  # - <<: *block_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: interact_meta
-  #   targets: *block_targets
-
-# Tabular baselines for copolymers (ea_ip has no descriptor columns)
-  # - <<: *block_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_ab: true
-  #   walltime: "0:30:00"
-  #   targets: *block_targets
-
-  # - <<: *block_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_rdkit: true
-  #   walltime: "0:30:00"
-  #   targets: *block_targets
-  
-  # - <<: *block_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_desc: true
-  #   walltime: "0:30:00"
-  #   targets: *block_targets
-
-  # - <<: *block_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_ab: true
-  #   incl_desc: true
-  #   walltime: "0:30:00"
-  #   targets: *block_targets
-  # - <<: *block_base
-  #   model: identity_baseline
-  #   copolymer_mode: mix
-  #   walltime: "0:30:00"
-  #   targets: *block_targets
-    
-  # - <<: *block_base
-  #   model: identity_baseline
-  #   copolymer_mode: interact
-  #   walltime: "0:30:00"
-  #   targets: *block_targets
-
-  # ----- EA IP -----
-
-  # # Mix (pure): z = fracA*z_A + fracB*z_B → head gets z only
-  # - <<: *eaip_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *eaip_targets
-
-  # #  Mix + frac: head gets [z || fracA || fracB]
-  # - <<: *eaip_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *eaip_targets
-   
-  
-  # # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
-  # - <<: *eaip_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *eaip_targets
-
-
-  # - <<: *eaip_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *eaip_targets
-
-  #  # Mix + frac: head gets [z || fracA || fracB]
-  # - <<: *eaip_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *eaip_targets
-   
-  
-  # # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
-  # - <<: *eaip_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *eaip_targets
-
-
-  # - <<: *eaip_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *eaip_targets
-
-  #  # Mix + frac: head gets [z || fracA || fracB]
-  # - <<: *eaip_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *eaip_targets
-   
-  
-  # # Interact (base): head gets [z_A || z_B || |diff| || prod || fracA || fracB]
-  # - <<: *eaip_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *eaip_targets
-
-  # Tabular baselines for copolymers (ea_ip has no descriptor columns)
-    # - <<: *eaip_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_ab: true
-    #   walltime: "2:00:00"
-    #   targets: *eaip_targets
-    
-    # - <<: *eaip_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_rdkit: true
-    #   walltime: "2:00:00"
-    #   targets: *eaip_targets
-    
-    # - <<: *eaip_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_ab: true
-    #   incl_rdkit: true
-    #   walltime: "2:00:00"
-    #   targets: *eaip_targets
-  # - <<: *eaip_base
-  #   model: identity_baseline
-  #   copolymer_mode: mix
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-    
-  # - <<: *eaip_base
-  #   model: identity_baseline
-  #   copolymer_mode: interact
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-
-  # ----- EA IP (a_held_out split) -----
-
-  # - <<: *eaip_base
-  #   model: DMPNN
-  #   walltime: "2:30:00"
-  #   copolymer_mode: mix
-  #   split_type: a_held_out
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: DMPNN
-  #   walltime: "2:30:00"
-  #   copolymer_mode: interact
-  #   split_type: a_held_out
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: GIN
-  #   walltime: "2:30:00"
-  #   copolymer_mode: mix
-  #   split_type: a_held_out
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: GIN
-  #   walltime: "2:30:00"
-  #   copolymer_mode: interact
-  #   split_type: a_held_out
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: GAT
-  #   walltime: "2:30:00"
-  #   copolymer_mode: mix
-  #   split_type: a_held_out
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: GAT
-  #   walltime: "2:30:00"
-  #   copolymer_mode: interact
-  #   split_type: a_held_out
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: identity_baseline
-  #   copolymer_mode: mix
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: identity_baseline
-  #   copolymer_mode: interact
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_rdkit: true
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_ab: true
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_ab: true
-  #   incl_rdkit: true
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-
-# # =====================================================================
-# # PAE Tg Dataset - Multi-monomer copolymer experiments
-# # =====================================================================
-    # - <<: *pae_tg_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_desc: true
-    #   walltime: "2:00:00"
-    #   targets: *pae_tg_targets
-    
-    # - <<: *pae_tg_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_ab: true
-    #   walltime: "2:00:00"
-    #   targets: *pae_tg_targets
-    
-    # - <<: *pae_tg_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_rdkit: true
-    #   walltime: "1:00:00"
-    #   targets: *pae_tg_targets
-    
-    # - <<: *pae_tg_base
-    #   model: tabular
-    #   polymer_type: copolymer
-    #   incl_ab: true
-    #   incl_desc: true
-    #   walltime: "2:00:00"
-    #   targets: *pae_tg_targets
-
-  # - <<: *pae_tg_base
-  #   model: identity_baseline
-  #   copolymer_mode: mix
-  #   walltime: "2:00:00"
-  #   targets: *pae_tg_targets
-    
-  # - <<: *pae_tg_base
-  #   model: identity_baseline
-  #   copolymer_mode: interact
-  #   walltime: "2:00:00"
-  #   targets: *pae_tg_targets
-
-
-  # # DMPNN - Mix family
-  # - <<: *pae_tg_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *pae_tg_targets
-
-
-  # - <<: *pae_tg_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *pae_tg_targets
-
-  # - <<: *pae_tg_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: mix_frac_meta
-  #   targets: *pae_tg_targets
-
-  # DMPNN - Interact family
-  # - <<: *pae_tg_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *pae_tg_targets
-
-  # - <<: *pae_tg_base
-  #   model: DMPNN
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: interact_meta
-  #   targets: *pae_tg_targets
-
-  # # GIN - Mix family
-  # - <<: *pae_tg_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *pae_tg_targets
-
-
-  # - <<: *pae_tg_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *pae_tg_targets
-
-  # - <<: *pae_tg_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: mix_frac_meta
-  #   targets: *pae_tg_targets
-
-  # GIN - Interact family
-  # - <<: *pae_tg_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *pae_tg_targets
-
-  # - <<: *pae_tg_base
-  #   model: GIN
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: interact_meta
-  #   targets: *pae_tg_targets
-
-  # # GAT - Mix family
-  # - <<: *pae_tg_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix
-  #   targets: *pae_tg_targets
-
-
-  # - <<: *pae_tg_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: mix_frac
-  #   targets: *pae_tg_targets
-
-  # - <<: *pae_tg_base
-  #   model: GAT
-  #   walltime: "2:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: mix_frac_meta
-  #   targets: *pae_tg_targets
-
-  # GAT - Interact family
-  # - <<: *pae_tg_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   copolymer_mode: interact
-  #   targets: *pae_tg_targets
-
-  # - <<: *pae_tg_base
-  #   model: GAT
-  #   walltime: "0:30:00"
-  #   incl_desc: true
-  #   copolymer_mode: interact_meta
-  #   targets: *pae_tg_targets
+  - Tg
 
 # =====================================================================
+#                       EXPERIMENTS
+# =====================================================================
 
-# DMPNN
+experiments:
+
+# =====================================================================
+# HOMOPOLYMER DATASETS
+# =====================================================================
+
+# ─── TC (Thermal Conductivity) ─────────────────────────────────────
+# Type: reg | Polymer: homo | Features: rdkit, desc | Single target
+
+  # -- DMPNN --
   # - <<: *tc_base
   #   model: DMPNN
-  #   incl_rdkit: true
-  #   incl_desc: true
   #   walltime: "1:10:00"
   # - <<: *tc_base
   #   model: DMPNN
@@ -723,220 +163,1033 @@ experiments:
     walltime: "1:10:00"
   # - <<: *tc_base
   #   model: DMPNN
+  #   incl_rdkit: true
+  #   incl_desc: true
   #   walltime: "1:10:00"
 
+  # -- GIN --
+  # - <<: *tc_base
+  #   model: GIN
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: GIN
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: GIN
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: GIN
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
 
+  # -- GAT --
+  # - <<: *tc_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: GAT
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: GAT
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: GAT
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+
+  # -- wDMPNN --
+  # - <<: *tc_base
+  #   model: wDMPNN
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: wDMPNN
+  #   incl_rdkit: true
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: wDMPNN
+  #   incl_desc: true
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: wDMPNN
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "1:10:00"
+
+  # -- DMPNN_DiffPool --
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   incl_desc: true
+  #   walltime: "1:10:00"
+  # - <<: *tc_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "1:10:00"
+
+  # -- AttentiveFP --
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: AttentiveFP
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+
+  # -- PPG --
+  # - <<: *tc_base
+  #   model: PPG
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: PPG
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+
+  # -- Tabular --
+  # - <<: *tc_base
+  #   model: tabular
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: tabular
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  # - <<: *tc_base
+  #   model: tabular
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+
+# ─── Polyinfo ──────────────────────────────────────────────────────
+# Type: multi (classification) | Polymer: homo | Features: rdkit | Single target
+
+  # -- DMPNN --
   # - <<: *polyinfo_base
   #   model: DMPNN
   #   walltime: "1:30:00"
+  - <<: *polyinfo_base
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "1:30:00"
+
+  # -- GIN --
   # - <<: *polyinfo_base
+  #   model: GIN
+  #   walltime: "0:30:00"
+  # - <<: *polyinfo_base
+  #   model: GIN
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+
+  # -- GAT --
+  # - <<: *polyinfo_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  # - <<: *polyinfo_base
+  #   model: GAT
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+
+  # -- wDMPNN --
+  # - <<: *polyinfo_base
+  #   model: wDMPNN
+  #   walltime: "6:30:00"
+  # - <<: *polyinfo_base
+  #   model: wDMPNN
+  #   incl_rdkit: true
+  #   walltime: "6:30:00"
+
+  # -- DMPNN_DiffPool --
+  # - <<: *polyinfo_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:30:00"
+  # - <<: *polyinfo_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "4:30:00"
+  
+  # -- AttentiveFP --
+  # - <<: *polyinfo_base
+  #   model: AttentiveFP
+  #   walltime: "1:30:00"
+  - <<: *polyinfo_base
+    model: AttentiveFP
+    incl_rdkit: true
+    walltime: "1:30:00"
+
+  # -- Tabular --
+  # - <<: *polyinfo_base
+  #   model: tabular
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+
+# ─── Insulator ─────────────────────────────────────────────────────
+# Type: reg | Polymer: homo | Features: rdkit | Single target
+
+  # -- DMPNN --
+  # - <<: *insulator_base
+  #   model: DMPNN
+  #   walltime: "1:30:00"
+  # - <<: *insulator_base
   #   model: DMPNN
   #   incl_rdkit: true
   #   walltime: "1:30:00"
 
-    
+  # -- GIN --
+  # - <<: *insulator_base
+  #   model: GIN
+  #   walltime: "0:30:00"
+  # - <<: *insulator_base
+  #   model: GIN
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
 
-    
-  # - <<: *htpmd_base
-  #   model: DMPNN
+  # -- GAT --
+  # - <<: *insulator_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  # - <<: *insulator_base
+  #   model: GAT
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+
+  # -- wDMPNN --
+  # - <<: *insulator_base
+  #   model: wDMPNN
   #   walltime: "1:30:00"
-  # - <<: *htpmd_base
-  #   model: DMPNN
+  # - <<: *insulator_base
+  #   model: wDMPNN
   #   incl_rdkit: true
   #   walltime: "1:30:00"
+
+  # -- DMPNN_DiffPool --
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "4:30:00"
+  # - <<: *insulator_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "4:30:00"
+
+  # -- AttentiveFP --
+  - <<: *insulator_base
+    model: AttentiveFP
+    walltime: "4:30:00"
+  - <<: *insulator_base
+    model: AttentiveFP
+    incl_rdkit: true
+    walltime: "4:30:00"
+
+  # -- PPG --
+  - <<: *insulator_base
+    model: PPG
+    walltime: "4:30:00"
+  - <<: *insulator_base
+    model: PPG
+    incl_rdkit: true
+    walltime: "4:30:00"
+
+  # -- Tabular --
+  # - <<: *insulator_base
+  #   model: tabular
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+
+# ─── HTPMD ─────────────────────────────────────────────────────────
+# Type: reg | Polymer: homo | Features: rdkit, desc | 5 targets
+# Special: supports fusion_mode (film) and aux_task (predict_descriptors)
+# Aux descriptor cols: DoP,Density,Molality,Monomer_Molecular_Weight
+
+  # -- DMPNN --
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "1:30:00"
+    targets: *htpmd_targets
   # - <<: *htpmd_base
   #   model: DMPNN
   #   incl_desc: true
-  #   walltime: "1:30:00"
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  - <<: *htpmd_base
+    model: DMPNN
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "1:30:00"
+    targets: *htpmd_targets
+
+  # -- DMPNN + FiLM (requires incl_desc or incl_rdkit) --
   # - <<: *htpmd_base
   #   model: DMPNN
+  #   incl_desc: true
+  #   fusion_mode: film
+  #   film_layers: last
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+
+  # -- DMPNN + Aux Task --
+  # - <<: *htpmd_base
+  #   model: DMPNN
+  #   aux_task: predict_descriptors
+  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+
+  # -- GIN --
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  # - <<: *htpmd_base
+  #   model: GIN
   #   incl_rdkit: true
   #   incl_desc: true
-  #   walltime: "1:30:00"
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
 
-#TODO
-    
-  # - <<: *opv_base
-  #   model: DMPNN
-  #   walltime: "1:30:00"
-  #   targets:
-  #       -lumo
-  #TODO      
+  # -- GIN + FiLM --
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   incl_desc: true
+  #   fusion_mode: film
+  #   film_layers: last
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+
+  # -- GIN + Aux Task --
+  # - <<: *htpmd_base
+  #   model: GIN
+  #   aux_task: predict_descriptors
+  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
+  #   walltime: "0:40:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+
+  # -- GAT --
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+
+  # -- GAT + FiLM --
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   incl_desc: true
+  #   fusion_mode: film
+  #   film_layers: last
+  #   walltime: "0:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+
+  # -- GAT + Aux Task --
+  # - <<: *htpmd_base
+  #   model: GAT
+  #   aux_task: predict_descriptors
+  #   aux_descriptor_cols: "DoP,Density,Molality,Monomer_Molecular_Weight"
+  #   walltime: "0:40:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+
+  # -- wDMPNN --
+  # - <<: *htpmd_base
+  #   model: wDMPNN
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  - <<: *htpmd_base
+    model: wDMPNN
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+    export_embeddings: true
+  - <<: *htpmd_base
+    model: wDMPNN
+    incl_rdkit: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+    export_embeddings: true
+  - <<: *htpmd_base
+    model: wDMPNN
+    incl_desc: true
+    incl_rdkit: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+    export_embeddings: true
+
+  # -- DMPNN_DiffPool --
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+
+  # -- AttentiveFP --
+  # - <<: *htpmd_base
+  #   model: AttentiveFP
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: AttentiveFP
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: AttentiveFP
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+
+  # -- PPG --
+  # - <<: *htpmd_base
+  #   model: PPG
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  #   export_embeddings: true
+  - <<: *htpmd_base
+    model: PPG
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: PPG
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+
+  # -- Tabular --
+  # - <<: *htpmd_base
+  #   model: tabular
+  #   incl_rdkit: true
+  #   walltime: "1:00:00"
+  # - <<: *htpmd_base
+  #   model: tabular
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  # - <<: *htpmd_base
+  #   model: tabular
+  #   incl_rdkit: true
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+
+# ─── OPV (CAM-B3LYP) ──────────────────────────────────────────────
+# Type: reg | Polymer: homo | Features: rdkit | 8 targets
+# NOTE: opv_targets list is currently commented out above
+
+  # -- DMPNN --
+  - <<: *opv_base
+    model: DMPNN
+    walltime: "1:30:00"
+    targets: *opv_targets
   # - <<: *opv_base
   #   model: DMPNN
   #   incl_rdkit: true
   #   walltime: "1:30:00"
   #   targets: *opv_targets
 
-
-
-
-
-
-# wDMPNN
-  # - <<: *tc_base
-  #   model: wDMPNN
+  # -- GIN --
+  # - <<: *opv_base
+  #   model: GIN
+  #   walltime: "0:30:00"
+  #   targets: *opv_targets
+  # - <<: *opv_base
+  #   model: GIN
   #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "1:10:00"
-  # - <<: *tc_base
-  #   model: wDMPNN
-  #   incl_rdkit: true
-  #   walltime: "1:10:00"
-  # - <<: *tc_base
-  #   model: wDMPNN
-  #   incl_desc: true
-  #   walltime: "1:10:00"
-  # - <<: *tc_base
-  #   model: wDMPNN
-  #   walltime: "1:10:00"
+  #   walltime: "0:30:00"
+  #   targets: *opv_targets
 
+  # -- GAT --
+  # - <<: *opv_base
+  #   model: GAT
+  #   walltime: "0:30:00"
+  #   targets: *opv_targets
+  # - <<: *opv_base
+  #   model: GAT
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  #   targets: *opv_targets
 
-  # - <<: *polyinfo_base
-  #   model: wDMPNN
-  #   walltime: "6:30:00"
-  # - <<: *polyinfo_base
-  #   model: wDMPNN
-  #   incl_rdkit: true
-  #   walltime: "6:30:00"
+  # -- DMPNN_DiffPool --
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "2:30:00"
+    targets: *opv_targets
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    incl_rdkit: true
+    walltime: "2:30:00"
+    targets: *opv_targets
 
-
-  # - <<: *insulator_base
-  #   model: DMPNN
-  #   walltime: "1:30:00"
-  # - <<: *insulator_base
-  #   model: DMPNN
-  #   incl_rdkit: true
-  #   walltime: "1:30:00"
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "4:30:00"
-  # - <<: *insulator_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   walltime: "4:30:00"
-    
-  # - <<: *insulator_base
-  #   model: wDMPNN
-  #   walltime: "1:30:00"
-  # - <<: *insulator_base
-  #   model: wDMPNN
-  #   incl_rdkit: true
-  #   walltime: "1:30:00"
-    
-  - <<: *insulator_base
+  # -- PPG --
+  - <<: *opv_base
     model: PPG
-    walltime: "4:30:00"
-  - <<: *insulator_base
+    walltime: "2:30:00"
+    targets: *opv_targets
+  - <<: *opv_base
     model: PPG
     incl_rdkit: true
-    walltime: "4:30:00"
+    walltime: "2:30:00"
+    targets: *opv_targets
 
-  - <<: *insulator_base
-    model: AttentiveFP
-    walltime: "4:30:00"
-  - <<: *insulator_base
+  # -- AttentiveFP --
+  # - <<: *opv_base
+  #   model: AttentiveFP
+  #   walltime: "2:30:00"
+  #   targets: *opv_targets
+  - <<: *opv_base
     model: AttentiveFP
     incl_rdkit: true
-    walltime: "4:30:00"
+    walltime: "2:30:00"
+    targets: *opv_targets
 
-  # - <<: *eaip_base
-  #   model: wDMPNN
-  #   walltime: "1:30:00"
+  # -- Tabular --
+  # - <<: *opv_base
+  #   model: tabular
   #   incl_rdkit: true
-  #   targets: *eaip_targets ##TODO: fix preprocess code for wDMPNN copolymers rdkit
+  #   walltime: "1:00:00"
+  #   targets: *opv_targets
+
+
+# =====================================================================
+# COPOLYMER DATASETS
+# =====================================================================
+# Copolymer modes: mix, mix_frac, interact (base modes)
+#                  mix_frac_meta, interact_meta (need incl_desc)
+# Tabular uses polymer_type: copolymer with incl_ab, incl_rdkit, incl_desc
+# Identity baseline needs copolymer_mode: mix | interact
+
+# ─── EA_IP ─────────────────────────────────────────────────────────
+# Type: reg | Polymer: copolymer | Features: rdkit, ab (NO desc)
+# 2 targets: EA vs SHE (eV), IP vs SHE (eV)
+# Note: no desc available, so no meta copolymer modes
+
+  # ---- Random split ----
+
+  # -- DMPNN --
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+
+  # -- GIN --
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+
+  # -- GAT --
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *eaip_targets
+
+  # -- wDMPNN --
   # - <<: *eaip_base
   #   model: wDMPNN
+  #   copolymer_mode: mix
+  #   walltime: "7:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: wDMPNN
+  #   copolymer_mode: interact
   #   walltime: "7:30:00"
   #   targets: *eaip_targets
 
+  # -- Identity Baseline --
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
-
-# DMPNN_DiffPool
-  # - <<: *tc_base
-  #   model: DMPNN_DiffPool
+  # -- Tabular (no desc available; use ab, rdkit, ab+rdkit) --
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
   #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "1:10:00"
-  # - <<: *tc_base
-  #   model: DMPNN_DiffPool
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
   #   incl_rdkit: true
-  #   walltime: "1:10:00"
-  # - <<: *tc_base
-  #   model: DMPNN_DiffPool
-  #   incl_desc: true
-  #   walltime: "1:10:00"
-  # - <<: *tc_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "1:10:00"
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
-#TODO
+  # ---- a_held_out split ----
 
-  # - <<: *polyinfo_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "4:30:00"
-  # - <<: *polyinfo_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   walltime: "4:30:00"
-
-
-
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   # incl_rdkit: true
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
-
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   incl_desc: true
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
-#TODO
-    
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
+  # -- DMPNN --
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix
+  #   split_type: a_held_out
   #   walltime: "2:30:00"
-  #   targets: *opv_targets
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: interact
+  #   split_type: a_held_out
   #   walltime: "2:30:00"
-  #   targets: *opv_targets
+  #   targets: *eaip_targets
 
+  # -- GIN --
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix
+  #   split_type: a_held_out
+  #   walltime: "2:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: interact
+  #   split_type: a_held_out
+  #   walltime: "2:30:00"
+  #   targets: *eaip_targets
 
+  # -- GAT --
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix
+  #   split_type: a_held_out
+  #   walltime: "2:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: interact
+  #   split_type: a_held_out
+  #   walltime: "2:30:00"
+  #   targets: *eaip_targets
 
+  # -- Identity Baseline --
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
-
-
-
-
-
-
-# PPG
-  # - <<: *tc_base
-  #   model: PPG
-  #   walltime: "0:30:00"
-    
-  # - <<: *tc_base
-  #   model: PPG
+  # -- Tabular (a_held_out) --
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
   #   incl_rdkit: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+
+# ─── Block Copolymer ──────────────────────────────────────────────
+# Type: multi (classification) | Polymer: copolymer | Features: rdkit, desc, ab
+# 1 target: phase_label
+
+  # -- DMPNN --
+  # - <<: *block_base
+  #   model: DMPNN
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_frac_meta
   #   incl_desc: true
   #   walltime: "0:30:00"
-
-  # - <<: *tc_base
-  #   model: PPG
-  #   incl_rdkit: true
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: DMPNN
+  #   copolymer_mode: interact
   #   walltime: "0:30:00"
-
-  # - <<: *tc_base
-  #   model: PPG
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: DMPNN
+  #   copolymer_mode: interact_meta
   #   incl_desc: true
   #   walltime: "0:30:00"
+  #   targets: *block_targets
+
+  # -- GIN --
+  # - <<: *block_base
+  #   model: GIN
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: GIN
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: GIN
+  #   copolymer_mode: mix_frac_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: GIN
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: GIN
+  #   copolymer_mode: interact_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+
+  # -- GAT --
+  # - <<: *block_base
+  #   model: GAT
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: GAT
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: GAT
+  #   copolymer_mode: mix_frac_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: GAT
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: GAT
+  #   copolymer_mode: interact_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+
+  # -- Identity Baseline --
+  # - <<: *block_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+
+  # -- Tabular --
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   walltime: "0:30:00"
+  #   targets: *block_targets
+
+# ─── PAE_TG ───────────────────────────────────────────────────────
+# Type: reg | Polymer: copolymer | Features: rdkit, desc, ab
+# 1 target: Tg
+
+  # -- DMPNN --
+  # - <<: *pae_tg_base
+  #   model: DMPNN
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_frac_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: DMPNN
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: DMPNN
+  #   copolymer_mode: interact_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+
+  # -- GIN --
+  # - <<: *pae_tg_base
+  #   model: GIN
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GIN
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GIN
+  #   copolymer_mode: mix_frac_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GIN
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GIN
+  #   copolymer_mode: interact_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+
+  # -- GAT --
+  # - <<: *pae_tg_base
+  #   model: GAT
+  #   copolymer_mode: mix
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GAT
+  #   copolymer_mode: mix_frac
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GAT
+  #   copolymer_mode: mix_frac_meta
+  #   incl_desc: true
+  #   walltime: "2:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GAT
+  #   copolymer_mode: interact
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: GAT
+  #   copolymer_mode: interact_meta
+  #   incl_desc: true
+  #   walltime: "0:30:00"
+  #   targets: *pae_tg_targets
+
+  # -- Identity Baseline --
+  # - <<: *pae_tg_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   walltime: "2:00:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   walltime: "2:00:00"
+  #   targets: *pae_tg_targets
+
+  # -- Tabular --
+  # - <<: *pae_tg_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   walltime: "2:00:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_rdkit: true
+  #   walltime: "1:00:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_desc: true
+  #   walltime: "2:00:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_desc: true
+  #   walltime: "2:00:00"
+  #   targets: *pae_tg_targets
+  # - <<: *pae_tg_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   walltime: "2:00:00"
+  #   targets: *pae_tg_targets
