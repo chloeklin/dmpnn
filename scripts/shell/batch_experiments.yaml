@@ -297,10 +297,10 @@ experiments:
   # - <<: *polyinfo_base
   #   model: DMPNN
   #   walltime: "1:30:00"
-  # - <<: *polyinfo_base
-  #   model: DMPNN
-  #   incl_rdkit: true
-  #   walltime: "1:30:00"
+  - <<: *polyinfo_base
+    model: DMPNN
+    incl_rdkit: true
+    walltime: "1:30:00"
 
   # -- GIN --
   # - <<: *polyinfo_base
@@ -330,13 +330,13 @@ experiments:
   #   walltime: "6:30:00"
 
   # -- PPG --
-  - <<: *polyinfo_base
-    model: PPG
-    walltime: "6:30:00"
-  - <<: *polyinfo_base
-    model: PPG
-    incl_rdkit: true
-    walltime: "6:30:00"
+  # - <<: *polyinfo_base
+  #   model: PPG
+  #   walltime: "6:30:00"
+  # - <<: *polyinfo_base
+  #   model: PPG
+  #   incl_rdkit: true
+  #   walltime: "6:30:00"
 
 
   # -- DMPNN_DiffPool --
@@ -590,38 +590,38 @@ experiments:
     
 
   # -- DMPNN_DiffPool --
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   incl_desc: true
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
-  # - <<: *htpmd_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: DMPNN_DiffPool
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
 
   # -- AttentiveFP --
-  # - <<: *htpmd_base
-  #   model: AttentiveFP
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
-  # - <<: *htpmd_base
-  #   model: AttentiveFP
-  #   incl_desc: true
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
-  # - <<: *htpmd_base
-  #   model: AttentiveFP
-  #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: AttentiveFP
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: AttentiveFP
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: AttentiveFP
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
 
   # -- PPG --
   # - <<: *htpmd_base
@@ -634,6 +634,11 @@ experiments:
   #   incl_desc: true
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: PPG
+    incl_rdkit: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
   # - <<: *htpmd_base
   #   model: PPG
   #   incl_rdkit: true
@@ -661,10 +666,10 @@ experiments:
 # NOTE: opv_targets list is currently commented out above
 
   # -- DMPNN --
-  # - <<: *opv_base
-  #   model: DMPNN
-  #   walltime: "1:30:00"
-  #   targets: *opv_targets
+  - <<: *opv_base
+    model: DMPNN
+    walltime: "5:30:00"
+    targets: *opv_targets
   # - <<: *opv_base
   #   model: DMPNN
   #   incl_rdkit: true
@@ -683,10 +688,10 @@ experiments:
   #   targets: *opv_targets
 
   # -- GAT --
-  - <<: *opv_base
-    model: GAT
-    walltime: "3:30:00"
-    targets: *opv_targets
+  # - <<: *opv_base
+  #   model: GAT
+  #   walltime: "3:30:00"
+  #   targets: *opv_targets
   # - <<: *opv_base
   #   model: GAT
   #   incl_rdkit: true
@@ -694,16 +699,27 @@ experiments:
   #   targets: *opv_targets
 
   # -- DMPNN_DiffPool --
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    walltime: "5:30:00"
+    targets: *opv_targets
+  - <<: *opv_base
+    model: DMPNN_DiffPool
+    incl_rdkit: true
+    walltime: "5:30:00"
+    targets: *opv_targets
+  
+  # -- AttentiveFP --
   # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   walltime: "2:30:00"
+  #   model:  AttentiveFP
+  #   walltime: "5:30:00"
   #   targets: *opv_targets
-  # - <<: *opv_base
-  #   model: DMPNN_DiffPool
-  #   incl_rdkit: true
-  #   walltime: "2:30:00"
-  #   targets: *opv_targets
-
+  - <<: *opv_base
+    model:  AttentiveFP
+    incl_rdkit: true
+    walltime: "5:30:00"
+    targets: *opv_targets
+  
   # -- Tabular --
   # - <<: *opv_base
   #   model: tabular
