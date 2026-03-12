@@ -128,10 +128,10 @@ block_targets: &block_targets
 
 htpmd_targets: &htpmd_targets
   - Conductivity
-  # - Li Diffusivity
-  # - TFSI Diffusivity
-  # - Poly Diffusivity
-  # - Transference Number
+  - Li Diffusivity
+  - TFSI Diffusivity
+  - Poly Diffusivity
+  - Transference Number
 
 pae_tg_targets: &pae_tg_targets
   - Tg
@@ -243,19 +243,19 @@ experiments:
   # - <<: *tc_base
   #   model: AttentiveFP
   #   walltime: "0:30:00"
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_rdkit: true
-  #   walltime: "0:30:00"
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_desc: true
-  #   walltime: "0:30:00"
-  # - <<: *tc_base
-  #   model: AttentiveFP
-  #   incl_rdkit: true
-  #   incl_desc: true
-  #   walltime: "0:30:00"
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_rdkit: true
+    walltime: "0:30:00"
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_desc: true
+    walltime: "0:30:00"
+  - <<: *tc_base
+    model: AttentiveFP
+    incl_rdkit: true
+    incl_desc: true
+    walltime: "0:30:00"
 
   # -- PPG --
   # - <<: *tc_base
@@ -415,10 +415,10 @@ experiments:
   # - <<: *insulator_base
   #   model: AttentiveFP
   #   walltime: "4:30:00"
-  # - <<: *insulator_base
-  #   model: AttentiveFP
-  #   incl_rdkit: true
-  #   walltime: "4:30:00"
+  - <<: *insulator_base
+    model: AttentiveFP
+    incl_rdkit: true
+    walltime: "4:30:00"
 
   # -- PPG --
   # - <<: *insulator_base
@@ -590,15 +590,15 @@ experiments:
     
 
   # -- DMPNN_DiffPool --
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    walltime: "3:30:00"
-    targets: *htpmd_targets
-  - <<: *htpmd_base
-    model: DMPNN_DiffPool
-    incl_desc: true
-    walltime: "3:30:00"
-    targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
+  # - <<: *htpmd_base
+  #   model: DMPNN_DiffPool
+  #   incl_desc: true
+  #   walltime: "3:30:00"
+  #   targets: *htpmd_targets
   # - <<: *htpmd_base
   #   model: DMPNN_DiffPool
   #   incl_rdkit: true
@@ -611,11 +611,11 @@ experiments:
   #   model: AttentiveFP
   #   walltime: "3:30:00"
   #   targets: *htpmd_targets
-  # - <<: *htpmd_base
-  #   model: AttentiveFP
-  #   incl_desc: true
-  #   walltime: "3:30:00"
-  #   targets: *htpmd_targets
+  - <<: *htpmd_base
+    model: AttentiveFP
+    incl_desc: true
+    walltime: "3:30:00"
+    targets: *htpmd_targets
   - <<: *htpmd_base
     model: AttentiveFP
     incl_rdkit: true
@@ -666,10 +666,10 @@ experiments:
 # NOTE: opv_targets list is currently commented out above
 
   # -- DMPNN --
-  - <<: *opv_base
-    model: DMPNN
-    walltime: "5:30:00"
-    targets: *opv_targets
+  # - <<: *opv_base
+  #   model: DMPNN
+  #   walltime: "5:30:00"
+  #   targets: *opv_targets
   # - <<: *opv_base
   #   model: DMPNN
   #   incl_rdkit: true
@@ -700,14 +700,14 @@ experiments:
 
   # -- DMPNN_DiffPool --
   - <<: *opv_base
-    model: DMPNN_DiffPool
-    walltime: "5:30:00"
-    targets: *opv_targets
-  - <<: *opv_base
-    model: DMPNN_DiffPool
-    incl_rdkit: true
-    walltime: "5:30:00"
-    targets: *opv_targets
+  #   model: DMPNN_DiffPool
+  #   walltime: "5:30:00"
+  #   targets: *opv_targets
+  # - <<: *opv_base
+  #   model: DMPNN_DiffPool
+  #   incl_rdkit: true
+  #   walltime: "5:30:00"
+  #   targets: *opv_targets
   
   # -- AttentiveFP --
   # - <<: *opv_base
