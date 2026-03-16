@@ -300,7 +300,7 @@ def train_one_split(
     else:
         metrics = eval_classification(y_true, y_pred, y_proba, task_type, all_labels=all_labels)
 
-    return metrics
+    return metrics, y_true, y_pred
 
 
 # ========================== DATASET / DATALOADER ===========================
@@ -378,6 +378,8 @@ def parse_args():
     # Descriptors (meta features)
     parser.add_argument("--incl_desc", action="store_true",
                         help="Include dataset-specific descriptor columns as meta features")
+    parser.add_argument("--incl_poly_type", action="store_true",
+                        help="Include one-hot encoding of poly_type column (ea_ip only)")
 
     # Mode (use --copolymer_mode to match other graph models)
     parser.add_argument("--copolymer_mode", type=str, choices=["mix", "interact"], default="mix",
@@ -446,7 +448,19 @@ def main():
     set_seed(SEED)
 
     # ---- Load and preprocess data (reuses copolymer handling) ----
+    # If --incl_poly_type, temporarily remove poly_type from dataset_ignore so it
+    # survives load_and_preprocess_data; we'll handle exclusion from targets manually.
+    if args.incl_poly_type:
+        ds_ignore = config.get('DATASET_IGNORE', {}).get(args.dataset_name, []) or []
+        if "poly_type" in ds_ignore:
+            ds_ignore_filtered = [c for c in ds_ignore if c != "poly_type"]
+            config['DATASET_IGNORE'][args.dataset_name] = ds_ignore_filtered
+
     df_input, target_columns = load_and_preprocess_data(args, setup_info)
+
+    # Remove poly_type from target columns if it survived (identity baseline uses it as a feature)
+    if args.incl_poly_type and "poly_type" in target_columns:
+        target_columns = [c for c in target_columns if c != "poly_type"]
 
     # ---- Filter targets if --targets is specified ----
     if args.targets:
@@ -484,6 +498,26 @@ def main():
         meta_raw = None
         meta_dim = 0
         logger.info("No descriptor (meta) features.")
+
+    # ---- One-hot encoding of poly_type (ea_ip only) ----
+    poly_type_classes = None
+    if args.incl_poly_type:
+        poly_type_vals = df_input["poly_type"].astype(str).values
+        poly_type_classes = sorted(set(poly_type_vals))
+        pt_to_idx = {c: i for i, c in enumerate(poly_type_classes)}
+        n_poly_types = len(poly_type_classes)
+        poly_type_onehot = np.zeros((len(df_input), n_poly_types), dtype=np.float32)
+        for row_i, pt in enumerate(poly_type_vals):
+            poly_type_onehot[row_i, pt_to_idx[pt]] = 1.0
+        logger.info(f"One-hot encoded poly_type: {n_poly_types} classes {poly_type_classes}")
+
+        # Concatenate to meta features
+        if meta_raw is not None:
+            meta_raw = np.concatenate([meta_raw, poly_type_onehot], axis=1)
+        else:
+            meta_raw = poly_type_onehot
+        meta_dim = meta_raw.shape[1]
+        logger.info(f"Meta features after poly_type concat: {meta_dim} dims")
 
     # ---- Save vocab ----
     out_base = results_dir / "IdentityBaseline"
@@ -638,7 +672,7 @@ def main():
             # For classification, pass original labels for log_loss
             cls_labels = all_labels if args.task_type != "reg" else None
 
-            metrics = train_one_split(
+            metrics, y_true_split, y_pred_split = train_one_split(
                 model, train_loader, val_loader, test_loader,
                 task_type=args.task_type,
                 lr=args.lr,
@@ -651,6 +685,22 @@ def main():
             )
             metrics["split"] = i
             target_results.append(metrics)
+
+            # Save predictions if requested
+            if args.save_predictions:
+                pred_out_dir = results_dir.parent / "predictions" / "IdentityBaseline"
+                pred_out_dir.mkdir(parents=True, exist_ok=True)
+                mode_sfx = f"__copoly_{args.copolymer_mode}"
+                pt_sfx = "__poly_type" if args.incl_poly_type else ""
+                split_sfx = f"__{args.split_type}" if args.split_type != "random" else ""
+                fname = f"{args.dataset_name}__{target}{pt_sfx}{mode_sfx}{split_sfx}__split{i}.npz"
+                np.savez_compressed(
+                    pred_out_dir / fname,
+                    y_true=y_true_split,
+                    y_pred=y_pred_split,
+                    test_indices=np.array(te),
+                )
+                logger.info(f"Saved predictions → {pred_out_dir / fname}")
 
             # Log split results
             metric_strs = [f"{k}={v:.4f}" for k, v in metrics.items() if k != "split"]
@@ -672,6 +722,8 @@ def main():
             filename_parts = [args.dataset_name]
             if args.incl_desc:
                 filename_parts.append("desc")
+            if args.incl_poly_type:
+                filename_parts.append("poly_type")
             # Use copoly_{mode} to match other graph models, not identity_{mode}
             filename_parts.append(f"copoly_{args.copolymer_mode}")
             if args.split_type != "random":
@@ -698,6 +750,8 @@ def main():
         filename_parts = [args.dataset_name]
         if args.incl_desc:
             filename_parts.append("desc")
+        if args.incl_poly_type:
+            filename_parts.append("poly_type")
         filename_parts.append(f"copoly_{args.copolymer_mode}")
         if args.split_type != "random":
             filename_parts.append(args.split_type)

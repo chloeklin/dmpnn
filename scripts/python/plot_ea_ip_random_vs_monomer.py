@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+"""
+Plot EA/IP dataset: Random split vs Monomer (a_held_out) split comparison.
+
+For each metric (mae, rmse, r2): one figure with 2 panels.
+  Left panel:  Random split
+  Right panel: Monomer split (held-out monomer)
+
+Models are grouped into 3 categories:
+  Identity  → IdentityBaseline
+  Graph     → DMPNN, GAT, GIN
+  Tabular   → Linear, RF, XGB
+
+For each model, two bars are shown (one per target: EA vs SHE, IP vs SHE).
+Best configuration (lowest RMSE) is selected per model/split/target.
+"""
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from pathlib import Path
+
+# ── paths ──────────────────────────────────────────────────────────────────
+PROJECT_DIR  = Path(__file__).resolve().parent.parent.parent
+RESULTS_DIR  = PROJECT_DIR / "results"
+CONSOL_CSV   = PROJECT_DIR / "plots" / "combined" / "datasets_ea_ip" / "ea_ip_consolidated_results.csv"
+OUTPUT_DIR   = PROJECT_DIR / "plots" / "ea_ip_random_vs_monomer"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── colour palette ─────────────────────────────────────────────────────────
+TARGET_COLORS = {
+    "EA vs SHE (eV)": "#2171b5",   # blue
+    "IP vs SHE (eV)": "#cb181d",   # red
+}
+TARGET_HATCHES = {
+    "EA vs SHE (eV)": "",
+    "IP vs SHE (eV)": "///",
+}
+
+CATEGORY_COLORS = {
+    "Identity": "#737373",
+    "Graph":    "#2171b5",
+    "Tabular":  "#238b45",
+}
+
+# ── model ordering ─────────────────────────────────────────────────────────
+# (category, model_name, copolymer_mode)  — mode=None for tabular
+MODEL_ORDER = [
+    ("Identity", "IdentityBaseline", "mix"),
+    ("Identity", "IdentityBaseline", "interact"),
+    ("Graph",    "DMPNN",           "mix"),
+    ("Graph",    "DMPNN",           "interact"),
+    ("Graph",    "GAT",             "mix"),
+    ("Graph",    "GAT",             "interact"),
+    ("Graph",    "GIN",             "mix"),
+    ("Graph",    "GIN",             "interact"),
+    ("Tabular",  "Linear",          None),
+    ("Tabular",  "RF",              None),
+    ("Tabular",  "XGB",             None),
+]
+
+def model_label(model_name: str, mode: str | None) -> str:
+    base = {"IdentityBaseline": "Identity"}.get(model_name, model_name)
+    if mode is None:
+        return base
+    return f"{base}\n({mode})"
+
+METRICS = ["mae", "rmse", "r2"]
+METRIC_LABELS = {"mae": "MAE", "rmse": "RMSE", "r2": "R²"}
+LOWER_IS_BETTER = {"mae", "rmse"}
+
+
+# ── helpers ─────────────────────────────────────────────────────────────────
+
+def load_consolidated() -> pd.DataFrame:
+    if not CONSOL_CSV.exists():
+        raise FileNotFoundError(
+            f"Consolidated CSV not found:\n  {CONSOL_CSV}\n"
+            "Run: python3 scripts/python/visualize_combined_results.py --dataset ea_ip"
+        )
+    df = pd.read_csv(CONSOL_CSV)
+    print(f"Loaded {len(df)} rows from consolidated CSV")
+    print(f"  columns : {list(df.columns)}")
+    print(f"  methods : {sorted(df['method'].unique())}")
+    print(f"  features: {sorted(df['features'].unique())[:10]}...")
+    return df
+
+
+def is_held_out(features_str: str) -> bool:
+    return "[a_held_out]" in str(features_str)
+
+
+def best_row(subset: pd.DataFrame, metric: str = "rmse") -> pd.Series | None:
+    """Return the single best row (lowest RMSE mean, or highest R² mean)."""
+    if subset.empty:
+        return None
+    mean_col = f"{metric}_mean"
+    if mean_col not in subset.columns:
+        mean_col = f"rmse_mean" if "rmse_mean" in subset.columns else None
+    if mean_col is None:
+        return subset.iloc[0]
+    if metric in LOWER_IS_BETTER or mean_col == "rmse_mean":
+        return subset.loc[subset[mean_col].idxmin()]
+    else:
+        return subset.loc[subset[mean_col].idxmax()]
+
+
+def get_model_data(df: pd.DataFrame, category: str, model_name: str,
+                   mode: str | None, target: str, split: str,
+                   metric: str) -> tuple[float, float] | tuple[None, None]:
+    """Get (mean, std) for a model/target/split/metric.
+
+    For graph/identity models, ``mode`` selects the copolymer mode
+    (e.g. 'mix' or 'interact'). For tabular models, mode is ignored.
+    """
+    held = (split == "monomer")
+
+    # Filter by split type
+    mask_split = df["features"].apply(is_held_out) == held
+    subset = df[mask_split].copy()
+
+    # Filter by target
+    subset = subset[subset["target"].astype(str).str.strip() == target]
+
+    if category == "Identity":
+        subset = subset[subset["method"].astype(str).str.contains("IdentityBaseline")]
+    elif category == "Graph":
+        subset = subset[subset["method"].astype(str) == f"Graph_{model_name}"]
+    elif category == "Tabular":
+        subset = subset[
+            (subset["method"].astype(str) == "Tabular") &
+            (subset["model"].astype(str) == model_name)
+        ]
+
+    # Filter by copolymer mode (graph / identity only)
+    if mode is not None:
+        subset = subset[subset["features"].astype(str).str.contains(f"({mode})", regex=False)]
+
+    # For tabular: pick the best feature set (lowest RMSE)
+    row = best_row(subset, "rmse")
+    if row is None:
+        return None, None
+
+    mean_col = f"{metric}_mean"
+    std_col  = f"{metric}_std"
+    if mean_col not in row.index:
+        return None, None
+    return float(row[mean_col]), float(row.get(std_col, 0) or 0)
+
+
+# ── plot ─────────────────────────────────────────────────────────────────────
+
+def make_figure(df: pd.DataFrame, metric: str):
+    targets = ["EA vs SHE (eV)", "IP vs SHE (eV)"]
+    splits  = ["random", "monomer"]
+    split_titles = {"random": "Random Split", "monomer": "Monomer Split (held-out)"}
+
+    n_models = len(MODEL_ORDER)
+    n_targets = len(targets)
+    bar_w = 0.32
+    group_gap = 0.2  # extra gap between category groups
+
+    # Compute x positions with category separators
+    category_breaks = []   # indices where category changes
+    prev_cat = MODEL_ORDER[0][0]
+    x_positions = []
+    x = 0.0
+    for i, (cat, _m, _md) in enumerate(MODEL_ORDER):
+        if cat != prev_cat:
+            x += group_gap
+            category_breaks.append(i)
+            prev_cat = cat
+        x_positions.append(x)
+        x += n_targets * bar_w + 0.1   # spacing between model groups
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    fig.subplots_adjust(wspace=0.05)
+
+    for ax_idx, split in enumerate(splits):
+        ax = axes[ax_idx]
+        legend_done = (ax_idx > 0)
+
+        for i, (cat, model, mode) in enumerate(MODEL_ORDER):
+            x_base = x_positions[i]
+            for j, target in enumerate(targets):
+                mean, std = get_model_data(df, cat, model, mode, target, split, metric)
+                if mean is None:
+                    continue
+                x_bar = x_base + j * bar_w
+                color = TARGET_COLORS[target]
+                hatch = TARGET_HATCHES[target]
+                label = target if (ax_idx == 0 and i == 0) else None
+                ax.bar(
+                    x_bar, mean, bar_w,
+                    yerr=std if std > 0 else None,
+                    color=color, hatch=hatch, alpha=0.85,
+                    edgecolor="black", linewidth=0.6,
+                    capsize=3, label=label,
+                    error_kw={"elinewidth": 0.8, "capthick": 0.8},
+                )
+
+        # X ticks: centred on each model group
+        tick_pos = [x_positions[i] + (n_targets * bar_w - bar_w) / 2
+                    for i in range(n_models)]
+        ax.set_xticks(tick_pos)
+        ax.set_xticklabels(
+            [model_label(m, md) for _, m, md in MODEL_ORDER],
+            fontsize=10, rotation=45, ha="right"
+        )
+
+        # Category shading: axvspan background + label inside plot at top
+        y_top = ax.get_ylim()[1]
+        y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+        for cat_name, color in CATEGORY_COLORS.items():
+            idxs = [i for i, (c, _, _md) in enumerate(MODEL_ORDER) if c == cat_name]
+            if not idxs:
+                continue
+            x_lo = x_positions[idxs[0]] - 0.1
+            x_hi = x_positions[idxs[-1]] + n_targets * bar_w + 0.1
+            ax.axvspan(x_lo, x_hi, color=color, alpha=0.07, zorder=0)
+            mid = (x_lo + x_hi) / 2
+            ax.text(mid, y_top - y_range * 0.03, cat_name,
+                    ha="center", va="top", fontsize=9,
+                    color=color, fontweight="bold",
+                    bbox=dict(boxstyle="round,pad=0.15", facecolor="white",
+                              alpha=0.75, edgecolor="none"))
+
+        # Vertical separators between categories
+        for break_idx in category_breaks:
+            sep_x = (x_positions[break_idx - 1] + n_targets * bar_w + 0.05 +
+                     x_positions[break_idx]) / 2
+            ax.axvline(sep_x, color="gray", linestyle=":", linewidth=1, alpha=0.5)
+
+        ax.set_title(split_titles[split], fontsize=12, fontweight="bold")
+        if ax_idx == 0:
+            ax.set_ylabel(METRIC_LABELS[metric], fontsize=11, fontweight="bold")
+        ax.grid(axis="y", alpha=0.3, linestyle="--")
+        ax.set_xlim(x_positions[0] - 0.3,
+                    x_positions[-1] + n_targets * bar_w + 0.3)
+
+        # Print missing data
+        for cat, model, mode in MODEL_ORDER:
+            for target in targets:
+                m, _ = get_model_data(df, cat, model, mode, target, split, metric)
+                if m is None:
+                    label = model_label(model, mode)
+                    print(f"  [MISSING] {split:8s} | {label:25s} | {target}")
+
+    # Legend: targets
+    handles = [
+        mpatches.Patch(facecolor=TARGET_COLORS[t], hatch=TARGET_HATCHES[t],
+                       edgecolor="black", linewidth=0.6, label=t)
+        for t in targets
+    ]
+    fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 1.01),
+               ncol=2, fontsize=10, frameon=True)
+    fig.suptitle(f"EA/IP — {METRIC_LABELS[metric]}: Random vs Monomer Split",
+                 fontsize=13, fontweight="bold", y=1.06)
+    fig.tight_layout()
+
+    out = OUTPUT_DIR / f"ea_ip_{metric}_random_vs_monomer.png"
+    fig.savefig(out, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {out}")
+
+
+# ── main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    df = load_consolidated()
+
+    for metric in METRICS:
+        mean_col = f"{metric}_mean"
+        if mean_col not in df.columns:
+            print(f"Skipping {metric} — column '{mean_col}' not in CSV")
+            continue
+        print(f"\nPlotting {metric.upper()} ...")
+        make_figure(df, metric)
+
+    print(f"\nAll plots → {OUTPUT_DIR}")
+
+
+if __name__ == "__main__":
+    main()

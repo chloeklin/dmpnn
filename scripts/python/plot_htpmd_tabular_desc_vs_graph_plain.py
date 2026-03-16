@@ -15,6 +15,9 @@ output_dir.mkdir(parents=True, exist_ok=True)
 
 # Load tabular results - ONLY descriptors
 tabular_desc = pd.read_csv(results_dir / "tabular" / "htpmd_descriptors.csv")
+# Compute RMSE from MSE (tabular results only have MSE)
+if 'mse' in tabular_desc.columns and 'rmse' not in tabular_desc.columns:
+    tabular_desc['rmse'] = np.sqrt(tabular_desc['mse'])
 tabular_desc['method'] = 'Tabular'
 tabular_desc['model'] = 'Linear'
 tabular_desc['features'] = 'Desc'

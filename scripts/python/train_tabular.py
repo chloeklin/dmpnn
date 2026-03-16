@@ -33,7 +33,7 @@ from utils import (
 
 # ---------------------------- Training Loop ----------------------------
 
-def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, args, smiles_column="smiles", existing_results=None):
+def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, args, smiles_column="smiles", existing_results=None, poly_type_array=None):
     """Train and evaluate models for a single target variable.
     
     Args:
@@ -190,6 +190,23 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
             X_tr, X_val, X_te = ab_tr, ab_val, ab_te
             feat_names = ab_names
 
+        # Append poly_type one-hot if requested
+        if getattr(args, 'incl_poly_type', False) and poly_type_array is not None:
+            # Build one-hot using valid_mask indices, then split by split indices
+            pt_valid = poly_type_array[valid_mask] if not valid_mask.all() else poly_type_array
+            pt_classes = sorted(set(pt_valid))
+            pt_to_idx = {c: j for j, c in enumerate(pt_classes)}
+            n_pt = len(pt_classes)
+            def _onehot(indices):
+                oh = np.zeros((len(indices), n_pt), dtype=np.float32)
+                for row_j, idx in enumerate(indices):
+                    oh[row_j, pt_to_idx[pt_valid[idx]]] = 1.0
+                return oh
+            X_tr  = np.concatenate([X_tr,  _onehot(train_idx)], axis=1)
+            X_val = np.concatenate([X_val, _onehot(val_idx)],   axis=1)
+            X_te  = np.concatenate([X_te,  _onehot(test_idx)],  axis=1)
+            logger.info(f"Appended poly_type one-hot ({n_pt} classes): {pt_classes}")
+
         # Initialize target scaler for regression tasks
         target_scaler = None
         if args.task_type == 'reg':
@@ -315,7 +332,28 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
             row = {"target": target_name, "split": i, "model": name}
             row.update({k: float(v) for k, v in metrics.items()})
             detailed_rows.append(row)
-            
+
+            # Save predictions as npz if requested
+            if getattr(args, 'save_predictions', False) and args.task_type == 'reg':
+                feat_sfx = ""
+                if getattr(args, 'incl_rdkit', False):
+                    feat_sfx += "__rdkit"
+                if getattr(args, 'incl_ab', False):
+                    feat_sfx += "__ab"
+                if getattr(args, 'incl_poly_type', False):
+                    feat_sfx += "__poly_type"
+                split_sfx = f"__{getattr(args, 'split_type', 'random')}"
+                pred_out_dir = out_dir.parent.parent / "predictions" / "Tabular"
+                pred_out_dir.mkdir(parents=True, exist_ok=True)
+                fname = f"{args.dataset_name}__{target_name}{feat_sfx}{split_sfx}__{name}__split{i}.npz"
+                np.savez_compressed(
+                    pred_out_dir / fname,
+                    y_true=np.array(y_te),
+                    y_pred=np.array(y_pred),
+                    test_indices=np.array(test_idx),
+                )
+                logger.info(f"Saved predictions → {pred_out_dir / fname}")
+
             # Save trained model for feature importance analysis
             model_file = out_dir / f"{name}_split_{i}.pkl"
             joblib.dump(model, model_file)
@@ -351,7 +389,9 @@ def main():
     parser.add_argument('--split_type', type=str, choices=['random', 'a_held_out'],
                     default='random',
                     help='Split strategy: random (default) or a_held_out (group by smiles_A)')
-    
+    parser.add_argument('--incl_poly_type', action='store_true',
+                    help='Append one-hot encoded poly_type column to features (ea_ip only)')
+
     args = parser.parse_args()
     
     # Validate train_size argument
@@ -390,6 +430,17 @@ def main():
     # === Set Random Seed ===
     set_seed(SEED)
     
+    # === Pre-read poly_type before load_and_preprocess_data drops it ===
+    poly_type_array = None
+    if args.incl_poly_type:
+        _data_path = setup_info['chemprop_dir'] / 'data' / f'{args.dataset_name}.csv'
+        _df_raw = pd.read_csv(_data_path)
+        if 'poly_type' not in _df_raw.columns:
+            raise ValueError('--incl_poly_type requires a poly_type column in the dataset.')
+        poly_type_array = _df_raw['poly_type'].astype(str).values
+        logger.info(f'Pre-read poly_type: {sorted(set(poly_type_array))} ({len(poly_type_array)} rows)')
+        del _df_raw
+
     # === Load and Preprocess Data ===
     df_input, target_columns = load_and_preprocess_data(args, setup_info)
 
@@ -443,7 +494,7 @@ def main():
         
         # Train models and get evaluation results
         target_existing = existing_results.get(tcol, {})
-        rows = train(df_input, y_vec, tcol, descriptor_columns, REPLICATES, SEED, out_dir, args, setup_info['smiles_column'], target_existing)
+        rows = train(df_input, y_vec, tcol, descriptor_columns, REPLICATES, SEED, out_dir, args, setup_info['smiles_column'], target_existing, poly_type_array=poly_type_array)
 
         # Aggregate results across all targets
         all_rows.extend(rows)

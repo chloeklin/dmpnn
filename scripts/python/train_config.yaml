@@ -175,6 +175,8 @@ dataset_ignore:
     ["BigSMILES", "wdmpnn_input"]
   combined_homopolymer:
     ["dataset_source"]
+  ea_ip:
+    ["poly_type"]
 
 # Model-specific settings
 models:

@@ -121,7 +121,7 @@ color_map['Tabular_Desc'] = model_base_colors['Tabular']
 graph_only_data = combined[combined['model'] != 'Tabular'].copy()
 
 models = ['DMPNN', 'GIN', 'GAT']
-variant_order = ['graph_only', 'desc', 'aux', 'film', 'film_fllast']
+variant_order = ['graph_only', 'desc', 'film', 'film_fllast', 'aux']
 
 for metric in metrics:
     if metric not in graph_only_data.columns:
@@ -173,8 +173,10 @@ for metric in metrics:
         ax.set_xticklabels([variant_labels[v] for v in variant_order], fontsize=9, rotation=25, ha='right')
         ax.grid(axis='y', alpha=0.3, linestyle='--')
     
-    # Add legend outside the plot area
-    fig.legend(models, loc='upper center', bbox_to_anchor=(0.5, -0.02), ncol=3, frameon=True, fontsize=10)
+    # Add legend with correct colors
+    from matplotlib.patches import Patch
+    legend_patches = [Patch(facecolor=model_base_colors[m], edgecolor='black', linewidth=0.8, label=m) for m in models]
+    fig.legend(handles=legend_patches, loc='upper center', bbox_to_anchor=(0.5, -0.02), ncol=3, frameon=True, fontsize=10)
     fig.suptitle(f'HTPMD: Graph Model Fusion Variants - {metric.upper()}', fontsize=14, fontweight='bold', y=1.02)
     plt.tight_layout()
     
@@ -185,29 +187,40 @@ for metric in metrics:
     print(f"Saved: {output_file}")
 
 # ============================================================
-# PLOT 2: Graph variants + Tabular (desc only)
+# PLOT 2: Graph variants + Tabular (as separate group on x-axis)
 # All targets in one figure with subplots
 # ============================================================
-models_with_tabular = ['DMPNN', 'GIN', 'GAT', 'Tabular']
+graph_models = ['DMPNN', 'GIN', 'GAT']
+# x-axis groups: graph variants first, then Tabular as its own group
+x_group_labels = [variant_labels[v] for v in variant_order] + ['Tabular']
+n_graph_groups = len(variant_order)
+
+# Tabular sub-models to show (from the tabular CSV 'model' column)
+tabular_sub_models = []
+tab_data_check = combined[combined['model'] == 'Tabular']
+if not tab_data_check.empty and 'model' in tab_data_check.columns:
+    # Tabular CSV has a 'model' column with Linear/RF/XGB etc.
+    # but we loaded it with model='Tabular', so check the original file
+    tabular_sub_models = sorted(tab_data_check['model'].unique().tolist())
 
 for metric in metrics:
     if metric not in combined.columns:
         print(f"Skipping {metric} - not in data")
         continue
     
-    # Create figure with subplots for all targets
-    fig, axes = plt.subplots(1, len(targets), figsize=(20, 5))
+    fig, axes = plt.subplots(1, len(targets), figsize=(22, 5))
     
     for target_idx, target in enumerate(targets):
         ax = axes[target_idx]
         
-        bar_width = 0.18
-        x_base = np.arange(len(variant_order))
-        
+        n_models = len(graph_models)
+        bar_width = 0.25
         target_data = combined[combined['target'] == target]
         
-        # Plot each model
-        for model_idx, model in enumerate(models_with_tabular):
+        # --- Graph variant groups (positions 0..n_graph_groups-1) ---
+        x_base = np.arange(n_graph_groups)
+        
+        for model_idx, model in enumerate(graph_models):
             means = []
             stds = []
             
@@ -216,7 +229,6 @@ for metric in metrics:
                     (target_data['model'] == model) & 
                     (target_data['variant'] == variant_key)
                 ]
-                
                 if not variant_data.empty:
                     means.append(variant_data[metric].mean())
                     stds.append(variant_data[metric].std())
@@ -225,8 +237,6 @@ for metric in metrics:
                     stds.append(0)
             
             x_pos = x_base + model_idx * bar_width
-            
-            # Filter out NaN values for plotting
             valid_mask = ~np.isnan(means)
             if valid_mask.any():
                 ax.bar(x_pos[valid_mask], np.array(means)[valid_mask], bar_width,
@@ -238,14 +248,41 @@ for metric in metrics:
                        linewidth=0.8,
                        label=model if target_idx == 0 else '')
         
+        # --- Tabular group (separate position to the right) ---
+        tabular_x = n_graph_groups + 0.5  # gap before Tabular group
+        tab_target = target_data[target_data['model'] == 'Tabular']
+        if not tab_target.empty and metric in tab_target.columns:
+            tab_mean = tab_target[metric].mean()
+            tab_std = tab_target[metric].std()
+            # Centre a single bar at the Tabular position
+            ax.bar(tabular_x + bar_width, tab_mean, bar_width * n_models,
+                   yerr=tab_std,
+                   color=model_base_colors['Tabular'],
+                   alpha=0.8,
+                   capsize=3,
+                   edgecolor='black',
+                   linewidth=0.8,
+                   label='Tabular' if target_idx == 0 else '')
+        
+        # x-tick positions and labels
+        graph_tick_positions = x_base + bar_width * (n_models - 1) / 2
+        tabular_tick_pos = tabular_x + bar_width
+        all_ticks = list(graph_tick_positions) + [tabular_tick_pos]
+        
         ax.set_ylabel(metric.upper(), fontsize=11, fontweight='bold')
         ax.set_title(target, fontsize=12, fontweight='bold')
-        ax.set_xticks(x_base + bar_width * 1.5)
-        ax.set_xticklabels([variant_labels[v] for v in variant_order], fontsize=9, rotation=25, ha='right')
+        ax.set_xticks(all_ticks)
+        ax.set_xticklabels(x_group_labels, fontsize=9, rotation=25, ha='right')
         ax.grid(axis='y', alpha=0.3, linestyle='--')
+        
+        # Add a vertical dashed line to separate graph from tabular
+        sep_x = n_graph_groups + 0.1
+        ax.axvline(x=sep_x, color='gray', linestyle=':', linewidth=1, alpha=0.6)
     
-    # Add legend outside the plot area
-    fig.legend(models_with_tabular, loc='upper center', bbox_to_anchor=(0.5, -0.02), ncol=4, frameon=True, fontsize=10)
+    from matplotlib.patches import Patch
+    legend_patches = [Patch(facecolor=model_base_colors[m], edgecolor='black', linewidth=0.8, label=m) for m in graph_models]
+    legend_patches.append(Patch(facecolor=model_base_colors['Tabular'], edgecolor='black', linewidth=0.8, label='Tabular'))
+    fig.legend(handles=legend_patches, loc='upper center', bbox_to_anchor=(0.5, -0.02), ncol=4, frameon=True, fontsize=10)
     fig.suptitle(f'HTPMD: Graph Fusion Variants + Tabular - {metric.upper()}', fontsize=14, fontweight='bold', y=1.02)
     plt.tight_layout()
     

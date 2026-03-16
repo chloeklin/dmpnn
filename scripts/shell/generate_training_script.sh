@@ -47,6 +47,7 @@ WALLTIME="$3"
 INCL_RDKIT=""
 INCL_DESC=""
 INCL_AB=""
+INCL_POLY_TYPE=""
 BATCH_NORM=""
 PRETRAIN_MONOMER=""
 SAVE_CHECKPOINT=""
@@ -83,6 +84,7 @@ for arg in "${@:4}"; do
     incl_rdkit)         INCL_RDKIT="--incl_rdkit" ;;
     incl_desc)          INCL_DESC="--incl_desc" ;;
     incl_ab)            INCL_AB="--incl_ab" ;;
+    incl_poly_type)     INCL_POLY_TYPE="--incl_poly_type" ;;
     batch_norm)         BATCH_NORM="--batch_norm" ;;
     pretrain_monomer)   PRETRAIN_MONOMER="--pretrain_monomer" ;;
     save_checkpoint)    SAVE_CHECKPOINT="--save_checkpoint" ;;
@@ -146,6 +148,7 @@ fi
 [ -n "$INCL_DESC" ]          && ARGS="$ARGS $INCL_DESC"
 [ -n "$INCL_RDKIT" ]         && ARGS="$ARGS $INCL_RDKIT"
 [ -n "$INCL_AB" ]            && ARGS="$ARGS $INCL_AB"
+[ -n "$INCL_POLY_TYPE" ]     && ARGS="$ARGS $INCL_POLY_TYPE"
 # Graph-only flags (not supported by train_tabular.py)
 if [ "$MODEL" != "tabular" ]; then
   [ -n "$BATCH_NORM" ]         && ARGS="$ARGS $BATCH_NORM"
@@ -184,6 +187,7 @@ SUFFIX="_${MODEL}"
 [ -n "$INCL_DESC" ]        && SUFFIX="${SUFFIX}_desc"
 [ -n "$INCL_RDKIT" ]       && SUFFIX="${SUFFIX}_rdkit"
 [ -n "$INCL_AB" ]          && SUFFIX="${SUFFIX}_ab"
+[ -n "$INCL_POLY_TYPE" ]   && SUFFIX="${SUFFIX}_poly_type"
 [ -n "$BATCH_NORM" ]       && SUFFIX="${SUFFIX}_batch_norm"
 [ -n "$PRETRAIN_MONOMER" ] && SUFFIX="${SUFFIX}_pretrain"
 [ "$TASK_TYPE" != "reg" ]  && SUFFIX="${SUFFIX}_${TASK_TYPE}"

@@ -765,7 +765,7 @@ if args.polymer_type == "copolymer":
                     y_pred = y_pred.cpu().numpy()
                 
                 # Save predictions with IDs and training configuration metadata
-                split_type_sfx = f"__{args.split_type}" if args.split_type != "random" else ""
+                split_type_sfx = f"__{args.split_type}"
                 save_predictions(
                     y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
                     desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,

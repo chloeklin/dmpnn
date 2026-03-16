@@ -173,6 +173,9 @@ try:
         if exp.get('incl_ab', False):
             args.append('incl_ab')
         
+        if exp.get('incl_poly_type', False):
+            args.append('incl_poly_type')
+        
         if exp.get('batch_norm', False):
             args.append('batch_norm')
         
