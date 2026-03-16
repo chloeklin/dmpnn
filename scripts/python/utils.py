@@ -1787,11 +1787,9 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
         copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
         copoly_suffix = f"__copoly_{copolymer_mode}"
     
-    # Add split type suffix (only for non-default)
-    split_suffix = ""
+    # Add split type suffix (always included for disambiguation)
     split_type = getattr(args, 'split_type', 'random')
-    if split_type != 'random':
-        split_suffix = f"__{split_type}"
+    split_suffix = f"__{split_type}"
 
     base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{copoly_suffix}{split_suffix}{size_suffix}__rep{i}"
     

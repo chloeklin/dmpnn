@@ -795,28 +795,28 @@ experiments:
   #   targets: *eaip_targets
 
   # -- wDMPNN --
-  # - <<: *eaip_base
-  #   model: wDMPNN
-  #   copolymer_mode: mix
-  #   walltime: "7:30:00"
-  #   targets: *eaip_targets
-  # - <<: *eaip_base
-  #   model: wDMPNN
-  #   copolymer_mode: interact
-  #   walltime: "7:30:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: wDMPNN
+    copolymer_mode: mix
+    walltime: "12:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: wDMPNN
+    copolymer_mode: interact
+    walltime: "12:30:00"
+    targets: *eaip_targets
 
   # -- Identity Baseline --
-  - <<: *eaip_base
-    model: identity_baseline
-    copolymer_mode: mix
-    walltime: "2:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: identity_baseline
-    copolymer_mode: interact
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
   # -- Identity Baseline + poly_type --
   - <<: *eaip_base
@@ -833,31 +833,31 @@ experiments:
     targets: *eaip_targets
 
   # -- Tabular (no desc available; use ab, rdkit, ab+rdkit) --
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_ab: true
-    walltime: "2:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_rdkit: true
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_rdkit: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
   - <<: *eaip_base
     model: tabular
     polymer_type: copolymer
     incl_poly_type: true
     walltime: "2:00:00"
     targets: *eaip_targets
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_ab: true
-    incl_rdkit: true
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
   - <<: *eaip_base
     model: tabular
     polymer_type: copolymer
@@ -911,19 +911,33 @@ experiments:
   #   walltime: "2:30:00"
   #   targets: *eaip_targets
 
-  # -- Identity Baseline --
+  # -- wDMPNN --
   - <<: *eaip_base
-    model: identity_baseline
+    model: wDMPNN
     copolymer_mode: mix
     split_type: a_held_out
-    walltime: "2:00:00"
+    walltime: "12:30:00"
     targets: *eaip_targets
   - <<: *eaip_base
-    model: identity_baseline
+    model: wDMPNN
     copolymer_mode: interact
     split_type: a_held_out
-    walltime: "2:00:00"
+    walltime: "12:30:00"
     targets: *eaip_targets
+
+  # -- Identity Baseline --
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: mix
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: interact
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
 
   # -- Identity Baseline + poly_type (a_held_out) --
   - <<: *eaip_base
@@ -942,28 +956,28 @@ experiments:
     targets: *eaip_targets
 
   # -- Tabular (a_held_out) --htpmd
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_ab: true
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_rdkit: true
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_ab: true
-    incl_rdkit: true
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_rdkit: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
   - <<: *eaip_base
     model: tabular
     polymer_type: copolymer
