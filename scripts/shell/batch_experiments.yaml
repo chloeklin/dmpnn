@@ -797,12 +797,10 @@ experiments:
   # -- wDMPNN --
   - <<: *eaip_base
     model: wDMPNN
-    copolymer_mode: mix
     walltime: "12:30:00"
     targets: *eaip_targets
   - <<: *eaip_base
     model: wDMPNN
-    copolymer_mode: interact
     walltime: "12:30:00"
     targets: *eaip_targets
 
@@ -914,13 +912,11 @@ experiments:
   # -- wDMPNN --
   - <<: *eaip_base
     model: wDMPNN
-    copolymer_mode: mix
     split_type: a_held_out
     walltime: "12:30:00"
     targets: *eaip_targets
   - <<: *eaip_base
     model: wDMPNN
-    copolymer_mode: interact
     split_type: a_held_out
     walltime: "12:30:00"
     targets: *eaip_targets
