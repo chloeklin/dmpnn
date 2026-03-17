@@ -1000,16 +1000,16 @@ experiments:
     targets: *eaip_targets
 
   # -- wDMPNN --
-  - <<: *eaip_base
-    model: wDMPNN
-    split_type: a_held_out
-    walltime: "12:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: wDMPNN
-    split_type: a_held_out
-    walltime: "12:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: wDMPNN
+  #   split_type: a_held_out
+  #   walltime: "12:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: wDMPNN
+  #   split_type: a_held_out
+  #   walltime: "12:30:00"
+  #   targets: *eaip_targets
 
   # -- Identity Baseline --
   # - <<: *eaip_base
