@@ -63,7 +63,10 @@ def create_base_argument_parser(description="Train a graph model"):
                              '"mix_frac_meta" = z + fracs + descriptors, '
                              '"interact" = [z_A||z_B||diff||prod||fracs], '
                              '"interact_meta" = interact + descriptors')
-    
+    parser.add_argument('--incl_poly_type', action='store_true',
+                        help='Append one-hot encoded poly_type column as global descriptor '
+                             '(copolymer datasets only; auto-upgrades mix→mix_meta, interact→interact_meta)')
+
     # Split arguments
     parser.add_argument('--split_type', type=str, default='random',
                         choices=['random', 'a_held_out'],
@@ -1785,7 +1788,8 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     polymer_type = getattr(args, 'polymer_type', 'homo')
     if polymer_type == 'copolymer':
         copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
-        copoly_suffix = f"__copoly_{copolymer_mode}"
+        poly_type_sfx = "__poly_type" if getattr(args, 'incl_poly_type', False) else ""
+        copoly_suffix = f"{poly_type_sfx}__copoly_{copolymer_mode}"
     
     # Add split type suffix (always included for disambiguation)
     split_type = getattr(args, 'split_type', 'random')

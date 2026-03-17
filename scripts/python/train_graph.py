@@ -343,6 +343,36 @@ if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
             logger.warning(f"Found {np.sum(nan_mask)} NaN values in descriptors, will use per-split median imputation")
         logger.info(f"Copolymer descriptor shape after global cleaning: {orig_Xd_copoly.shape}")
 
+    # ── poly_type one-hot (incl_poly_type) ─────────────────────────────────
+    # Appended to orig_Xd_copoly so it flows through the standard
+    # imputation / correlation-removal / scaling pipeline.
+    # copolymer_mode is auto-upgraded to a *_meta variant so that
+    # CopolymerMPNN._apply_mode forwards X_d to the predictor head.
+    if getattr(args, 'incl_poly_type', False):
+        if 'poly_type' not in df_input.columns:
+            raise ValueError('--incl_poly_type requires a poly_type column in the dataset')
+        _POLY_CATS = sorted(df_input['poly_type'].dropna().astype(str).unique().tolist())
+        _poly_oh = (
+            pd.get_dummies(df_input['poly_type'].astype(str))
+            .reindex(columns=_POLY_CATS, fill_value=0)
+            .values.astype(np.float64)
+        )
+        logger.info(f'incl_poly_type: categories={_POLY_CATS}, one-hot shape={_poly_oh.shape}')
+        if orig_Xd_copoly is not None:
+            orig_Xd_copoly = np.hstack([orig_Xd_copoly, _poly_oh])
+        else:
+            orig_Xd_copoly = _poly_oh.copy()
+        if combined_descriptor_data is not None:
+            combined_descriptor_data = np.hstack([combined_descriptor_data, _poly_oh.astype(np.float32)])
+        else:
+            combined_descriptor_data = _poly_oh.astype(np.float32)
+        # Auto-upgrade base mode → meta variant so X_d is forwarded
+        _UPGRADES = {'mix': 'mix_meta', 'interact': 'interact_meta', 'mix_frac': 'mix_frac_meta'}
+        if copolymer_mode in _UPGRADES:
+            args.copolymer_mode = _UPGRADES[copolymer_mode]
+            copolymer_mode = args.copolymer_mode
+            logger.info(f'incl_poly_type: copolymer_mode upgraded to {copolymer_mode}')
+
     featurizer_copoly = featurizers.SimpleMoleculeMolGraphFeaturizer()
 
     all_results = []
