@@ -527,6 +527,7 @@ if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
                         imputer = SimpleImputer(strategy='median')
                         imputer.statistics_ = np.array(imputer_stats)
                         imputer.n_features_in_ = orig_Xd_copoly.shape[1]
+                        imputer._fit_dtype = orig_Xd_copoly.dtype
                         all_data_clean = imputer.transform(orig_Xd_copoly)
                     else:
                         all_data_clean = orig_Xd_copoly.copy()

@@ -1,5 +1,6 @@
 train*.sh
 PPG/
+HPG/
 predictions/*
 results/embeddings/
 preprocessing/*
