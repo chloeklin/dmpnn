@@ -391,6 +391,8 @@ def main():
                     help='Split strategy: random (default) or a_held_out (group by smiles_A)')
     parser.add_argument('--incl_poly_type', action='store_true',
                     help='Append one-hot encoded poly_type column to features (ea_ip only)')
+    parser.add_argument('--save_predictions', action='store_true',
+                    help='Save y_true/y_pred/test_indices as .npz files under predictions/Tabular/')
 
     args = parser.parse_args()
     

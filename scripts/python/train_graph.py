@@ -276,7 +276,9 @@ if args.pretrain_monomer:
 
 
 # ========================= COPOLYMER BRANCH =========================
-if args.polymer_type == "copolymer":
+# wDMPNN bypasses the copolymer branch: it reads from WDMPNN_Input and
+# runs through the standard homopolymer path below.
+if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
     from chemprop.data.copolymer import CopolymerDataset, MultiMonomerCopolymerDataset
     from chemprop.models.copolymer import CopolymerMPNN
 
@@ -341,10 +343,7 @@ if args.polymer_type == "copolymer":
             logger.warning(f"Found {np.sum(nan_mask)} NaN values in descriptors, will use per-split median imputation")
         logger.info(f"Copolymer descriptor shape after global cleaning: {orig_Xd_copoly.shape}")
 
-    if args.model_name == "wDMPNN":
-        featurizer_copoly = featurizers.PolymerMolGraphFeaturizer()
-    else:
-        featurizer_copoly = featurizers.SimpleMoleculeMolGraphFeaturizer()
+    featurizer_copoly = featurizers.SimpleMoleculeMolGraphFeaturizer()
 
     all_results = []
 

@@ -50,23 +50,32 @@ SPLIT_TYPE = "random"  # default; overridden by --split_type
 def _graph_pattern(model_dir, target, mode="copoly_mix"):
     """Return list of npz paths for all splits of a graph/identity model.
 
-    Tries new naming (with split_type suffix) first, then falls back to old
-    naming (no suffix) for backward compatibility with pre-existing files.
+    For 'random' split: tries new naming first, falls back to old unsuffixed
+    naming for backward compatibility.
+    For other splits (e.g. 'a_held_out'): only looks for split-typed files;
+    never falls back to unsuffixed files (which are random-split data).
     """
     paths = []
     for i in range(N_SPLITS):
         new_p = PRED_DIR / model_dir / f"ea_ip__{target}__{mode}__{SPLIT_TYPE}__split{i}.npz"
-        old_p = PRED_DIR / model_dir / f"ea_ip__{target}__{mode}__split{i}.npz"
-        # prefer new naming, fall back to old
-        paths.append(new_p if new_p.exists() else old_p)
+        if new_p.exists():
+            paths.append(new_p)
+        elif SPLIT_TYPE == "random":
+            # backward compat: old files have no split suffix
+            old_p = PRED_DIR / model_dir / f"ea_ip__{target}__{mode}__split{i}.npz"
+            paths.append(old_p)
+        else:
+            # non-random split: return expected path; load_predictions skips missing
+            paths.append(new_p)
     return paths
 
 
 def _tabular_pattern(model_name, target):
     """Return the best-available npz file list for a tabular model.
 
-    Tries feature sets in descending preference, with new split_type naming
-    first and old naming as fallback.
+    Tries feature sets in descending preference.
+    For 'random' split: also falls back to old unsuffixed naming.
+    For other splits: only uses split-typed filenames.
     """
     feat_candidates = ["__rdkit__ab", "__ab", "__rdkit", ""]
     for feat in feat_candidates:
@@ -82,21 +91,25 @@ def _tabular_pattern(model_name, target):
         if ok:
             return paths
 
-        # old naming (no split_type, backward compat)
-        paths = []
-        ok = True
-        for i in range(N_SPLITS):
-            p = PRED_DIR / "Tabular" / f"ea_ip__{target}{feat}__{model_name}__split{i}.npz"
-            if not p.exists():
-                ok = False
-                break
-            paths.append(p)
-        if ok:
-            return paths
+        # old naming (no split_type) — only valid as fallback for random split
+        if SPLIT_TYPE == "random":
+            paths = []
+            ok = True
+            for i in range(N_SPLITS):
+                p = PRED_DIR / "Tabular" / f"ea_ip__{target}{feat}__{model_name}__split{i}.npz"
+                if not p.exists():
+                    ok = False
+                    break
+                paths.append(p)
+            if ok:
+                return paths
 
-    # Return partial matches as last resort
+    # Partial-match fallback (any split present) — same split-type restriction
     for feat in feat_candidates:
-        for sfx in [f"__{SPLIT_TYPE}", ""]:
+        sfx_candidates = [f"__{SPLIT_TYPE}"]
+        if SPLIT_TYPE == "random":
+            sfx_candidates.append("")
+        for sfx in sfx_candidates:
             paths = [
                 PRED_DIR / "Tabular" / f"ea_ip__{target}{feat}{sfx}__{model_name}__split{i}.npz"
                 for i in range(N_SPLITS)
@@ -109,12 +122,13 @@ def _tabular_pattern(model_name, target):
 MODELS = [
     # (label, row, col, npz_getter)
     ("DMPNN",            0, 0, lambda t: _graph_pattern("DMPNN", t)),
-    ("GAT",              0, 1, lambda t: _graph_pattern("GAT", t)),
-    ("GIN",              0, 2, lambda t: _graph_pattern("GIN", t)),
-    ("IdentityBaseline", 0, 3, lambda t: _graph_pattern("IdentityBaseline", t)),
-    ("RF",               1, 0, lambda t: _tabular_pattern("RF", t)),
-    ("XGB",              1, 1, lambda t: _tabular_pattern("XGB", t)),
-    ("Linear",           1, 2, lambda t: _tabular_pattern("Linear", t)),
+    ("wDMPNN",           0, 1, lambda t: _graph_pattern("wDMPNN", t)),
+    ("GAT",              0, 2, lambda t: _graph_pattern("GAT", t)),
+    ("GIN",              0, 3, lambda t: _graph_pattern("GIN", t)),
+    ("IdentityBaseline", 1, 0, lambda t: _graph_pattern("IdentityBaseline", t)),
+    ("RF",               1, 1, lambda t: _tabular_pattern("RF", t)),
+    ("XGB",              1, 2, lambda t: _tabular_pattern("XGB", t)),
+    ("Linear",           1, 3, lambda t: _tabular_pattern("Linear", t)),
 ]
 
 # ── colour palette for poly_type ──────────────────────────────────────────
@@ -181,10 +195,9 @@ def metrics_str(y_true, y_pred):
 
 def plot_target(df: pd.DataFrame, target: str, poly_colors: dict):
     fig, axes = plt.subplots(2, 4, figsize=(18, 9))
-    fig.suptitle(f"Truth curves — {target}", fontsize=14, fontweight="bold", y=1.01)
+    fig.suptitle(f"Truth curves — {target}  [{SPLIT_TYPE}]", fontsize=14, fontweight="bold", y=1.01)
 
-    # Hide the unused 8th subplot
-    axes[1, 3].set_visible(False)
+    # All 8 subplots used (4 graph + 4 tabular/identity)
 
     for label, row, col, getter in MODELS:
         ax = axes[row, col]

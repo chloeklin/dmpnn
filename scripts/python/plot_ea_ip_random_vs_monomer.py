@@ -44,26 +44,33 @@ CATEGORY_COLORS = {
 }
 
 # ── model ordering ─────────────────────────────────────────────────────────
-# (category, model_name, copolymer_mode)  — mode=None for tabular
+# (category, model_name, copolymer_mode, poly_type)
+# poly_type=True → load from raw result files (not consolidated CSV)
 MODEL_ORDER = [
-    ("Identity", "IdentityBaseline", "mix"),
-    ("Identity", "IdentityBaseline", "interact"),
-    ("Graph",    "DMPNN",           "mix"),
-    ("Graph",    "DMPNN",           "interact"),
-    ("Graph",    "GAT",             "mix"),
-    ("Graph",    "GAT",             "interact"),
-    ("Graph",    "GIN",             "mix"),
-    ("Graph",    "GIN",             "interact"),
-    ("Tabular",  "Linear",          None),
-    ("Tabular",  "RF",              None),
-    ("Tabular",  "XGB",             None),
+    ("Identity", "IdentityBaseline", "mix",      False),
+    ("Identity", "IdentityBaseline", "mix",      True),
+    ("Identity", "IdentityBaseline", "interact", False),
+    ("Identity", "IdentityBaseline", "interact", True),
+    ("Graph",    "DMPNN",           "mix",       False),
+    ("Graph",    "DMPNN",           "interact",  False),
+    ("Graph",    "GAT",             "mix",       False),
+    ("Graph",    "GAT",             "interact",  False),
+    ("Graph",    "GIN",             "mix",       False),
+    ("Graph",    "GIN",             "interact",  False),
+    ("Tabular",  "Linear",          None,        False),
+    ("Tabular",  "Linear",          None,        True),
+    ("Tabular",  "RF",              None,        False),
+    ("Tabular",  "RF",              None,        True),
+    ("Tabular",  "XGB",             None,        False),
+    ("Tabular",  "XGB",             None,        True),
 ]
 
-def model_label(model_name: str, mode: str | None) -> str:
+def model_label(model_name: str, mode: str | None, poly_type: bool = False) -> str:
     base = {"IdentityBaseline": "Identity"}.get(model_name, model_name)
+    suffix = "\n+PT" if poly_type else ""
     if mode is None:
-        return base
-    return f"{base}\n({mode})"
+        return f"{base}{suffix}"
+    return f"{base}\n({mode}){suffix}"
 
 METRICS = ["mae", "rmse", "r2"]
 METRIC_LABELS = {"mae": "MAE", "rmse": "RMSE", "r2": "R²"}
@@ -71,6 +78,43 @@ LOWER_IS_BETTER = {"mae", "rmse"}
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
+
+IDENTITY_RESULTS_DIR = PROJECT_DIR / "results" / "IdentityBaseline"
+TABULAR_RESULTS_DIR  = PROJECT_DIR / "results" / "tabular"
+
+
+def load_raw_identity_poly_type(mode: str, split: str, target: str,
+                                metric: str) -> tuple[float, float] | tuple[None, None]:
+    """Load poly_type IdentityBaseline results directly from raw result files."""
+    suffix = "__a_held_out" if split == "monomer" else ""
+    fname  = f"ea_ip__poly_type__copoly_{mode}{suffix}_results.csv"
+    fpath  = IDENTITY_RESULTS_DIR / fname
+    if not fpath.exists():
+        return None, None
+    df = pd.read_csv(fpath)
+    df_t = df[df["target"].astype(str).str.strip() == target]
+    if df_t.empty or metric not in df_t.columns:
+        return None, None
+    return float(df_t[metric].mean()), float(df_t[metric].std())
+
+
+def load_raw_tabular_poly_type(model_name: str, split: str, target: str,
+                               metric: str) -> tuple[float, float] | tuple[None, None]:
+    """Load poly_type tabular results directly from raw result files (when available)."""
+    suffix = "__a_held_out" if split == "monomer" else ""
+    fname  = f"ea_ip_poly_type{suffix}.csv"
+    fpath  = TABULAR_RESULTS_DIR / fname
+    if not fpath.exists():
+        return None, None
+    df = pd.read_csv(fpath)
+    if "model" in df.columns:
+        df = df[df["model"].astype(str) == model_name]
+    if "target" in df.columns:
+        df = df[df["target"].astype(str).str.strip() == target]
+    if df.empty or metric not in df.columns:
+        return None, None
+    return float(df[metric].mean()), float(df[metric].std())
+
 
 def load_consolidated() -> pd.DataFrame:
     if not CONSOL_CSV.exists():
@@ -107,12 +151,21 @@ def best_row(subset: pd.DataFrame, metric: str = "rmse") -> pd.Series | None:
 
 def get_model_data(df: pd.DataFrame, category: str, model_name: str,
                    mode: str | None, target: str, split: str,
-                   metric: str) -> tuple[float, float] | tuple[None, None]:
+                   metric: str, poly_type: bool = False) -> tuple[float, float] | tuple[None, None]:
     """Get (mean, std) for a model/target/split/metric.
 
     For graph/identity models, ``mode`` selects the copolymer mode
     (e.g. 'mix' or 'interact'). For tabular models, mode is ignored.
+    poly_type=True loads directly from raw result files.
     """
+    # poly_type variants come from raw files, not the consolidated CSV
+    if poly_type:
+        if category == "Identity":
+            return load_raw_identity_poly_type(mode, split, target, metric)
+        elif category == "Tabular":
+            return load_raw_tabular_poly_type(model_name, split, target, metric)
+        return None, None
+
     held = (split == "monomer")
 
     # Filter by split type
@@ -165,7 +218,7 @@ def make_figure(df: pd.DataFrame, metric: str):
     prev_cat = MODEL_ORDER[0][0]
     x_positions = []
     x = 0.0
-    for i, (cat, _m, _md) in enumerate(MODEL_ORDER):
+    for i, (cat, _m, _md, _pt) in enumerate(MODEL_ORDER):
         if cat != prev_cat:
             x += group_gap
             category_breaks.append(i)
@@ -173,17 +226,17 @@ def make_figure(df: pd.DataFrame, metric: str):
         x_positions.append(x)
         x += n_targets * bar_w + 0.1   # spacing between model groups
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(22, 6), sharey=True)
     fig.subplots_adjust(wspace=0.05)
 
     for ax_idx, split in enumerate(splits):
         ax = axes[ax_idx]
         legend_done = (ax_idx > 0)
 
-        for i, (cat, model, mode) in enumerate(MODEL_ORDER):
+        for i, (cat, model, mode, pt) in enumerate(MODEL_ORDER):
             x_base = x_positions[i]
             for j, target in enumerate(targets):
-                mean, std = get_model_data(df, cat, model, mode, target, split, metric)
+                mean, std = get_model_data(df, cat, model, mode, target, split, metric, pt)
                 if mean is None:
                     continue
                 x_bar = x_base + j * bar_w
@@ -204,15 +257,15 @@ def make_figure(df: pd.DataFrame, metric: str):
                     for i in range(n_models)]
         ax.set_xticks(tick_pos)
         ax.set_xticklabels(
-            [model_label(m, md) for _, m, md in MODEL_ORDER],
-            fontsize=10, rotation=45, ha="right"
+            [model_label(m, md, pt) for _, m, md, pt in MODEL_ORDER],
+            fontsize=7, rotation=45, ha="right"
         )
 
         # Category shading: axvspan background + label inside plot at top
         y_top = ax.get_ylim()[1]
         y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
         for cat_name, color in CATEGORY_COLORS.items():
-            idxs = [i for i, (c, _, _md) in enumerate(MODEL_ORDER) if c == cat_name]
+            idxs = [i for i, (c, *_) in enumerate(MODEL_ORDER) if c == cat_name]
             if not idxs:
                 continue
             x_lo = x_positions[idxs[0]] - 0.1
@@ -239,11 +292,11 @@ def make_figure(df: pd.DataFrame, metric: str):
                     x_positions[-1] + n_targets * bar_w + 0.3)
 
         # Print missing data
-        for cat, model, mode in MODEL_ORDER:
+        for cat, model, mode, pt in MODEL_ORDER:
             for target in targets:
-                m, _ = get_model_data(df, cat, model, mode, target, split, metric)
+                m, _ = get_model_data(df, cat, model, mode, target, split, metric, pt)
                 if m is None:
-                    label = model_label(model, mode)
+                    label = model_label(model, mode, pt)
                     print(f"  [MISSING] {split:8s} | {label:25s} | {target}")
 
     # Legend: targets
