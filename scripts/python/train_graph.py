@@ -956,14 +956,25 @@ for target in target_columns:
 
     # Determine split strategy and generate splits
     n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
-    
-    if n_splits > 1:
-        logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
-    else:
-        logger.info(f"Using holdout validation with {local_reps} replicate(s)")
 
-    # Generate data splits
-    train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+    if getattr(args, 'split_type', 'random') == 'a_held_out':
+        sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
+        valid_smiles_A = df_input[sA_col].astype(str).tolist()
+        n_splits = 5
+        logger.info(f"Using A-held-out 5-fold CV (group by {sA_col})")
+        train_indices, val_indices, test_indices = generate_a_held_out_splits(
+            valid_smiles_A, len(all_data), SEED, n_splits=n_splits, logger=logger
+        )
+        save_fold_assignments(
+            train_indices, val_indices, test_indices,
+            valid_smiles_A, args.dataset_name, SEED, results_dir, logger=logger
+        )
+    else:
+        if n_splits > 1:
+            logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
+        else:
+            logger.info(f"Using holdout validation with {local_reps} replicate(s)")
+        train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
     
     # Apply train_size subsampling if specified
     if args.train_size is not None and args.train_size.lower() != "full":
