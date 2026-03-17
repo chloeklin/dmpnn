@@ -2153,6 +2153,12 @@ def load_and_preprocess_data(args, setup_info):
     # ---------------------- Apply dataset_ignore ----------------------
     cfg = setup_info.get('config', {})
     ds_ignore = cfg.get('DATASET_IGNORE', {}).get(args.dataset_name, []) or []
+    
+    # Don't drop poly_type if --incl_poly_type is enabled (needed for one-hot encoding)
+    if getattr(args, 'incl_poly_type', False) and 'poly_type' in ds_ignore:
+        ds_ignore = [col for col in ds_ignore if col != 'poly_type']
+        logger.info(f"--incl_poly_type enabled: keeping 'poly_type' column (removed from ignore list)")
+    
     logger.info(f"Dataset ignore config for '{args.dataset_name}': {ds_ignore}")
     if ds_ignore:
         drop_cols = [c for c in ds_ignore if c in df_input.columns]
