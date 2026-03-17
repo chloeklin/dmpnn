@@ -341,7 +341,10 @@ if args.polymer_type == "copolymer":
             logger.warning(f"Found {np.sum(nan_mask)} NaN values in descriptors, will use per-split median imputation")
         logger.info(f"Copolymer descriptor shape after global cleaning: {orig_Xd_copoly.shape}")
 
-    featurizer_copoly = featurizers.SimpleMoleculeMolGraphFeaturizer()
+    if args.model_name == "wDMPNN":
+        featurizer_copoly = featurizers.PolymerMolGraphFeaturizer()
+    else:
+        featurizer_copoly = featurizers.SimpleMoleculeMolGraphFeaturizer()
 
     all_results = []
 

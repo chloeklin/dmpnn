@@ -879,7 +879,8 @@ def build_copolymer_model_and_trainer(
     if args.model_name == "PPG":
         raise ValueError("PPG is not supported for copolymer mode")
     elif args.model_name == "wDMPNN":
-        raise ValueError("wDMPNN is not supported for copolymer mode (use small-molecule encoders)")
+        mp = nn.WeightedBondMessagePassing()
+        agg = nn.WeightedMeanAggregation()
     elif args.model_name == "DMPNN":
         mp = nn.BondMessagePassing()
         agg = nn.MeanAggregation()
