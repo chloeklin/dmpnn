@@ -52,11 +52,17 @@ MODEL_ORDER = [
     ("Identity", "IdentityBaseline", "interact", False),
     ("Identity", "IdentityBaseline", "interact", True),
     ("Graph",    "DMPNN",           "mix",       False),
+    ("Graph",    "DMPNN",           "mix",       True),
     ("Graph",    "DMPNN",           "interact",  False),
+    ("Graph",    "DMPNN",           "interact",  True),
     ("Graph",    "GAT",             "mix",       False),
+    ("Graph",    "GAT",             "mix",       True),
     ("Graph",    "GAT",             "interact",  False),
+    ("Graph",    "GAT",             "interact",  True),
     ("Graph",    "GIN",             "mix",       False),
+    ("Graph",    "GIN",             "mix",       True),
     ("Graph",    "GIN",             "interact",  False),
+    ("Graph",    "GIN",             "interact",  True),
     ("Tabular",  "Linear",          None,        False),
     ("Tabular",  "Linear",          None,        True),
     ("Tabular",  "RF",              None,        False),
@@ -116,6 +122,33 @@ def load_raw_tabular_poly_type(model_name: str, split: str, target: str,
     return float(df[metric].mean()), float(df[metric].std())
 
 
+def load_raw_graph_poly_type(model_name: str, mode: str, split: str, target: str,
+                             metric: str) -> tuple[float, float] | tuple[None, None]:
+    """Load poly_type graph model results directly from raw result files.
+    
+    Graph models with poly_type use {mode}_meta (e.g., mix_meta, interact_meta).
+    """
+    suffix = "__a_held_out" if split == "monomer" else ""
+    # Graph poly_type results use {mode}_meta naming
+    fname = f"ea_ip__copoly_{mode}_meta__poly_type{suffix}__target_{target}_results.csv"
+    fpath = RESULTS_DIR / model_name / fname
+    if not fpath.exists():
+        return None, None
+    df = pd.read_csv(fpath)
+    if df.empty:
+        return None, None
+    
+    # Graph model results have test/{metric} columns, compute mean/std across splits
+    metric_col = f"test/{metric}"
+    if metric_col not in df.columns:
+        return None, None
+    
+    mean_val = float(df[metric_col].mean())
+    std_val = float(df[metric_col].std())
+    
+    return mean_val, std_val
+
+
 def load_consolidated() -> pd.DataFrame:
     if not CONSOL_CSV.exists():
         raise FileNotFoundError(
@@ -162,6 +195,8 @@ def get_model_data(df: pd.DataFrame, category: str, model_name: str,
     if poly_type:
         if category == "Identity":
             return load_raw_identity_poly_type(mode, split, target, metric)
+        elif category == "Graph":
+            return load_raw_graph_poly_type(model_name, mode, split, target, metric)
         elif category == "Tabular":
             return load_raw_tabular_poly_type(model_name, split, target, metric)
         return None, None

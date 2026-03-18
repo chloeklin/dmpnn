@@ -1596,9 +1596,19 @@ def make_repeated_splits(
                 test_indices.append(np.asarray(test_idx))
     else:
         # ----- Holdout 80/10/10 repeated -----
+        # Check if stratified splitting is possible (need at least 2 samples per class)
+        use_stratified = False
+        if is_clf:
+            from collections import Counter
+            class_counts = Counter(y_arr)
+            min_class_count = min(class_counts.values())
+            use_stratified = (min_class_count >= 2)
+            if not use_stratified:
+                logger.warning(f"Stratified splitting not possible: min class count = {min_class_count} < 2. Using random splitting instead.")
+        
         for i in range(replicates):
             rs = seed + i
-            if is_clf:
+            if use_stratified:
                 sss_outer = StratifiedShuffleSplit(n_splits=1, test_size=0.10, random_state=rs)
                 (train_val_idx, test_idx), = sss_outer.split(idx_all, y_arr)
                 sss_inner = StratifiedShuffleSplit(n_splits=1, test_size=1/9, random_state=rs)  # 10% overall val

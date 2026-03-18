@@ -29,19 +29,24 @@ from chemprop.data.hpg import HPGMolGraph
 #  Original HPG atom feature helpers  (from HPG/src/smiles_utils.py)
 # ---------------------------------------------------------------------------
 
-_HPG_SYMBOLS = [
-    "C", "N", "O", "S", "H", "F", "Cl", "Br", "I",
-    "Se", "Te", "Si", "P", "B", "Ca", "Mg", "Al", "Sb", "Ge", "As",
-]  # 20
+# Use atomic numbers 1-100 to match Chemprop v1, plus an "other" category
+_HPG_ATOMIC_NUMS = list(range(1, 101))  # 100 elements
 _HPG_H_NUMS = [0, 1, 2, 3, 4]                   # 5
 _HPG_DEGREES = [0, 1, 2, 3, 4, 5, 6]            # 7
 _HPG_HYBRIDIZATIONS = ["S", "SP", "SP2", "SP3", "SP3D", "SP3D2"]  # 6
 _HPG_FORMAL_CHARGES = [-4, -3, -2, -1, 0, 1, 2, 3, 4]            # 9
 
-# 20 + 5 + 7 + 1 + 6 + 1 + 9 = 49
+# 101 (100 + 1 for "other") + 5 + 7 + 1 + 6 + 1 + 9 = 130
 # NOTE: E/Z stereo (2-dim) is NOT used in the hierarchical graph.
-# The original mol2dgl_single() only uses the 49-dim base features.
-HPG_ATOM_FDIM = 49
+HPG_ATOM_FDIM = 130
+
+
+def _one_of_k_with_unk(x, allowable: list) -> List[int]:
+    """One-hot with unknown: last position is 1 if x not in allowable."""
+    if x in allowable:
+        return [int(x == v) for v in allowable] + [0]
+    else:
+        return [0] * len(allowable) + [1]
 
 
 def _one_of_k(x, allowable: list) -> List[int]:
@@ -52,15 +57,15 @@ def _one_of_k(x, allowable: list) -> List[int]:
 
 
 def _hpg_atom_features(atom: Atom) -> np.ndarray:
-    """49-dim base features for a single atom (no E/Z stereo)."""
+    """130-dim base features for a single atom (expanded to match Chemprop v1)."""
     feats = (
-        _one_of_k(atom.GetSymbol(), _HPG_SYMBOLS)
-        + _one_of_k(atom.GetTotalNumHs(), _HPG_H_NUMS)
-        + _one_of_k(atom.GetDegree(), _HPG_DEGREES)
-        + [int(atom.GetIsAromatic())]
-        + _one_of_k(str(atom.GetHybridization()), _HPG_HYBRIDIZATIONS)
-        + [int(atom.IsInRing())]
-        + _one_of_k(atom.GetFormalCharge(), _HPG_FORMAL_CHARGES)
+        _one_of_k_with_unk(atom.GetAtomicNum(), _HPG_ATOMIC_NUMS)  # 101 dims (100 + unk)
+        + _one_of_k(atom.GetTotalNumHs(), _HPG_H_NUMS)             # 5 dims
+        + _one_of_k(atom.GetDegree(), _HPG_DEGREES)                # 7 dims
+        + [int(atom.GetIsAromatic())]                              # 1 dim
+        + _one_of_k(str(atom.GetHybridization()), _HPG_HYBRIDIZATIONS)  # 6 dims
+        + [int(atom.IsInRing())]                                   # 1 dim
+        + _one_of_k(atom.GetFormalCharge(), _HPG_FORMAL_CHARGES)   # 9 dims
     )
     return np.array(feats, dtype=np.float32)
 
