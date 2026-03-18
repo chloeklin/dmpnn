@@ -423,7 +423,8 @@ if args.model_name == "HPG":
                 valid_smiles_A, n_samples, SEED, n_splits=n_splits, logger=logger
             )
         else:
-            dummy_ys = np.array([dp.y for dp in all_hpg_dps])
+            # Flatten y values for stratified splitting (each dp.y is a 1D array)
+            dummy_ys = np.array([dp.y[0] if isinstance(dp.y, np.ndarray) else dp.y for dp in all_hpg_dps])
             train_indices_hpg, val_indices_hpg, test_indices_hpg = generate_data_splits(
                 args, dummy_ys, n_splits, local_reps, SEED
             )

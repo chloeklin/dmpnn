@@ -1600,7 +1600,12 @@ def make_repeated_splits(
         use_stratified = False
         if is_clf:
             from collections import Counter
-            class_counts = Counter(y_arr)
+            # Handle y_arr containing arrays (e.g., from HPG datapoints)
+            if isinstance(y_arr[0], np.ndarray):
+                y_scalars = y_arr.flatten() if y_arr.ndim > 1 else np.array([y[0] if len(y) > 0 else y for y in y_arr])
+            else:
+                y_scalars = y_arr
+            class_counts = Counter(y_scalars)
             min_class_count = min(class_counts.values())
             use_stratified = (min_class_count >= 2)
             if not use_stratified:
