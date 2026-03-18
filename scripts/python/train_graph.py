@@ -488,6 +488,9 @@ if args.model_name == "HPG":
 
             # ── Build HPG model + trainer ──
             d_xd = combined_descriptor_data_hpg.shape[1] if combined_descriptor_data_hpg is not None else 0
+            # For multi-class, n_tasks = n_classes (output logits for each class)
+            # For regression and binary, n_tasks = 1
+            n_tasks_hpg = n_classes_arg if args.task_type == 'multi' else 1
             mpnn = HPGMPNN(
                 d_v=hpg_featurizer.d_v,
                 d_h=getattr(args, "hpg_hidden_dim", 128),
@@ -496,7 +499,7 @@ if args.model_name == "HPG":
                 num_heads=getattr(args, "hpg_num_heads", 8),
                 dropout_mp=getattr(args, "hpg_dropout_mp", 0.0),
                 dropout_ffn=getattr(args, "hpg_dropout_ffn", 0.2),
-                n_tasks=1,
+                n_tasks=n_tasks_hpg,
                 d_xd=d_xd,
                 task_type="regression" if args.task_type == "reg" else "classification",
                 metrics=metric_list or [],
