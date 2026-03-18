@@ -118,7 +118,7 @@ def add_model_specific_args(parser, model_type):
     """Add model-specific arguments to the base parser."""
     if model_type == "dmpnn":
         parser.add_argument('--model_name', type=str, default="DMPNN", 
-                            choices=["DMPNN", "wDMPNN", "PPG", "DMPNN_DiffPool", "GAT", "GATv2", "GIN", "GIN0", "GINE"],
+                            choices=["DMPNN", "wDMPNN", "PPG", "HPG", "DMPNN_DiffPool", "GAT", "GATv2", "GIN", "GIN0", "GINE"],
                             help='Name of the model to use')
         parser.add_argument('--batch_size', type=int, default=64,
                             help='Batch size for training and evaluation')
@@ -1216,6 +1216,63 @@ def build_model_and_trainer(
                 "but no descriptors were provided. Either add descriptors or use "
                 "fusion_mode='late_concat' / 'none'."
             )
+
+    # ---- HPG model: uses its own LightningModule, not the standard MPNN ----
+    if args.model_name == "HPG":
+        from chemprop.models.hpg import HPGMPNN
+        from chemprop.featurizers.molgraph.hpg import HPGMolGraphFeaturizer
+
+        hpg_feat = HPGMolGraphFeaturizer()
+        d_v = hpg_feat.d_v
+        d_xd = descriptor_dim if fusion_mode != 'film' else 0
+
+        mpnn = HPGMPNN(
+            d_v=d_v,
+            d_h=getattr(args, "hpg_hidden_dim", 128),
+            d_ffn=getattr(args, "hpg_ffn_dim", 64),
+            depth=getattr(args, "hpg_depth", 6),
+            num_heads=getattr(args, "hpg_num_heads", 8),
+            dropout_mp=getattr(args, "hpg_dropout_mp", 0.0),
+            dropout_ffn=getattr(args, "hpg_dropout_ffn", 0.2),
+            n_tasks=1,
+            d_xd=d_xd,
+            task_type="regression" if args.task_type == "reg" else "classification",
+            metrics=metric_list or [],
+            criterion=None,
+        )
+
+        checkpoint_path = Path(checkpoint_path)
+        callbacks = []
+        if save_checkpoint:
+            checkpointing = ModelCheckpoint(
+                dirpath=str(checkpoint_path),
+                filename="best-{epoch:03d}-{val_loss:.4f}",
+                monitor="val_loss", mode="min", save_top_k=1, save_last=True,
+                save_weights_only=False, auto_insert_metric_name=False,
+            )
+            callbacks.append(checkpointing)
+        early_stop = EarlyStopping(
+            monitor="val_loss", patience=early_stopping_patience,
+            min_delta=early_stopping_min_delta, mode="min", verbose=True,
+            check_finite=True, check_on_train_epoch_end=False,
+        )
+        callbacks.append(early_stop)
+        lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='epoch', log_momentum=True)
+        callbacks.append(lr_monitor)
+        tb_logger = pl.loggers.TensorBoardLogger(
+            save_dir=str(checkpoint_path), name="logs", version="",
+        )
+        log_dir = checkpoint_path / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        trainer = pl.Trainer(
+            max_epochs=max_epochs, callbacks=callbacks, logger=tb_logger,
+            gradient_clip_val=gradient_clip_val, gradient_clip_algorithm="norm",
+            enable_progress_bar=True, enable_model_summary=True,
+            log_every_n_steps=10, check_val_every_n_epoch=1,
+            num_sanity_val_steps=0, enable_checkpointing=True,
+            default_root_dir=str(checkpoint_path), **trainer_kwargs,
+        )
+        return mpnn, trainer
 
     # Create message passing and aggregation layers
     if args.model_name == "PPG":

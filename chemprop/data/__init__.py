@@ -40,6 +40,7 @@ from .datasets import (
     PolymerDataset
 )
 
+from .hpg import BatchHPGMolGraph, HPGMolGraph
 from .molgraph import MolGraph, PolymerMolGraph
 from .samplers import ClassBalanceSampler, SeededSampler
 from .splitting import SplitType, make_split_indices, split_data_by_indices
@@ -81,4 +82,6 @@ __all__ = [
     "MultiMonomerCopolymerDatum",
     "MultiMonomerCopolymerBatch",
     "collate_multi_monomer_batch",
+    "HPGMolGraph",
+    "BatchHPGMolGraph",
 ]

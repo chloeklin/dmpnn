@@ -8,22 +8,23 @@
 # Graph Models (train_graph.py):
 #   DMPNN, GIN, GAT        - full feature support (see table below)
 #   wDMPNN                  - like DMPNN but no fusion/aux; copolymer OK
+#   HPG                     - hierarchical polymer graph; homo+copolymer; no fusion/aux
 #   DMPNN_DiffPool          - homopolymer only, no fusion/aux
 #   AttentiveFP             - homopolymer only, no fusion/aux
 #   PPG                     - homopolymer only, no fusion/aux
 #
 #   Feature support matrix:
-#     Option              DMPNN/GIN/GAT   wDMPNN   DiffPool/AFP/PPG
-#     ─────────────────   ─────────────   ──────   ────────────────
-#     incl_rdkit           yes             yes      yes
-#     incl_desc            yes             yes      yes
-#     copolymer_mode       yes             yes      no
-#     fusion_mode: film    yes             no       no
-#     film_layers          yes             no       no
-#     aux_task             yes             no       no
-#     split_type           yes             yes      no
-#     export_embeddings    yes             yes      yes
-#     save_predictions     yes             yes      yes
+#     Option              DMPNN/GIN/GAT   wDMPNN   HPG    DiffPool/AFP/PPG
+#     ─────────────────   ─────────────   ──────   ─────  ────────────────
+#     incl_rdkit           yes             yes      no     yes
+#     incl_desc            yes             yes      no     yes
+#     copolymer_mode       yes             yes      n/a    no
+#     fusion_mode: film    yes             no       no     no
+#     film_layers          yes             no       no     no
+#     aux_task             yes             no       no     no
+#     split_type           yes             yes      yes    no
+#     export_embeddings    yes             yes      no     yes
+#     save_predictions     yes             yes      no     yes
 #
 # Tabular (train_tabular.py):
 #   Features:  incl_rdkit, incl_desc, incl_ab
@@ -846,6 +847,17 @@ experiments:
   #   walltime: "12:30:00"
   #   targets: *eaip_targets
 
+  # -- HPG (hierarchical polymer graph — no copolymer_mode needed) --
+  - <<: *eaip_base
+    model: HPG
+    walltime: "1:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: HPG
+    incl_poly_type: true
+    walltime: "1:00:00"
+    targets: *eaip_targets
+
   # -- Identity Baseline --
   # - <<: *eaip_base
   #   model: identity_baseline
@@ -1171,6 +1183,12 @@ experiments:
   #   incl_desc: true
   #   walltime: "0:30:00"
   #   targets: *block_targets
+
+  # -- HPG (hierarchical polymer graph — no copolymer_mode needed) --
+  - <<: *block_base
+    model: HPG
+    walltime: "1:00:00"
+    targets: *block_targets
 
   # -- Identity Baseline --
   # - <<: *block_base

@@ -5,6 +5,7 @@ from sklearn.impute import SimpleImputer
 import os, json
 import torch
 from dataclasses import replace
+from pathlib import Path
 
 from chemprop import data, featurizers
 from utils import (set_seed, process_data, 
@@ -17,6 +18,22 @@ from utils import (set_seed, process_data,
                   create_copolymer_data, create_multi_monomer_copolymer_data,
                   build_copolymer_model_and_trainer,
                   generate_a_held_out_splits, save_fold_assignments, canonicalize_smiles)
+
+# polymer_input integration — canonical polymer spec utilities
+# These are used for optional PolymerSpec-based validation and scalar-feature
+# extraction when --polymer_input flag is set.  The existing SMILES-based flow
+# remains the default; polymer_input provides structured parsing & validation.
+try:
+    from polymer_input import (
+        PolymerParser, SchemaMapping, validate_polymer_spec,
+        extract_scalar_features, collect_scalar_keys,
+    )
+    from polymer_input.featurizers.dmpnn import DMPNNFeaturizer
+    from polymer_input.featurizers.ppg import PPGFeaturizer
+    from polymer_input.featurizers.wdmpnn import WDMPNNFeaturizer
+    _HAS_POLYMER_INPUT = True
+except ImportError:
+    _HAS_POLYMER_INPUT = False
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -273,6 +290,254 @@ if args.pretrain_monomer:
     # Exit after pretraining (we don’t do per-target loops in this mode)
     save_aggregate_results([], results_dir, args.model_name, args.dataset_name, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, logger)
     raise SystemExit(0)
+
+
+# ========================= HPG BRANCH =========================
+# HPG encodes polymers as hierarchical graphs (fragment + atom nodes).
+# For copolymers, each monomer is a fragment node with directed connections.
+# For homopolymers, a single fragment with a self-loop.
+# This branch handles BOTH cases and exits via SystemExit.
+if args.model_name == "HPG":
+    from chemprop.featurizers.molgraph.hpg import HPGMolGraphFeaturizer
+    from chemprop.data.hpg import HPGDatapoint, HPGDataset, hpg_collate_fn, BatchHPGMolGraph
+    from chemprop.models.hpg import HPGMPNN
+    from torch.utils.data import DataLoader
+    import lightning.pytorch as pl
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+
+    hpg_featurizer = HPGMolGraphFeaturizer()
+    is_copolymer = (args.polymer_type == "copolymer")
+
+    logger.info(f"\n=== HPG Training ===")
+    logger.info(f"Dataset          : {args.dataset_name}")
+    logger.info(f"Polymer type     : {args.polymer_type}")
+    logger.info(f"Target columns   : {target_columns}")
+    logger.info("================================\n")
+
+    # Filter to specific target if specified
+    if args.target:
+        if args.target not in target_columns:
+            logger.error(f"Specified target '{args.target}' not found. Available: {target_columns}")
+            exit(1)
+        target_columns = [args.target]
+
+    # ── Parse SMILES into HPG format ──
+    if is_copolymer:
+        sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
+        sB_col = "smilesB" if "smilesB" in df_input.columns else "smiles_B"
+        smis_A = df_input[sA_col].astype(str).tolist()
+        smis_B = df_input[sB_col].astype(str).tolist()
+        fracA_arr = df_input["fracA"].values.astype(float)
+        fracB_arr = df_input["fracB"].values.astype(float)
+    else:
+        smis_homo = df_input[smiles_column].astype(str).tolist()
+
+    # ── Descriptors (reuse standard pipeline) ──
+    combined_descriptor_data_hpg = None
+    if descriptor_columns:
+        combined_descriptor_data_hpg = df_input[descriptor_columns].values.astype(np.float32)
+
+    # ── poly_type one-hot ──
+    if getattr(args, 'incl_poly_type', False) and 'poly_type' in df_input.columns:
+        _POLY_CATS = sorted(df_input['poly_type'].dropna().astype(str).unique().tolist())
+        _poly_oh = (
+            pd.get_dummies(df_input['poly_type'].astype(str))
+            .reindex(columns=_POLY_CATS, fill_value=0)
+            .values.astype(np.float32)
+        )
+        if combined_descriptor_data_hpg is not None:
+            combined_descriptor_data_hpg = np.hstack([combined_descriptor_data_hpg, _poly_oh])
+        else:
+            combined_descriptor_data_hpg = _poly_oh
+
+    # ── Featurize all samples into HPGMolGraph objects ──
+    hpg_graphs = []
+    skip_indices = []
+    N = len(df_input)
+    for idx in range(N):
+        try:
+            if is_copolymer:
+                frag_smiles = [smis_A[idx], smis_B[idx]]
+                # Directed edge: fragment 0 → fragment 1 with degree 1.0
+                connections = [(0, 1, 1.0)]
+                mg = hpg_featurizer(frag_smiles, connections)
+            else:
+                mg = hpg_featurizer([smis_homo[idx]])
+            hpg_graphs.append(mg)
+        except Exception as e:
+            logger.warning(f"HPG featurizer failed for sample {idx}: {e}")
+            hpg_graphs.append(None)
+            skip_indices.append(idx)
+
+    if skip_indices:
+        logger.warning(f"Skipped {len(skip_indices)} samples due to featurization errors")
+
+    all_results = []
+    for target in target_columns:
+        ys = df_input[target].astype(float).values
+        if args.task_type != 'reg':
+            ys = ys.astype(int)
+
+        # Build HPGDatapoints (skip failed featurizations)
+        all_hpg_dps = []
+        valid_indices = []
+        for idx in range(N):
+            if hpg_graphs[idx] is None:
+                continue
+            if not np.isfinite(ys[idx]):
+                continue
+            y_val = np.array([ys[idx]], dtype=np.float32)
+            x_d = combined_descriptor_data_hpg[idx] if combined_descriptor_data_hpg is not None else None
+            dp = HPGDatapoint(mg=hpg_graphs[idx], y=y_val, x_d=x_d)
+            all_hpg_dps.append(dp)
+            valid_indices.append(idx)
+        valid_indices = np.array(valid_indices)
+        logger.info(f"[{target}] {len(all_hpg_dps)} valid HPG datapoints")
+
+        # ── Splits ──
+        n_samples = len(all_hpg_dps)
+        n_splits, local_reps = determine_split_strategy(n_samples, REPLICATES)
+
+        if is_copolymer and args.split_type == "a_held_out":
+            valid_smiles_A = [smis_A[i] for i in valid_indices]
+            n_splits = 5
+            train_indices_hpg, val_indices_hpg, test_indices_hpg = generate_a_held_out_splits(
+                valid_smiles_A, n_samples, SEED, n_splits=n_splits, logger=logger
+            )
+        else:
+            dummy_ys = np.array([dp.y for dp in all_hpg_dps])
+            train_indices_hpg, val_indices_hpg, test_indices_hpg = generate_data_splits(
+                args, dummy_ys, n_splits, local_reps, SEED
+            )
+
+        # ── Train size subsampling ──
+        if args.train_size is not None and args.train_size.lower() != "full":
+            target_train_size = int(args.train_size)
+            for si in range(len(train_indices_hpg)):
+                orig = len(train_indices_hpg[si])
+                if target_train_size < orig:
+                    rng = np.random.default_rng(SEED + si)
+                    train_indices_hpg[si] = rng.choice(train_indices_hpg[si], size=target_train_size, replace=False)
+                    logger.info(f"Split {si}: Training set reduced {orig} → {target_train_size}")
+
+        results_all = []
+        for i in range(len(train_indices_hpg)):
+            tr = train_indices_hpg[i]
+            va = val_indices_hpg[i]
+            te = test_indices_hpg[i]
+
+            train_dps = [all_hpg_dps[j] for j in tr]
+            val_dps = [all_hpg_dps[j] for j in va]
+            test_dps = [all_hpg_dps[j] for j in te]
+
+            train_ds = HPGDataset(train_dps)
+            val_ds = HPGDataset(val_dps)
+            test_ds = HPGDataset(test_dps)
+
+            # ── Normalize targets (regression only) ──
+            scaler = None
+            if args.task_type == 'reg':
+                scaler = train_ds.normalize_targets()
+                val_ds.normalize_targets(scaler)
+                # test targets intentionally left unscaled
+
+            # ── Normalize descriptors ──
+            if combined_descriptor_data_hpg is not None:
+                desc_scaler = train_ds.normalize_inputs("X_d")
+                val_ds.normalize_inputs("X_d", desc_scaler)
+                test_ds.normalize_inputs("X_d", desc_scaler)
+
+            # ── DataLoaders ──
+            train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
+                                      collate_fn=hpg_collate_fn, num_workers=num_workers, pin_memory=True)
+            val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
+                                    collate_fn=hpg_collate_fn, num_workers=num_workers, pin_memory=True)
+            test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False,
+                                     collate_fn=hpg_collate_fn, num_workers=num_workers, pin_memory=True)
+
+            # ── Build experiment paths ──
+            checkpoint_path, preprocessing_path, desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, fusion_suffix, aux_suffix, copoly_suffix = build_experiment_paths(
+                args, chemprop_dir, checkpoint_dir, target, descriptor_columns, i
+            )
+
+            # ── Metrics ──
+            n_classes_arg = None
+            if args.task_type == 'multi':
+                unique_classes = df_input[target].dropna().unique()
+                n_classes_arg = len(unique_classes)
+                logger.info(f"[{target}] Detected {n_classes_arg} classes for multi-class classification")
+            metric_list = get_metric_list(args.task_type, target=target, n_classes=n_classes_arg, df_input=df_input)
+
+            # ── Build HPG model + trainer ──
+            d_xd = combined_descriptor_data_hpg.shape[1] if combined_descriptor_data_hpg is not None else 0
+            mpnn = HPGMPNN(
+                d_v=hpg_featurizer.d_v,
+                d_h=getattr(args, "hpg_hidden_dim", 128),
+                d_ffn=getattr(args, "hpg_ffn_dim", 64),
+                depth=getattr(args, "hpg_depth", 6),
+                num_heads=getattr(args, "hpg_num_heads", 8),
+                dropout_mp=getattr(args, "hpg_dropout_mp", 0.0),
+                dropout_ffn=getattr(args, "hpg_dropout_ffn", 0.2),
+                n_tasks=1,
+                d_xd=d_xd,
+                task_type="regression" if args.task_type == "reg" else "classification",
+                metrics=metric_list or [],
+                criterion=None,
+            )
+
+            # ── Output transform for regression (unscale predictions) ──
+            if scaler is not None:
+                from chemprop.nn.transforms import UnscaleTransform
+                mpnn._output_transform = UnscaleTransform.from_standard_scaler(scaler)
+
+            checkpoint_path = Path(checkpoint_path)
+            checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+            callbacks = [
+                EarlyStopping(monitor="val_loss", patience=PATIENCE, mode="min", verbose=True),
+            ]
+            if args.save_checkpoint:
+                callbacks.append(ModelCheckpoint(
+                    dirpath=str(checkpoint_path),
+                    filename="best-{epoch:03d}-{val_loss:.4f}",
+                    monitor="val_loss", mode="min", save_top_k=1, save_last=True,
+                    save_weights_only=False, auto_insert_metric_name=False,
+                ))
+
+            trainer = pl.Trainer(
+                max_epochs=EPOCHS, callbacks=callbacks,
+                gradient_clip_val=1.0, gradient_clip_algorithm="norm",
+                enable_progress_bar=True, enable_model_summary=(i == 0),
+                log_every_n_steps=10, check_val_every_n_epoch=1,
+                num_sanity_val_steps=0, enable_checkpointing=args.save_checkpoint,
+                default_root_dir=str(checkpoint_path),
+            )
+
+            # ── Train ──
+            logger.info(f"[{target}] split {i}: Training HPG ({len(train_dps)} train, {len(val_dps)} val, {len(test_dps)} test)")
+            trainer.fit(mpnn, train_loader, val_loader)
+
+            # ── Test ──
+            results = trainer.test(model=mpnn, dataloaders=test_loader)
+            test_metrics = results[0]
+            test_metrics["split"] = i
+            results_all.append(test_metrics)
+            logger.info(f"[{target}] split {i}: {test_metrics}")
+
+        # Aggregate results for this target
+        results_df = pd.DataFrame(results_all)
+        numeric_cols = [col for col in results_df.columns if col != "split"]
+        logger.info(f"\n[{target}] Mean across {len(results_all)} splits:\n{results_df[numeric_cols].mean()}")
+        logger.info(f"\n[{target}] Std across {len(results_all)} splits:\n{results_df[numeric_cols].std()}")
+        results_df["target"] = target
+        all_results.append(results_df)
+
+    if all_results:
+        combined_results = pd.concat(all_results, ignore_index=True)
+        save_model_results(combined_results, args, args.model_name, results_dir, logger)
+
+    raise SystemExit(0)
+# ========================= END HPG BRANCH =========================
 
 
 # ========================= COPOLYMER BRANCH =========================
@@ -918,6 +1183,12 @@ smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df
 # PPG uses PPGMolGraphFeaturizer for periodic polymer graph construction
 # Small molecule models use SimpleMoleculeMolGraphFeaturizer
 # Polymer models (wDMPNN) use PolymerMolGraphFeaturizer
+#
+# NOTE: These are the same Chemprop featurizers used internally by
+# polymer_input.featurizers.{dmpnn,ppg,wdmpnn}.  The polymer_input
+# featurizers add a PolymerSpec → Chem.Mol conversion step on top;
+# here we rely on Chemprop's from_smi datapoint path which handles
+# that conversion.  See polymer_input/README.md for the full pipeline.
 small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "GIN", "GIN0", "GINE", "GAT", "GATv2", "AttentiveFP"]
 if args.model_name == "PPG":
     featurizer = featurizers.PPGMolGraphFeaturizer()
@@ -925,6 +1196,11 @@ elif args.model_name in small_molecule_models:
     featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
 else:
     featurizer = featurizers.PolymerMolGraphFeaturizer()
+
+if _HAS_POLYMER_INPUT:
+    logger.info("polymer_input package available — PolymerSpec validation and scalar extraction enabled")
+else:
+    logger.debug("polymer_input package not installed — using standard SMILES-based flow only")
       
 
 # Store all results for aggregate saving

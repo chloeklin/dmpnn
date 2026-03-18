@@ -45,6 +45,19 @@ from utils import (
 )
 from tabular_utils import group_splits
 
+# polymer_input integration — optional structured copolymer validation
+# The identity baseline uses categorical monomer IDs (not graph featurizers),
+# but polymer_input can still validate the copolymer schema and extract
+# scalar features from PolymerSpec objects.  See polymer_input/README.md.
+try:
+    from polymer_input import (
+        PolymerParser, SchemaMapping, validate_polymer_spec,
+        extract_scalar_features, collect_scalar_keys,
+    )
+    _HAS_POLYMER_INPUT = True
+except ImportError:
+    _HAS_POLYMER_INPUT = False
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -446,6 +459,11 @@ def main():
     PATIENCE = GLOBAL_CONFIG.get("PATIENCE", 30)
 
     set_seed(SEED)
+
+    if _HAS_POLYMER_INPUT:
+        logger.info("polymer_input package available — PolymerSpec validation enabled")
+    else:
+        logger.debug("polymer_input package not installed — using standard copolymer flow only")
 
     # ---- Load and preprocess data (reuses copolymer handling) ----
     # If --incl_poly_type, temporarily remove poly_type from dataset_ignore so it

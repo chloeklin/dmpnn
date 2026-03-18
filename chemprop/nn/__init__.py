@@ -71,6 +71,7 @@ from .predictors import (
     MixedRegMultiFFN
 )
 from .film import FilmConditioner
+from .hpg import HPGGATLayer, HPGMessagePassing
 from .transforms import GraphTransform, ScaleTransform, UnscaleTransform
 from .utils import Activation
 
@@ -154,4 +155,6 @@ __all__ = [
     "GraphTransform",
     "ScaleTransform",
     "UnscaleTransform",
+    "HPGGATLayer",
+    "HPGMessagePassing",
 ]
