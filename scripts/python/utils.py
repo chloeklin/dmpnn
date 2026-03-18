@@ -1543,6 +1543,9 @@ def make_repeated_splits(
     Classification: stratified splits.
     Regression: unstratified, purely random (as per your plan).
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     from sklearn.model_selection import (
         KFold, StratifiedKFold,
         train_test_split,
