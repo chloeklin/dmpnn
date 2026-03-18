@@ -810,32 +810,32 @@ experiments:
   #   targets: *eaip_targets
 
   # -- GIN + poly_type --
-  - <<: *eaip_base
-    model: GIN
-    copolymer_mode: mix
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: GIN
-    copolymer_mode: interact
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: interact
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- GAT + poly_type --
-  - <<: *eaip_base
-    model: GAT
-    copolymer_mode: mix
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: GAT
-    copolymer_mode: interact
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: interact
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- wDMPNN --
   # - <<: *eaip_base
@@ -980,45 +980,45 @@ experiments:
   #   split_type: a_held_out
   #   walltime: "5:30:00"
   #   targets: *eaip_targets
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: interact
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: interact
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- GIN + poly_type (a_held_out) --
-  - <<: *eaip_base
-    model: GIN
-    copolymer_mode: mix
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: GIN
-    copolymer_mode: interact
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: interact
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- GAT + poly_type (a_held_out) --
-  - <<: *eaip_base
-    model: GAT
-    copolymer_mode: mix
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: GAT
-    copolymer_mode: interact
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: interact
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- wDMPNN --
   # - <<: *eaip_base
