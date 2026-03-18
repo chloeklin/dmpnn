@@ -253,8 +253,16 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
     # Add copolymer mode suffix
     polymer_type = getattr(args, 'polymer_type', 'homo')
     if polymer_type == 'copolymer':
-        copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
-        filename_parts.append(f"copoly_{copolymer_mode}")
+        if model_name == 'HPG':
+            # HPG doesn't use copolymer modes
+            pass
+        else:
+            copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
+            filename_parts.append(f"copoly_{copolymer_mode}")
+    
+    # Add poly_type suffix
+    if getattr(args, 'incl_poly_type', False):
+        filename_parts.append("poly_type")
     
     # Add split type suffix (only for non-default)
     split_type = getattr(args, 'split_type', 'random')
@@ -1807,7 +1815,7 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     Note: Preprocessing files are now saved per-dataset (not per-model) since they are
     identical across DMPNN, wDMPNN, and DMPNN_DiffPool models.
     """
-    desc_suffix = "__desc" if descriptor_columns else ""
+    desc_suffix = "__desc" if (descriptor_columns or getattr(args, 'incl_desc', False)) else ""
     rdkit_suffix = "__rdkit" if args.incl_rdkit else ""
     batch_norm_suffix = "__batch_norm" if getattr(args, 'batch_norm', False) else ""
     
@@ -1844,9 +1852,14 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     copoly_suffix = ""
     polymer_type = getattr(args, 'polymer_type', 'homo')
     if polymer_type == 'copolymer':
-        copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
+        model_name = getattr(args, 'model_name', '')
         poly_type_sfx = "__poly_type" if getattr(args, 'incl_poly_type', False) else ""
-        copoly_suffix = f"{poly_type_sfx}__copoly_{copolymer_mode}"
+        if model_name == 'HPG':
+            # HPG doesn't use copolymer modes; just mark poly_type if set
+            copoly_suffix = poly_type_sfx
+        else:
+            copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
+            copoly_suffix = f"{poly_type_sfx}__copoly_{copolymer_mode}"
     
     # Add split type suffix (always included for disambiguation)
     split_type = getattr(args, 'split_type', 'random')

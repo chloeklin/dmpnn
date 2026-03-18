@@ -312,6 +312,9 @@ if args.model_name == "HPG":
     logger.info(f"Dataset          : {args.dataset_name}")
     logger.info(f"Polymer type     : {args.polymer_type}")
     logger.info(f"Target columns   : {target_columns}")
+    logger.info(f"incl_desc        : {args.incl_desc}")
+    logger.info(f"incl_poly_type   : {getattr(args, 'incl_poly_type', False)}")
+    logger.info(f"Split type       : {args.split_type}")
     logger.info("================================\n")
 
     # Filter to specific target if specified
@@ -332,10 +335,25 @@ if args.model_name == "HPG":
     else:
         smis_homo = df_input[smiles_column].astype(str).tolist()
 
-    # ── Descriptors (reuse standard pipeline) ──
+    # ── Descriptors ──
+    # HPG variants:
+    #   HPG              : no X_d
+    #   HPG + incl_desc  : X_d = [fracA, fracB] + config descriptors (e.g. Mn)
+    #   HPG + incl_desc + incl_poly_type : above + poly_type one-hot
     combined_descriptor_data_hpg = None
-    if descriptor_columns:
-        combined_descriptor_data_hpg = df_input[descriptor_columns].values.astype(np.float32)
+    hpg_desc_parts = []
+    if args.incl_desc:
+        # Include fracA/fracB as scalar features for copolymers
+        if is_copolymer and "fracA" in df_input.columns and "fracB" in df_input.columns:
+            frac_data = df_input[["fracA", "fracB"]].values.astype(np.float32)
+            hpg_desc_parts.append(frac_data)
+            logger.info("HPG + incl_desc: including fracA, fracB as scalar descriptors")
+        # Include config-defined descriptors (e.g. Mn for block)
+        if descriptor_columns:
+            hpg_desc_parts.append(df_input[descriptor_columns].values.astype(np.float32))
+            logger.info(f"HPG + incl_desc: including {len(descriptor_columns)} config descriptors: {descriptor_columns}")
+    if hpg_desc_parts:
+        combined_descriptor_data_hpg = np.hstack(hpg_desc_parts)
 
     # ── poly_type one-hot ──
     if getattr(args, 'incl_poly_type', False) and 'poly_type' in df_input.columns:

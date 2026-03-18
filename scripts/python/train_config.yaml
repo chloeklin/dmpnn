@@ -223,6 +223,9 @@ models:
   Graphormer:
     smiles_column: smiles
     ignore_columns: [WDMPNN_Input,psmiles,wdmpnn_input]
+  
+  HPG:
+    ignore_columns: [WDMPNN_Input,psmiles,wdmpnn_input]
 
 # Paths
 paths:

@@ -796,18 +796,18 @@ experiments:
   #   targets: *eaip_targets
 
   # -- DMPNN + poly_type --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: mix
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: interact
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: interact
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- GIN + poly_type --
   - <<: *eaip_base
@@ -838,22 +838,31 @@ experiments:
     targets: *eaip_targets
 
   # -- wDMPNN --
-  - <<: *eaip_base
-    model: wDMPNN
-    walltime: "12:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: wDMPNN
-    walltime: "12:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: wDMPNN
+  #   walltime: "12:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: wDMPNN
+  #   walltime: "12:30:00"
+  #   targets: *eaip_targets
 
   # -- HPG (hierarchical polymer graph — no copolymer_mode needed) --
+  # HPG                        : graph only, no X_d
+  # HPG + incl_desc            : X_d = [fracA, fracB]
+  # HPG + incl_desc+poly_type  : X_d = [fracA, fracB, poly_type_one_hot]
   - <<: *eaip_base
     model: HPG
     walltime: "1:00:00"
     targets: *eaip_targets
   - <<: *eaip_base
     model: HPG
+    incl_desc: true
+    walltime: "1:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: HPG
+    incl_desc: true
     incl_poly_type: true
     walltime: "1:00:00"
     targets: *eaip_targets
@@ -1012,15 +1021,35 @@ experiments:
     targets: *eaip_targets
 
   # -- wDMPNN --
+  # - <<: *eaip_base
+  #   model: wDMPNN
+  #   split_type: a_held_out
+  #   walltime: "12:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: wDMPNN
+  #   split_type: a_held_out
+  #   walltime: "12:30:00"
+  #   targets: *eaip_targets
+
+  # -- HPG (a_held_out) --
   - <<: *eaip_base
-    model: wDMPNN
+    model: HPG
     split_type: a_held_out
-    walltime: "12:30:00"
+    walltime: "1:00:00"
     targets: *eaip_targets
   - <<: *eaip_base
-    model: wDMPNN
+    model: HPG
+    incl_desc: true
     split_type: a_held_out
-    walltime: "12:30:00"
+    walltime: "1:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: HPG
+    incl_desc: true
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "1:00:00"
     targets: *eaip_targets
 
   # -- Identity Baseline --
@@ -1185,8 +1214,29 @@ experiments:
   #   targets: *block_targets
 
   # -- HPG (hierarchical polymer graph — no copolymer_mode needed) --
+  # HPG                : graph only, no X_d
+  # HPG + incl_desc    : X_d = [fracA, fracB, Mn]
+  # (block has no poly_type column)
+  # ---- random split ----
   - <<: *block_base
     model: HPG
+    walltime: "1:00:00"
+    targets: *block_targets
+  - <<: *block_base
+    model: HPG
+    incl_desc: true
+    walltime: "1:00:00"
+    targets: *block_targets
+  # ---- a_held_out split ----
+  - <<: *block_base
+    model: HPG
+    split_type: a_held_out
+    walltime: "1:00:00"
+    targets: *block_targets
+  - <<: *block_base
+    model: HPG
+    incl_desc: true
+    split_type: a_held_out
     walltime: "1:00:00"
     targets: *block_targets
 
