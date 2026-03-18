@@ -32,7 +32,7 @@
 if [ $# -lt 3 ]; then
     echo "Usage: $0 <dataset> <model> <walltime> [incl_rdkit] [incl_desc] [incl_ab] [task_type] [--no-submit] [key=value...]"
     echo ""
-    echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE"
+    echo "Available models: tabular, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE, HPG"
     echo "Optional flags: incl_rdkit, incl_desc, incl_ab, batch_norm, binary, multi, pretrain_monomer, save_checkpoint, save_predictions, export_embeddings"
     echo "Extra key=value: target=..., train_size=..., polymer_type=..., fusion_mode=..., film_layers=..., film_hidden_dim=..."
     exit 1
@@ -71,9 +71,9 @@ SPLIT_TYPE=""
 
 # Validate model
 case $MODEL in
-  tabular|identity_baseline|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG|GAT|GATv2|GIN|GIN0|GINE) ;;
+  tabular|identity_baseline|DMPNN|wDMPNN|DMPNN_DiffPool|AttentiveFP|PPG|GAT|GATv2|GIN|GIN0|GINE|HPG) ;;
   *)
-    echo "Error: Invalid model '$MODEL'. Available: tabular, identity_baseline, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE"
+    echo "Error: Invalid model '$MODEL'. Available: tabular, identity_baseline, DMPNN, wDMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GATv2, GIN, GIN0, GINE, HPG"
     exit 1
     ;;
 esac
