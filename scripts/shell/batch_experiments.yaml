@@ -842,30 +842,27 @@ experiments:
   #   model: wDMPNN
   #   walltime: "12:30:00"
   #   targets: *eaip_targets
-  # - <<: *eaip_base
-  #   model: wDMPNN
-  #   walltime: "12:30:00"
-  #   targets: *eaip_targets
+
 
   # -- HPG (hierarchical polymer graph — no copolymer_mode needed) --
   # HPG                        : graph only, no X_d
   # HPG + incl_desc            : X_d = [fracA, fracB]
   # HPG + incl_desc+poly_type  : X_d = [fracA, fracB, poly_type_one_hot]
-  - <<: *eaip_base
-    model: HPG
-    walltime: "3:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: HPG
-    incl_desc: true
-    walltime: "3:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: HPG
-    incl_desc: true
-    incl_poly_type: true
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   incl_desc: true
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   incl_desc: true
+  #   incl_poly_type: true
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
   # -- Identity Baseline --
   # - <<: *eaip_base
@@ -906,26 +903,26 @@ experiments:
   #   incl_rdkit: true
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_poly_type: true
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_ab: true
-  #   incl_rdkit: true
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_poly_type: true
+    walltime: "2:00:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: tabular
   #   polymer_type: copolymer
   #   incl_ab: true
   #   incl_rdkit: true
-  #   incl_poly_type: true
   #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_ab: true
+    incl_rdkit: true
+    incl_poly_type: true
+    walltime: "2:00:00"
   #   targets: *eaip_targets
 
   # ---- a_held_out split ----
@@ -1026,31 +1023,26 @@ experiments:
   #   split_type: a_held_out
   #   walltime: "12:30:00"
   #   targets: *eaip_targets
-  # - <<: *eaip_base
-  #   model: wDMPNN
-  #   split_type: a_held_out
-  #   walltime: "12:30:00"
-  #   targets: *eaip_targets
 
   # -- HPG (a_held_out) --
-  - <<: *eaip_base
-    model: HPG
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: HPG
-    incl_desc: true
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: HPG
-    incl_desc: true
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   incl_desc: true
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   incl_desc: true
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
   # -- Identity Baseline --
   # - <<: *eaip_base
@@ -1082,7 +1074,7 @@ experiments:
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
 
-  # -- Tabular (a_held_out) --htpmd
+  # -- Tabular (a_held_out) --
   # - <<: *eaip_base
   #   model: tabular
   #   polymer_type: copolymer
@@ -1105,22 +1097,22 @@ experiments:
   #   split_type: a_held_out
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_poly_type: true
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
-  # - <<: *eaip_base
-  #   model: tabular
-  #   polymer_type: copolymer
-  #   incl_ab: true
-  #   incl_rdkit: true
-  #   incl_poly_type: true
-  #   split_type: a_held_out
-  #   walltime: "2:00:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    incl_ab: true
+    incl_rdkit: true
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
 
 # ─── Block Copolymer ──────────────────────────────────────────────
 # Type: multi (classification) | Polymer: copolymer | Features: rdkit, desc, ab
@@ -1218,27 +1210,27 @@ experiments:
   # HPG + incl_desc    : X_d = [fracA, fracB, Mn]
   # (block has no poly_type column)
   # ---- random split ----
-  - <<: *block_base
-    model: HPG
-    walltime: "3:00:00"
-    targets: *block_targets
-  - <<: *block_base
-    model: HPG
-    incl_desc: true
-    walltime: "3:00:00"
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: HPG
+  #   walltime: "3:00:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: HPG
+  #   incl_desc: true
+  #   walltime: "3:00:00"
+  #   targets: *block_targets
   # ---- a_held_out split ----
-  - <<: *block_base
-    model: HPG
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *block_targets
-  - <<: *block_base
-    model: HPG
-    incl_desc: true
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: HPG
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: HPG
+  #   incl_desc: true
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *block_targets
 
   # -- Identity Baseline --
   # - <<: *block_base
