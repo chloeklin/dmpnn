@@ -500,6 +500,7 @@ def build_features(
     pool: str = 'mean',
     add_counts: bool = False,
     smiles_column: str = "smiles",
+    allow_empty: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     """
     Assemble feature blocks for homo- and co-polymers.
@@ -545,7 +546,8 @@ def build_features(
             names += desc_names
 
         if ab_block is None and descriptor_block is None:
-            raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
+            if not allow_empty:
+                raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
 
         return ab_block, descriptor_block, names
 
@@ -626,7 +628,8 @@ def build_features(
             names += desc_names
 
         if ab_block is None and descriptor_block is None:
-            raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
+            if not allow_empty:
+                raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
 
         return ab_block, descriptor_block, names
 
@@ -707,7 +710,8 @@ def build_features(
         names += desc_names
 
     if ab_block is None and descriptor_block is None:
-        raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
+        if not allow_empty:
+            raise ValueError("No features selected. Use --incl_ab and/or --incl_rdkit / --incl_desc.")
 
     return ab_block, descriptor_block, names
 

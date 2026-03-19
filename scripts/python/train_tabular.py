@@ -123,7 +123,13 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
     detailed_rows = []
     for i, (train_idx, val_idx, test_idx) in enumerate(zip(train_indices, val_indices, test_indices)):
         # Extract and process features
-        ab_block, descriptor_block, feat_names = build_features(df_valid, train_idx, descriptor_columns, args.polymer_type, use_rdkit=args.incl_rdkit, use_ab=args.incl_ab, smiles_column=smiles_column)
+        # Allow empty features if poly_type will be added later
+        allow_empty_features = getattr(args, 'incl_poly_type', False)
+        ab_block, descriptor_block, feat_names = build_features(
+            df_valid, train_idx, descriptor_columns, args.polymer_type, 
+            use_rdkit=args.incl_rdkit, use_ab=args.incl_ab, 
+            smiles_column=smiles_column, allow_empty=allow_empty_features
+        )
         
         orig_desc_names = [n for n in feat_names if not n.startswith('AB_')]
 
@@ -153,10 +159,17 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
                 X_tr, X_val, X_te = desc_tr_selected, desc_val_selected, desc_te_selected
                 feat_names = selected_desc_names
         
-        else:
-            # Only AB block available (or no features if AB disabled)
+        elif ab_block is not None:
+            # Only AB block available
             X_tr, X_val, X_te = ab_tr, ab_val, ab_te
             feat_names = ab_names
+        else:
+            # No features yet - will be filled by poly_type one-hot encoding
+            n_tr, n_val, n_te = len(train_idx), len(val_idx), len(test_idx)
+            X_tr = np.empty((n_tr, 0), dtype=float)
+            X_val = np.empty((n_val, 0), dtype=float)
+            X_te = np.empty((n_te, 0), dtype=float)
+            feat_names = []
 
         # Save preprocessing metadata and objects
         if descriptor_block is not None:
@@ -183,12 +196,30 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
             }
             save_preprocessing_objects(out_dir, i, ab_metadata, None, 
                                      np.array([]), np.array([]), [])
+        else:
+            # Poly_type-only case: create minimal preprocessing metadata
+            pt_metadata = {
+                'feat_names': feat_names,
+                'ab_feature_count': 0,
+                'use_ab': False,
+                'n_desc_before_any_selection': 0,
+                'n_desc_after_constant_removal': 0,
+                'n_desc_after_corr_removal': 0,
+                'n_desc_after_final_zero_var_removal': 0,
+                'constant_features_removed': [],
+                'correlated_features_removed': [],
+                'zero_var_after_impute_removed': []
+            }
+            save_preprocessing_objects(out_dir, i, pt_metadata, None, 
+                                     np.array([]), np.array([]), [])
 
 
-        if X_tr.shape[1] == 0:
+        if X_tr.shape[1] == 0 and ab_block is not None:
             logger.warning("Feature selection yielded 0 columns; reverting to AB features only for this split.")
             X_tr, X_val, X_te = ab_tr, ab_val, ab_te
             feat_names = ab_names
+        elif X_tr.shape[1] == 0 and not getattr(args, 'incl_poly_type', False):
+            raise ValueError("No features available and poly_type not enabled. Use --incl_ab, --incl_rdkit, --incl_desc, or --incl_poly_type.")
 
         # Append poly_type one-hot if requested
         if getattr(args, 'incl_poly_type', False) and poly_type_array is not None:

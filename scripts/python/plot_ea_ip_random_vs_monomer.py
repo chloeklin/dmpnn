@@ -59,6 +59,7 @@ MODEL_ORDER = [
     ("Graph",    "GIN",             "mix",       False),
     ("Graph",    "GIN",             "interact",  False),
     ("Graph",    "GIN",             None,        True),
+    ("Graph",    "wDMPNN",          None,        False),  # wDMPNN doesn't use copoly modes
     ("Tabular",  "Linear",          None,        False),
     ("Tabular",  "Linear",          None,        True),
     ("Tabular",  "RF",              None,        False),
@@ -109,6 +110,22 @@ def load_raw_identity_poly_type(mode: str | None, split: str, target: str,
     if best_mean is None:
         return None, None
     return best_mean, best_std
+
+
+def load_raw_wdmpnn(split: str, target: str, metric: str) -> tuple[float, float] | tuple[None, None]:
+    """Load wDMPNN results from raw result files. wDMPNN doesn't use copolymer modes."""
+    suffix = "__a_held_out" if split == "monomer" else ""
+    fname = f"ea_ip{suffix}__target_{target}_results.csv"
+    fpath = RESULTS_DIR / "wDMPNN" / fname
+    if not fpath.exists():
+        return None, None
+    df = pd.read_csv(fpath)
+    if df.empty:
+        return None, None
+    metric_col = f"test/{metric}"
+    if metric_col not in df.columns:
+        return None, None
+    return float(df[metric_col].mean()), float(df[metric_col].std())
 
 
 def load_raw_tabular_poly_type(model_name: str, split: str, target: str,
@@ -202,6 +219,10 @@ def get_model_data(df: pd.DataFrame, category: str, model_name: str,
     (e.g. 'mix' or 'interact'). For tabular models, mode is ignored.
     poly_type=True loads directly from raw result files.
     """
+    # wDMPNN always loads from raw files (doesn't use copoly modes or poly_type)
+    if model_name == "wDMPNN":
+        return load_raw_wdmpnn(split, target, metric)
+    
     # poly_type variants come from raw files, not the consolidated CSV
     if poly_type:
         if category == "Identity":
@@ -363,6 +384,38 @@ def make_figure(df: pd.DataFrame, metric: str):
     print(f"Saved: {out}")
 
 
+def collect_all_results(df: pd.DataFrame) -> pd.DataFrame:
+    """Collect all model results shown in the figure into a consolidated DataFrame."""
+    targets = ["EA vs SHE (eV)", "IP vs SHE (eV)"]
+    splits = ["random", "monomer"]
+    
+    rows = []
+    for cat, model, mode, pt in MODEL_ORDER:
+        model_label_str = model_label(model, mode, pt).replace("\n", " ")
+        for split in splits:
+            for target in targets:
+                row_data = {
+                    "category": cat,
+                    "model": model,
+                    "copolymer_mode": mode if mode is not None else "N/A",
+                    "poly_type": pt,
+                    "model_label": model_label_str,
+                    "split": split,
+                    "target": target,
+                }
+                
+                # Get all metrics
+                for metric in METRICS:
+                    mean, std = get_model_data(df, cat, model, mode, target, split, metric, pt)
+                    row_data[f"{metric}_mean"] = mean
+                    row_data[f"{metric}_std"] = std
+                
+                rows.append(row_data)
+    
+    results_df = pd.DataFrame(rows)
+    return results_df
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -377,6 +430,14 @@ def main():
         make_figure(df, metric)
 
     print(f"\nAll plots → {OUTPUT_DIR}")
+    
+    # Save consolidated results
+    print(f"\nCollecting consolidated results...")
+    consolidated = collect_all_results(df)
+    csv_out = OUTPUT_DIR / "ea_ip_random_vs_monomer_consolidated.csv"
+    consolidated.to_csv(csv_out, index=False)
+    print(f"Saved consolidated results → {csv_out}")
+    print(f"  {len(consolidated)} rows × {len(consolidated.columns)} columns")
 
 
 if __name__ == "__main__":
