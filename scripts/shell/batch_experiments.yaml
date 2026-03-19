@@ -796,12 +796,12 @@ experiments:
   #   targets: *eaip_targets
 
   # -- DMPNN + poly_type --
-  # - <<: *eaip_base
-  #   model: DMPNN
-  #   copolymer_mode: mix
-  #   incl_poly_type: true
-  #   walltime: "5:30:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: mix
+    incl_poly_type: true
+    walltime: "5:30:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: DMPNN
   #   copolymer_mode: interact

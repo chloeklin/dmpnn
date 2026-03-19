@@ -253,8 +253,9 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
     # Add copolymer mode suffix
     polymer_type = getattr(args, 'polymer_type', 'homo')
     if polymer_type == 'copolymer':
-        if model_name == 'HPG':
-            # HPG doesn't use copolymer modes
+        if model_name in ['HPG', 'wDMPNN']:
+            # HPG and wDMPNN don't use copolymer modes
+            # wDMPNN reads directly from WDMPNN_Input column
             pass
         else:
             copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
@@ -1872,16 +1873,17 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     if polymer_type == 'copolymer':
         model_name = getattr(args, 'model_name', '')
         poly_type_sfx = "__poly_type" if getattr(args, 'incl_poly_type', False) else ""
-        if model_name == 'HPG':
-            # HPG doesn't use copolymer modes; just mark poly_type if set
+        if model_name in ['HPG', 'wDMPNN']:
+            # HPG and wDMPNN don't use copolymer modes
+            # wDMPNN reads directly from WDMPNN_Input column
             copoly_suffix = poly_type_sfx
         else:
             copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
-            copoly_suffix = f"{poly_type_sfx}__copoly_{copolymer_mode}"
+            copoly_suffix = f"__copoly_{copolymer_mode}{poly_type_sfx}"
     
-    # Add split type suffix (always included for disambiguation)
+    # Add split type suffix (only for non-random splits, matching save_model_results)
     split_type = getattr(args, 'split_type', 'random')
-    split_suffix = f"__{split_type}"
+    split_suffix = f"__{split_type}" if split_type != 'random' else ""
 
     base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{copoly_suffix}{split_suffix}{size_suffix}__rep{i}"
     

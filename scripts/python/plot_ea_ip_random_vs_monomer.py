@@ -45,24 +45,20 @@ CATEGORY_COLORS = {
 
 # ── model ordering ─────────────────────────────────────────────────────────
 # (category, model_name, copolymer_mode, poly_type)
-# poly_type=True → load from raw result files (not consolidated CSV)
+# poly_type=True + mode=None → auto-pick best poly_type variant (raw result files)
 MODEL_ORDER = [
-    ("Identity", "IdentityBaseline", "mix",      False),
-    ("Identity", "IdentityBaseline", "mix",      True),
+    ("Identity", "IdentityBaseline", "mix",     False),
     ("Identity", "IdentityBaseline", "interact", False),
-    ("Identity", "IdentityBaseline", "interact", True),
+    ("Identity", "IdentityBaseline", None,       True),   # best of mix/interact +poly_type
     ("Graph",    "DMPNN",           "mix",       False),
-    ("Graph",    "DMPNN",           "mix",       True),
     ("Graph",    "DMPNN",           "interact",  False),
-    ("Graph",    "DMPNN",           "interact",  True),
+    ("Graph",    "DMPNN",           None,        True),   # best of mix_meta/interact_meta +poly_type
     ("Graph",    "GAT",             "mix",       False),
-    ("Graph",    "GAT",             "mix",       True),
     ("Graph",    "GAT",             "interact",  False),
-    ("Graph",    "GAT",             "interact",  True),
+    ("Graph",    "GAT",             None,        True),
     ("Graph",    "GIN",             "mix",       False),
-    ("Graph",    "GIN",             "mix",       True),
     ("Graph",    "GIN",             "interact",  False),
-    ("Graph",    "GIN",             "interact",  True),
+    ("Graph",    "GIN",             None,        True),
     ("Tabular",  "Linear",          None,        False),
     ("Tabular",  "Linear",          None,        True),
     ("Tabular",  "RF",              None,        False),
@@ -89,19 +85,30 @@ IDENTITY_RESULTS_DIR = PROJECT_DIR / "results" / "IdentityBaseline"
 TABULAR_RESULTS_DIR  = PROJECT_DIR / "results" / "tabular"
 
 
-def load_raw_identity_poly_type(mode: str, split: str, target: str,
+def load_raw_identity_poly_type(mode: str | None, split: str, target: str,
                                 metric: str) -> tuple[float, float] | tuple[None, None]:
-    """Load poly_type IdentityBaseline results directly from raw result files."""
+    """Load poly_type IdentityBaseline results. If mode is None, auto-pick best (lowest RMSE)."""
     suffix = "__a_held_out" if split == "monomer" else ""
-    fname  = f"ea_ip__poly_type__copoly_{mode}{suffix}_results.csv"
-    fpath  = IDENTITY_RESULTS_DIR / fname
-    if not fpath.exists():
+    modes_to_try = [mode] if mode is not None else ["mix", "interact"]
+    best_mean, best_std, best_rmse = None, None, float("inf")
+    for m in modes_to_try:
+        fname = f"ea_ip__copoly_{m}__poly_type{suffix}_results.csv"
+        fpath = IDENTITY_RESULTS_DIR / fname
+        if not fpath.exists():
+            continue
+        df = pd.read_csv(fpath)
+        df_t = df[df["target"].astype(str).str.strip() == target]
+        if df_t.empty or metric not in df_t.columns:
+            continue
+        rmse_col = "test/rmse" if "test/rmse" in df_t.columns else metric
+        rmse = float(df_t[rmse_col].mean()) if rmse_col in df_t.columns else float(df_t[metric].mean())
+        if rmse < best_rmse:
+            best_rmse = rmse
+            best_mean = float(df_t[metric].mean())
+            best_std  = float(df_t[metric].std())
+    if best_mean is None:
         return None, None
-    df = pd.read_csv(fpath)
-    df_t = df[df["target"].astype(str).str.strip() == target]
-    if df_t.empty or metric not in df_t.columns:
-        return None, None
-    return float(df_t[metric].mean()), float(df_t[metric].std())
+    return best_mean, best_std
 
 
 def load_raw_tabular_poly_type(model_name: str, split: str, target: str,
@@ -122,31 +129,35 @@ def load_raw_tabular_poly_type(model_name: str, split: str, target: str,
     return float(df[metric].mean()), float(df[metric].std())
 
 
-def load_raw_graph_poly_type(model_name: str, mode: str, split: str, target: str,
+def load_raw_graph_poly_type(model_name: str, mode: str | None, split: str, target: str,
                              metric: str) -> tuple[float, float] | tuple[None, None]:
-    """Load poly_type graph model results directly from raw result files.
+    """Load poly_type graph model results. If mode is None, auto-pick best (lowest RMSE).
     
-    Graph models with poly_type use {mode}_meta (e.g., mix_meta, interact_meta).
+    Graph models with poly_type use {mode}_meta naming (e.g., mix_meta, interact_meta).
     """
     suffix = "__a_held_out" if split == "monomer" else ""
-    # Graph poly_type results use {mode}_meta naming
-    fname = f"ea_ip__copoly_{mode}_meta__poly_type{suffix}__target_{target}_results.csv"
-    fpath = RESULTS_DIR / model_name / fname
-    if not fpath.exists():
+    modes_to_try = [mode] if mode is not None else ["mix", "interact"]
+    best_mean, best_std, best_rmse = None, None, float("inf")
+    for m in modes_to_try:
+        fname = f"ea_ip__copoly_{m}_meta__poly_type{suffix}__target_{target}_results.csv"
+        fpath = RESULTS_DIR / model_name / fname
+        if not fpath.exists():
+            continue
+        df = pd.read_csv(fpath)
+        if df.empty:
+            continue
+        rmse_col = "test/rmse"
+        metric_col = f"test/{metric}"
+        if metric_col not in df.columns:
+            continue
+        rmse = float(df[rmse_col].mean()) if rmse_col in df.columns else float(df[metric_col].mean())
+        if rmse < best_rmse:
+            best_rmse = rmse
+            best_mean = float(df[metric_col].mean())
+            best_std  = float(df[metric_col].std())
+    if best_mean is None:
         return None, None
-    df = pd.read_csv(fpath)
-    if df.empty:
-        return None, None
-    
-    # Graph model results have test/{metric} columns, compute mean/std across splits
-    metric_col = f"test/{metric}"
-    if metric_col not in df.columns:
-        return None, None
-    
-    mean_val = float(df[metric_col].mean())
-    std_val = float(df[metric_col].std())
-    
-    return mean_val, std_val
+    return best_mean, best_std
 
 
 def load_consolidated() -> pd.DataFrame:

@@ -711,7 +711,7 @@ def main():
                 mode_sfx = f"__copoly_{args.copolymer_mode}"
                 pt_sfx = "__poly_type" if args.incl_poly_type else ""
                 split_sfx = f"__{args.split_type}" if args.split_type != "random" else ""
-                fname = f"{args.dataset_name}__{target}{pt_sfx}{mode_sfx}{split_sfx}__split{i}.npz"
+                fname = f"{args.dataset_name}__{target}{mode_sfx}{pt_sfx}{split_sfx}__split{i}.npz"
                 np.savez_compressed(
                     pred_out_dir / fname,
                     y_true=y_true_split,
@@ -740,10 +740,10 @@ def main():
             filename_parts = [args.dataset_name]
             if args.incl_desc:
                 filename_parts.append("desc")
-            if args.incl_poly_type:
-                filename_parts.append("poly_type")
             # Use copoly_{mode} to match other graph models, not identity_{mode}
             filename_parts.append(f"copoly_{args.copolymer_mode}")
+            if args.incl_poly_type:
+                filename_parts.append("poly_type")
             if args.split_type != "random":
                 filename_parts.append(args.split_type)
             if args.train_size and args.train_size.lower() != "full":
@@ -768,9 +768,9 @@ def main():
         filename_parts = [args.dataset_name]
         if args.incl_desc:
             filename_parts.append("desc")
+        filename_parts.append(f"copoly_{args.copolymer_mode}")
         if args.incl_poly_type:
             filename_parts.append("poly_type")
-        filename_parts.append(f"copoly_{args.copolymer_mode}")
         if args.split_type != "random":
             filename_parts.append(args.split_type)
         if args.train_size and args.train_size.lower() != "full":

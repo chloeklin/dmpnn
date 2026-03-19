@@ -125,6 +125,12 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
         split_type = 'a_held_out'
         base = base.replace('__a_held_out', '')
     
+    # Extract poly_type flag if present
+    has_poly_type = False
+    if '__poly_type' in base:
+        has_poly_type = True
+        base = base.replace('__poly_type', '')
+
     # Extract copolymer mode if present
     copoly_mode = None
     if '__copoly_' in base:
@@ -169,6 +175,10 @@ def parse_model_filename(filename: str, method: str, model_name: str = None) -> 
     # Add copolymer mode to features if present
     elif copoly_mode:
         features = f"{features} ({copoly_mode})"
+    
+    # Add poly_type to features if present
+    if has_poly_type:
+        features = f"{features} +poly_type"
     
     # Clean up any trailing underscores in dataset name
     dataset = dataset.rstrip('_')
