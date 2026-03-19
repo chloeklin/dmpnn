@@ -1097,13 +1097,13 @@ experiments:
   #   split_type: a_held_out
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: tabular
   #   polymer_type: copolymer
@@ -1146,6 +1146,19 @@ experiments:
   #   incl_desc: true
   #   walltime: "0:30:00"
   #   targets: *block_targets
+
+
+  # -- wDMPNN --
+  - <<: *block_base
+    model: wDMPNN
+    walltime: "1:30:00"
+    targets: *block_targets
+  - <<: *block_base
+    model: wDMPNN
+    incl_desc: true
+    walltime: "1:30:00"
+    targets: *block_targets
+
 
   # -- GIN --
   # - <<: *block_base

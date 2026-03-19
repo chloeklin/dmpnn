@@ -60,6 +60,9 @@ MODEL_ORDER = [
     ("Graph",    "GIN",             "interact",  False),
     ("Graph",    "GIN",             None,        True),
     ("Graph",    "wDMPNN",          None,        False),  # wDMPNN doesn't use copoly modes
+    ("Graph",    "HPG",             None,        False),  # HPG original (no desc)
+    ("Graph",    "HPG",             "desc",      False),  # HPG with desc
+    ("Graph",    "HPG",             "desc",      True),   # HPG with desc+poly_type
     ("Tabular",  "Linear",          None,        False),
     ("Tabular",  "Linear",          None,        True),
     ("Tabular",  "RF",              None,        False),
@@ -73,6 +76,10 @@ def model_label(model_name: str, mode: str | None, poly_type: bool = False) -> s
     suffix = "\n+PT" if poly_type else ""
     if mode is None:
         return f"{base}{suffix}"
+    # HPG uses 'desc' to indicate descriptor inclusion, show as +desc
+    if model_name == "HPG" and mode == "desc":
+        return f"{base}\n+desc{suffix}"
+    # Other models use mode for copolymer modes (mix, interact)
     return f"{base}\n({mode}){suffix}"
 
 METRICS = ["mae", "rmse", "r2"]
@@ -117,6 +124,29 @@ def load_raw_wdmpnn(split: str, target: str, metric: str) -> tuple[float, float]
     suffix = "__a_held_out" if split == "monomer" else ""
     fname = f"ea_ip{suffix}__target_{target}_results.csv"
     fpath = RESULTS_DIR / "wDMPNN" / fname
+    if not fpath.exists():
+        return None, None
+    df = pd.read_csv(fpath)
+    if df.empty:
+        return None, None
+    metric_col = f"test/{metric}"
+    if metric_col not in df.columns:
+        return None, None
+    return float(df[metric_col].mean()), float(df[metric_col].std())
+
+
+def load_raw_hpg(mode: str | None, poly_type: bool, split: str, target: str, 
+                 metric: str) -> tuple[float, float] | tuple[None, None]:
+    """Load HPG results from raw result files. 
+    
+    mode: None (original), 'desc' (with descriptors)
+    poly_type: True if using poly_type features
+    """
+    split_suffix = "__a_held_out" if split == "monomer" else ""
+    desc_suffix = "__desc" if mode == "desc" else ""
+    pt_suffix = "__poly_type" if poly_type else ""
+    fname = f"ea_ip{desc_suffix}{pt_suffix}{split_suffix}__target_{target}_results.csv"
+    fpath = RESULTS_DIR / "HPG" / fname
     if not fpath.exists():
         return None, None
     df = pd.read_csv(fpath)
@@ -219,9 +249,11 @@ def get_model_data(df: pd.DataFrame, category: str, model_name: str,
     (e.g. 'mix' or 'interact'). For tabular models, mode is ignored.
     poly_type=True loads directly from raw result files.
     """
-    # wDMPNN always loads from raw files (doesn't use copoly modes or poly_type)
+    # wDMPNN and HPG always load from raw files (don't use copoly modes)
     if model_name == "wDMPNN":
         return load_raw_wdmpnn(split, target, metric)
+    if model_name == "HPG":
+        return load_raw_hpg(mode, poly_type, split, target, metric)
     
     # poly_type variants come from raw files, not the consolidated CSV
     if poly_type:
