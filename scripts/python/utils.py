@@ -54,13 +54,15 @@ def create_base_argument_parser(description="Train a graph model"):
     parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
     parser.add_argument("--copolymer_mode", type=str,
-                        choices=["mix", "mix_meta", "mix_frac", "mix_frac_meta", "interact", "interact_meta"],
+                        choices=["mean", "mean_meta", "mix", "mix_meta", "mix_frac", "mix_frac_meta", "interact", "interact_meta"],
                         default="mix",
                         help='Copolymer integration mode: '
-                             '"mix" = z only, '
-                             '"mix_meta" = z + descriptors, '
-                             '"mix_frac" = z + fracs, '
-                             '"mix_frac_meta" = z + fracs + descriptors, '
+                             '"mean" = (z_A+z_B)/2, '
+                             '"mean_meta" = mean + descriptors, '
+                             '"mix" = fracA*z_A + fracB*z_B, '
+                             '"mix_meta" = mix + descriptors, '
+                             '"mix_frac" = mix + fracs, '
+                             '"mix_frac_meta" = mix + fracs + descriptors, '
                              '"interact" = [z_A||z_B||diff||prod||fracs], '
                              '"interact_meta" = interact + descriptors')
     parser.add_argument('--incl_poly_type', action='store_true',
@@ -862,6 +864,10 @@ def build_copolymer_model_and_trainer(
 
     The FFN input dimension depends on ``copolymer_mode``:
 
+    Mean family (z = (z_A + z_B) / 2):
+    * **mean**:          ``d_mp``                     (z only)
+    * **mean_meta**:     ``d_mp + d_desc``             (z + meta descriptors)
+
     Mix family (z = fracA*z_A + fracB*z_B):
     * **mix**:           ``d_mp``                     (z only)
     * **mix_meta**:      ``d_mp + d_desc``             (z + meta descriptors)
@@ -923,7 +929,11 @@ def build_copolymer_model_and_trainer(
     d_mp = mp.output_dim  # GNN embedding dim
 
     # ---------- FFN input dimension ----------
-    if copolymer_mode == "mix":
+    if copolymer_mode == "mean":
+        ffn_input_dim = d_mp
+    elif copolymer_mode == "mean_meta":
+        ffn_input_dim = d_mp + descriptor_dim
+    elif copolymer_mode == "mix":
         ffn_input_dim = d_mp
     elif copolymer_mode == "mix_meta":
         ffn_input_dim = d_mp + descriptor_dim
@@ -938,7 +948,7 @@ def build_copolymer_model_and_trainer(
     else:
         raise ValueError(
             f"Unknown copolymer_mode: {copolymer_mode}. "
-            f"Valid: mix, mix_meta, mix_frac, mix_frac_meta, interact, interact_meta"
+            f"Valid: mean, mean_meta, mix, mix_meta, mix_frac, mix_frac_meta, interact, interact_meta"
         )
 
     # ---------- output transform ----------

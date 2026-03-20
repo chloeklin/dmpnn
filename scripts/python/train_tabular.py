@@ -128,7 +128,8 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         ab_block, descriptor_block, feat_names = build_features(
             df_valid, train_idx, descriptor_columns, args.polymer_type, 
             use_rdkit=args.incl_rdkit, use_ab=args.incl_ab, 
-            smiles_column=smiles_column, allow_empty=allow_empty_features
+            smiles_column=smiles_column, allow_empty=allow_empty_features,
+            copolymer_mode=getattr(args, 'copolymer_mode', 'mix'),
         )
         
         orig_desc_names = [n for n in feat_names if not n.startswith('AB_')]
@@ -420,6 +421,10 @@ def main():
     parser.add_argument('--split_type', type=str, choices=['random', 'a_held_out'],
                     default='random',
                     help='Split strategy: random (default) or a_held_out (group by smiles_A)')
+    parser.add_argument('--copolymer_mode', type=str,
+                    choices=['mean', 'mix', 'interact'], default='mix',
+                    help='Copolymer feature blending: "mean" = (A+B)/2, "mix" = fracA*A+fracB*B (default), '
+                         '"interact" = [A||B||diff||prod||fracA||fracB]')
     parser.add_argument('--incl_poly_type', action='store_true',
                     help='Append one-hot encoded poly_type column to features (ea_ip only)')
     parser.add_argument('--save_predictions', action='store_true',
@@ -480,6 +485,11 @@ def main():
 
     # Check for existing results and determine what needs to be run
     suffix = ("_descriptors" if args.incl_desc else "") + ("_rdkit" if args.incl_rdkit else "") + ("_ab" if args.incl_ab else "")
+    copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
+    if args.polymer_type == "copolymer" and copolymer_mode != "mix":
+        suffix += f"_copoly_{copolymer_mode}"
+    if getattr(args, 'incl_poly_type', False):
+        suffix += "_poly_type"
     if args.split_type != "random":
         suffix += f"__{args.split_type}"
     train_size = getattr(args, 'train_size', None)

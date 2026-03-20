@@ -745,6 +745,11 @@ experiments:
   # ---- Random split ----
 
   # -- DMPNN --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: mean
+    walltime: "0:30:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: DMPNN
   #   copolymer_mode: mix
@@ -762,6 +767,11 @@ experiments:
   #   targets: *eaip_targets
 
   # -- GIN --
+  - <<: *eaip_base
+    model: GIN
+    copolymer_mode: mean
+    walltime: "0:30:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: GIN
   #   copolymer_mode: mix
@@ -779,6 +789,11 @@ experiments:
   #   targets: *eaip_targets
 
   # -- GAT --
+  - <<: *eaip_base
+    model: GAT
+    copolymer_mode: mean
+    walltime: "0:30:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: GAT
   #   copolymer_mode: mix
@@ -798,6 +813,12 @@ experiments:
   # -- DMPNN + poly_type --
   # - <<: *eaip_base
   #   model: DMPNN
+  #   copolymer_mode: mean
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
   #   copolymer_mode: mix
   #   incl_poly_type: true
   #   walltime: "5:30:00"
@@ -812,6 +833,12 @@ experiments:
   # -- GIN + poly_type --
   # - <<: *eaip_base
   #   model: GIN
+  #   copolymer_mode: mean
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
   #   copolymer_mode: mix
   #   incl_poly_type: true
   #   walltime: "5:30:00"
@@ -824,6 +851,12 @@ experiments:
   #   targets: *eaip_targets
 
   # -- GAT + poly_type --
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mean
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: GAT
   #   copolymer_mode: mix
@@ -865,6 +898,11 @@ experiments:
   #   targets: *eaip_targets
 
   # -- Identity Baseline --
+  - <<: *eaip_base
+    model: identity_baseline
+    copolymer_mode: mean
+    walltime: "2:00:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: identity_baseline
   #   copolymer_mode: mix
@@ -877,6 +915,12 @@ experiments:
   #   targets: *eaip_targets
 
   # -- Identity Baseline + poly_type --
+  - <<: *eaip_base
+    model: identity_baseline
+    copolymer_mode: mean
+    incl_poly_type: true
+    walltime: "2:00:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: identity_baseline
   #   copolymer_mode: mix
@@ -903,12 +947,12 @@ experiments:
   #   incl_rdkit: true
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
-  - <<: *eaip_base
-    model: tabular
-    polymer_type: copolymer
-    incl_poly_type: true
-    walltime: "2:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   incl_poly_type: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: tabular
   #   polymer_type: copolymer
@@ -925,9 +969,81 @@ experiments:
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
 
+  # -- Tabular + copolymer_mode: mean --
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    copolymer_mode: mean
+    incl_ab: true
+    walltime: "2:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    copolymer_mode: mean
+    incl_rdkit: true
+    walltime: "2:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    copolymer_mode: mean
+    incl_ab: true
+    incl_rdkit: true
+    walltime: "2:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    copolymer_mode: mean
+    incl_ab: true
+    incl_rdkit: true
+    incl_poly_type: true
+    walltime: "2:00:00"
+    targets: *eaip_targets
+
+  # -- Tabular + copolymer_mode: interact --
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   copolymer_mode: interact
+  #   incl_ab: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   copolymer_mode: interact
+  #   incl_rdkit: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   copolymer_mode: interact
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   copolymer_mode: interact
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   incl_poly_type: true
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+
   # ---- a_held_out split ----
 
   # -- DMPNN --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: mean
+    split_type: a_held_out
+    walltime: "2:30:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: DMPNN
   #   copolymer_mode: mix
@@ -942,6 +1058,12 @@ experiments:
   #   targets: *eaip_targets
 
   # -- GIN --
+  - <<: *eaip_base
+    model: GIN
+    copolymer_mode: mean
+    split_type: a_held_out
+    walltime: "2:30:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: GIN
   #   copolymer_mode: mix
@@ -956,6 +1078,12 @@ experiments:
   #   targets: *eaip_targets
 
   # -- GAT --
+  - <<: *eaip_base
+    model: GAT
+    copolymer_mode: mean
+    split_type: a_held_out
+    walltime: "2:30:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: GAT
   #   copolymer_mode: mix
@@ -970,6 +1098,13 @@ experiments:
   #   targets: *eaip_targets
 
   # -- DMPNN + poly_type (a_held_out) --
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mean
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: DMPNN
   #   copolymer_mode: mix
@@ -988,6 +1123,13 @@ experiments:
   # -- GIN + poly_type (a_held_out) --
   # - <<: *eaip_base
   #   model: GIN
+  #   copolymer_mode: mean
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
   #   copolymer_mode: mix
   #   incl_poly_type: true
   #   split_type: a_held_out
@@ -1002,6 +1144,13 @@ experiments:
   #   targets: *eaip_targets
 
   # -- GAT + poly_type (a_held_out) --
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mean
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: GAT
   #   copolymer_mode: mix
@@ -1045,6 +1194,12 @@ experiments:
   #   targets: *eaip_targets
 
   # -- Identity Baseline --
+  - <<: *eaip_base
+    model: identity_baseline
+    copolymer_mode: mean
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
   # - <<: *eaip_base
   #   model: identity_baseline
   #   copolymer_mode: mix
@@ -1059,6 +1214,13 @@ experiments:
   #   targets: *eaip_targets
 
   # -- Identity Baseline + poly_type (a_held_out) --
+  # - <<: *eaip_base
+  #   model: identity_baseline
+  #   copolymer_mode: mean
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: identity_baseline
   #   copolymer_mode: mix
@@ -1114,6 +1276,80 @@ experiments:
   #   walltime: "2:00:00"
   #   targets: *eaip_targets
 
+  # -- Tabular + copolymer_mode: mean (a_held_out) --
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    copolymer_mode: mean
+    incl_ab: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    copolymer_mode: mean
+    incl_rdkit: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    copolymer_mode: mean
+    incl_ab: true
+    incl_rdkit: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: tabular
+    polymer_type: copolymer
+    copolymer_mode: mean
+    incl_ab: true
+    incl_rdkit: true
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "2:00:00"
+    targets: *eaip_targets
+
+  # -- Tabular + copolymer_mode: interact (a_held_out) --
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   copolymer_mode: interact
+  #   incl_ab: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   copolymer_mode: interact
+  #   incl_rdkit: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   copolymer_mode: interact
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: tabular
+  #   polymer_type: copolymer
+  #   copolymer_mode: interact
+  #   incl_ab: true
+  #   incl_rdkit: true
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "2:00:00"
+  #   targets: *eaip_targets
+
 # ─── Block Copolymer ──────────────────────────────────────────────
 # Type: multi (classification) | Polymer: copolymer | Features: rdkit, desc, ab
 # 1 target: phase_label
@@ -1149,15 +1385,15 @@ experiments:
 
 
   # -- wDMPNN --
-  - <<: *block_base
-    model: wDMPNN
-    walltime: "1:30:00"
-    targets: *block_targets
-  - <<: *block_base
-    model: wDMPNN
-    incl_desc: true
-    walltime: "1:30:00"
-    targets: *block_targets
+  # - <<: *block_base
+  #   model: wDMPNN
+  #   walltime: "1:30:00"
+  #   targets: *block_targets
+  # - <<: *block_base
+  #   model: wDMPNN
+  #   incl_desc: true
+  #   walltime: "1:30:00"
+  #   targets: *block_targets
 
 
   # -- GIN --

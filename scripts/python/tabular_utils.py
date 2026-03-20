@@ -478,6 +478,59 @@ def weighted_average(A: np.ndarray, B: np.ndarray, fa: np.ndarray, fb: np.ndarra
     
     return fa_norm * A + fb_norm * B
 
+
+def blend_copolymer_features(
+    featA: np.ndarray,
+    featB: np.ndarray,
+    fA: np.ndarray,
+    fB: np.ndarray,
+    mode: str = "mix",
+    prefix: str = "",
+    n_feats: int = 0,
+) -> Tuple[np.ndarray, List[str]]:
+    """Blend monomer-A and monomer-B feature matrices according to copolymer mode.
+
+    Parameters
+    ----------
+    featA, featB : ndarray of shape (n_samples, d)
+    fA, fB : ndarray of shape (n_samples,)  — composition fractions
+    mode : {'mean', 'mix', 'interact'}
+    prefix : feature-name prefix (e.g. 'AB', 'RD')
+    n_feats : number of base features (for name generation)
+
+    Returns
+    -------
+    blended : ndarray
+    names : list[str]
+    """
+    d = featA.shape[1]
+    if n_feats == 0:
+        n_feats = d
+
+    if mode == "mean":
+        blended = 0.5 * featA + 0.5 * featB
+        names = [f"{prefix}_{i}" for i in range(n_feats)]
+    elif mode == "mix":
+        blended = weighted_average(featA, featB, fA, fB)
+        names = [f"{prefix}_{i}" for i in range(n_feats)]
+    elif mode == "interact":
+        diff = np.abs(featA - featB)
+        prod = featA * featB
+        blended = np.hstack([
+            featA, featB, diff, prod,
+            fA.reshape(-1, 1), fB.reshape(-1, 1),
+        ])
+        names = (
+            [f"{prefix}_A_{i}" for i in range(n_feats)] +
+            [f"{prefix}_B_{i}" for i in range(n_feats)] +
+            [f"{prefix}_diff_{i}" for i in range(n_feats)] +
+            [f"{prefix}_prod_{i}" for i in range(n_feats)] +
+            [f"{prefix}_fracA", f"{prefix}_fracB"]
+        )
+    else:
+        raise ValueError(f"Unknown copolymer_mode '{mode}'. Valid: mean, mix, interact")
+    return blended, names
+
 def canon_pair(a, b, wa, wb):
     # sort lexicographically; if swapped, flip fractions
     if b < a:
@@ -501,9 +554,15 @@ def build_features(
     add_counts: bool = False,
     smiles_column: str = "smiles",
     allow_empty: bool = False,
+    copolymer_mode: str = "mix",
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     """
     Assemble feature blocks for homo- and co-polymers.
+
+    For copolymers, ``copolymer_mode`` controls how monomer features are combined:
+    * **mean**     : (featA + featB) / 2  (ignores fractions)
+    * **mix**      : fracA * featA + fracB * featB  (default, fraction-weighted)
+    * **interact** : [featA || featB || |diff| || prod || fracA || fracB]
 
     Returns:
       ab_block: np.ndarray or None
@@ -597,9 +656,11 @@ def build_features(
             abA = _multi_monomer_blend(sA_lists, fA_lists, ab_fn)
             abB = _multi_monomer_blend(sB_lists, fB_lists, ab_fn)
             if abA is not None and abB is not None:
-                # Equal block-level weighting (0.5/0.5) since intra-block fracs already applied
-                ab_block = 0.5 * abA + 0.5 * abB
-                names += [f"AB_{i}" for i in range(ab_block.shape[1])]
+                # Block-level fracs are 0.5/0.5 since intra-block fracs already applied
+                _fA_block = np.full(n, 0.5)
+                _fB_block = np.full(n, 0.5)
+                ab_block, ab_names = blend_copolymer_features(abA, abB, _fA_block, _fB_block, mode=copolymer_mode, prefix="AB")
+                names += ab_names
 
         # RDKit + dataset descriptors
         desc_blocks, desc_names = [], []
@@ -614,9 +675,11 @@ def build_features(
                 sc = StandardScaler().fit(train_stack)
                 rdA_z = sc.transform(rdA)
                 rdB_z = sc.transform(rdB)
-                rd_blend = 0.5 * rdA_z + 0.5 * rdB_z
+                _fA_block = np.full(n, 0.5)
+                _fB_block = np.full(n, 0.5)
+                rd_blend, rd_names = blend_copolymer_features(rdA_z, rdB_z, _fA_block, _fB_block, mode=copolymer_mode, prefix="RD")
                 desc_blocks.append(rd_blend)
-                desc_names += [f"RD_{n}" for n in RD_DESC_NAMES]
+                desc_names += rd_names
 
         if use_descriptor:
             dataset_desc_block = df[descriptor_columns].values
@@ -675,12 +738,12 @@ def build_features(
         sA.append(a2); sB.append(b2); fA.append(wa2); fB.append(wb2)
     fA = np.asarray(fA, float); fB = np.asarray(fB, float)
 
-    # AB pooled: per monomer then weighted blend
+    # AB pooled: per monomer then blend according to copolymer_mode
     if use_ab:
         abA = atom_bond_block_from_smiles(sA, pool=pool, add_counts=add_counts)
         abB = atom_bond_block_from_smiles(sB, pool=pool, add_counts=add_counts)
-        ab_block = weighted_average(abA, abB, fA, fB)
-        names += [f"AB_{i}" for i in range(ab_block.shape[1])]
+        ab_block, ab_names = blend_copolymer_features(abA, abB, fA, fB, mode=copolymer_mode, prefix="AB")
+        names += ab_names
 
     # RDKit + dataset descriptors
     desc_blocks, desc_names = [], []
@@ -696,9 +759,9 @@ def build_features(
         rdA_z = sc.transform(rdA)
         rdB_z = sc.transform(rdB)
 
-        rd_blend = weighted_average(rdA_z, rdB_z, fA, fB)
+        rd_blend, rd_names = blend_copolymer_features(rdA_z, rdB_z, fA, fB, mode=copolymer_mode, prefix="RD")
         desc_blocks.append(rd_blend)
-        desc_names += [f"RD_{n}" for n in RD_DESC_NAMES]
+        desc_names += rd_names
 
     if use_descriptor:
         dataset_desc_block = df[descriptor_columns].values

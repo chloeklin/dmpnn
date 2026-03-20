@@ -23,6 +23,11 @@ class CopolymerMPNN(pl.LightningModule):
     encoder + aggregation, then combines their graph-level embeddings using one of
     five integration modes:
 
+    **Mean family** (unweighted average):
+
+    * **mean**: ``z = (z_A + z_B) / 2`` → head input: ``z``
+    * **mean_meta**: same ``z`` → head input: ``[z || meta]``
+
     **Mix family** (fraction-weighted mean-field embedding):
 
     * **mix**: ``z = fracA * z_A + fracB * z_B`` → head input: ``z``
@@ -38,7 +43,7 @@ class CopolymerMPNN(pl.LightningModule):
     where ``meta`` = additional scalar descriptors (e.g. RDKit, dataset-specific).
     """
 
-    VALID_MODES = ("mix", "mix_meta", "mix_frac", "mix_frac_meta", "interact", "interact_meta")
+    VALID_MODES = ("mean", "mean_meta", "mix", "mix_meta", "mix_frac", "mix_frac_meta", "interact", "interact_meta")
 
     def __init__(
         self,
@@ -242,6 +247,19 @@ class CopolymerMPNN(pl.LightningModule):
         fB = fracB.unsqueeze(1) if fracB.ndim == 1 else fracB  # [B, 1]
 
         mode = self.copolymer_mode
+
+        # --- Mean family: z = (z_A + z_B) / 2 (no fraction weighting) ---
+        if mode.startswith("mean"):
+            z = (z_A + z_B) / 2  # [B, d]
+            if mode == "mean":
+                parts = [z]
+            elif mode == "mean_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown mean sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
 
         # --- Mix family: z = fracA * z_A + fracB * z_B ---
         if mode.startswith("mix"):
