@@ -1,16 +1,22 @@
 """Comparison plots for ea_ip copolymer models (EA/IP vs SHE).
 
+Models Compared
+---------------
+- DMPNN+polytype (mix_meta for random, interact_meta for monomer)
+- GIN+polytype (interact_meta + poly_type)
+- GAT+polytype (interact_meta + poly_type)
+- wDMPNN (monomer split only)
+
 Tasks
 -----
 1. Parity plots  – requires per-sample predictions (predictions/).
-                   Currently skipped: all predictions/ subdirs are empty.
-                   Re-run training with --save_predictions to enable.
+                   Auto-generates when .npz files are present.
 2. Box plots of RMSE / MAE / R² across CV folds.
 3. Paired scatter plots: wDMPNN vs each baseline model, per fold.
 
 Outputs (analysis/ea_ip_report/)
 ---------------------------------
-Task 1 (when data available):
+Task 1 (when .npz data available):
     parity_random.png, parity_monomer.png
 
 Task 2:
@@ -19,9 +25,9 @@ Task 2:
     box_r2_random.png,     box_r2_monomer.png
 
 Task 3 (per metric × split):
-    paired_rmse_random.png,    paired_rmse_monomer.png
-    paired_mae_random.png,     paired_mae_monomer.png
-    paired_r2_random.png,      paired_r2_monomer.png
+    paired_rmse_monomer.png (random skipped: wDMPNN unavailable)
+    paired_mae_monomer.png
+    paired_r2_monomer.png
 
 Configuration
 -------------
@@ -74,44 +80,68 @@ SPLIT_SHORT = {
 }
 
 # ── Model colours ──────────────────────────────────────────────────────────────
-MODEL_ORDER = ["DMPNN", "GIN+polytype", "GAT+polytype", "wDMPNN"]
+MODEL_ORDER = ["DMPNN+polytype", "GIN+polytype", "GAT+polytype", "wDMPNN"]
 MODEL_COLORS = {
-    "DMPNN":        "#4C72B0",
-    "GIN+polytype": "#DD8452",
-    "GAT+polytype": "#55A868",
-    "wDMPNN":       "#C44E52",
+    "DMPNN+polytype": "#4C72B0",
+    "GIN+polytype":   "#DD8452",
+    "GAT+polytype":   "#55A868",
+    "wDMPNN":         "#C44E52",
+}
+
+# ── Prediction directory mapping ───────────────────────────────────────────────
+# Map display names to actual prediction subdirectory names
+PRED_DIR_MAP = {
+    "DMPNN+polytype": "DMPNN",
+    "GIN+polytype":   "GIN",
+    "GAT+polytype":   "GAT",
+    "wDMPNN":         "wDMPNN",
+}
+
+# ── Copolymer mode filtering ───────────────────────────────────────────────────
+# Map (model, split_type) to expected copolymer_mode to match results CSVs
+PRED_MODE_FILTER = {
+    ("DMPNN+polytype", "random"):    "mean",
+    ("DMPNN+polytype", "a_held_out"): "mean",
+    ("GIN+polytype", "random"):       "mean",
+    ("GIN+polytype", "a_held_out"):   "mean",
+    ("GAT+polytype", "random"):       "mean",
+    ("GAT+polytype", "a_held_out"):   "mean",
+    ("wDMPNN", "random"):             "mix",
+    ("wDMPNN", "a_held_out"):         "mix",
 }
 
 # ── Model → result-file mapping ────────────────────────────────────────────────
 # List any number of CSV paths (relative to RESULTS_DIR).
 # Files are concatenated; files with multiple targets are handled automatically.
 MODEL_FILES = {
-    "DMPNN": {
+    "DMPNN+polytype": {
         "random": [
-            "DMPNN/ea_ip__copoly_interact_results.csv",
+            "DMPNN/ea_ip__copoly_mean__target_EA vs SHE (eV)_results.csv",
+            "DMPNN/ea_ip__copoly_mean__target_IP vs SHE (eV)_results.csv",
         ],
         "a_held_out": [
-            "DMPNN/ea_ip__copoly_interact__a_held_out_results.csv",
+            "DMPNN/ea_ip__copoly_mean__a_held_out__target_EA vs SHE (eV)_results.csv",
+            "DMPNN/ea_ip__copoly_mean__a_held_out__target_IP vs SHE (eV)_results.csv",
         ],
     },
     "GIN+polytype": {
         "random": [
-            "GIN/ea_ip__copoly_interact_meta__poly_type__target_EA vs SHE (eV)_results.csv",
-            "GIN/ea_ip__copoly_interact_meta__poly_type__target_IP vs SHE (eV)_results.csv",
+            "GIN/ea_ip__copoly_mean__target_EA vs SHE (eV)_results.csv",
+            "GIN/ea_ip__copoly_mean__target_IP vs SHE (eV)_results.csv",
         ],
         "a_held_out": [
-            "GIN/ea_ip__copoly_interact_meta__poly_type__a_held_out__target_EA vs SHE (eV)_results.csv",
-            "GIN/ea_ip__copoly_interact_meta__poly_type__a_held_out__target_IP vs SHE (eV)_results.csv",
+            "GIN/ea_ip__copoly_mean__a_held_out__target_EA vs SHE (eV)_results.csv",
+            "GIN/ea_ip__copoly_mean__a_held_out__target_IP vs SHE (eV)_results.csv",
         ],
     },
     "GAT+polytype": {
         "random": [
-            "GAT/ea_ip__copoly_interact_meta__poly_type__target_EA vs SHE (eV)_results.csv",
-            "GAT/ea_ip__copoly_interact_meta__poly_type__target_IP vs SHE (eV)_results.csv",
+            "GAT/ea_ip__copoly_mean__target_EA vs SHE (eV)_results.csv",
+            "GAT/ea_ip__copoly_mean__target_IP vs SHE (eV)_results.csv",
         ],
         "a_held_out": [
-            "GAT/ea_ip__copoly_interact_meta__poly_type__a_held_out__target_EA vs SHE (eV)_results.csv",
-            "GAT/ea_ip__copoly_interact_meta__poly_type__a_held_out__target_IP vs SHE (eV)_results.csv",
+            "GAT/ea_ip__copoly_mean__a_held_out__target_EA vs SHE (eV)_results.csv",
+            "GAT/ea_ip__copoly_mean__a_held_out__target_IP vs SHE (eV)_results.csv",
         ],
     },
     "wDMPNN": {
@@ -142,6 +172,18 @@ plt.rcParams.update({
 
 def _load_single(path: Path, model_name: str) -> pd.DataFrame:
     df = pd.read_csv(path)
+    # For tabular results, filter by model column if it exists
+    if "model" in df.columns and model_name in ["Linear", "RF", "XGB"]:
+        df = df[df["model"] == model_name].copy()
+    
+    # Normalize column names for tabular CSVs to match graph model format
+    if "mae" in df.columns and "test/mae" not in df.columns:
+        # Convert mse to rmse
+        if "mse" in df.columns:
+            df["test/rmse"] = np.sqrt(df["mse"])
+        df["test/mae"] = df["mae"]
+        df["test/r2"] = df["r2"]
+    
     df["model"] = model_name
     return df
 
@@ -179,15 +221,16 @@ def load_all(split_type: str) -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _has_predictions(model_name: str) -> bool:
-    pred_subdir = PRED_DIR / model_name
+    actual_dir = PRED_DIR_MAP.get(model_name, model_name)
+    pred_subdir = PRED_DIR / actual_dir
     if not pred_subdir.exists():
         return False
     return any(pred_subdir.glob("ea_ip*.npz"))
 
 
 def task1_parity():
-    """Parity plots: require per-sample predictions from --save_predictions."""
-    print("\n[Task 1] Parity plots")
+    """Parity plots: create separate figures for each CV split (0-4)."""
+    print("\n[Task 1] Parity plots (per-split)")
 
     available = [m for m in MODEL_ORDER if _has_predictions(m)]
     if not available:
@@ -198,73 +241,122 @@ def task1_parity():
         )
         return
 
+    # Create separate parity plot for each CV split
     for split_type, split_label in SPLIT_LABELS.items():
         split_short = SPLIT_SHORT[split_type]
-        models_here = [m for m in available]    # filter by split later
-        if not models_here:
-            continue
+        
+        # Loop over each CV split (0-4)
+        for split_idx in range(5):
+            models_here = [m for m in available]
+            if not models_here:
+                continue
 
-        n_models  = len(models_here)
-        n_targets = len(TARGETS)
-        fig, axes = plt.subplots(
-            n_models, n_targets,
-            figsize=(5 * n_targets, 4.5 * n_models),
-            squeeze=False,
-        )
-        fig.suptitle(f"Parity plots — {split_label}", fontsize=14, fontweight="bold")
+            n_models  = len(models_here)
+            n_targets = len(TARGETS)
+            fig, axes = plt.subplots(
+                n_models, n_targets,
+                figsize=(5 * n_targets, 4.5 * n_models),
+                squeeze=False,
+            )
+            fig.suptitle(
+                f"Parity plots — {split_label} — Split {split_idx}", 
+                fontsize=14, fontweight="bold"
+            )
 
-        for row, model in enumerate(models_here):
-            pred_subdir = PRED_DIR / model
-            for col, target in enumerate(TARGETS):
-                ax = axes[row][col]
-                # Glob for matching npz files
-                all_npz = sorted(pred_subdir.glob("ea_ip*.npz"))
-                split_tag = "a_held_out" if split_type == "a_held_out" else ""
-                files = [f for f in all_npz
-                         if "split" in f.name
-                         and (split_tag in f.name if split_tag else "a_held_out" not in f.name)]
+            any_data = False  # Track if this split has any data
 
-                all_true, all_pred = [], []
-                for f in files:
-                    data = np.load(f, allow_pickle=True)
-                    meta = data["metadata"].item() if "metadata" in data else {}
-                    if meta.get("target", target) != target:
+            for row, model in enumerate(models_here):
+                actual_dir = PRED_DIR_MAP.get(model, model)
+                pred_subdir = PRED_DIR / actual_dir
+                
+                for col, target in enumerate(TARGETS):
+                    ax = axes[row][col]
+                    
+                    # Find the specific prediction file for this split
+                    all_npz = sorted(pred_subdir.glob("ea_ip*.npz"))
+                    split_tag = "a_held_out" if split_type == "a_held_out" else ""
+                    expected_mode = PRED_MODE_FILTER.get((model, split_type), None)
+                    
+                    # Find file matching: target, split_type, split_idx, and mode
+                    target_file = None
+                    for f in all_npz:
+                        if target not in f.name:
+                            continue
+                        if f"split{split_idx}" not in f.name:
+                            continue
+                        
+                        # Check split_type
+                        if model == "wDMPNN":
+                            # wDMPNN: old naming, only has a_held_out
+                            if split_type != "a_held_out":
+                                continue
+                        else:
+                            # Other models: check for split_tag in filename
+                            if split_tag:
+                                if split_tag not in f.name:
+                                    continue
+                            else:
+                                if "a_held_out" in f.name:
+                                    continue
+                        
+                        # Check copolymer_mode
+                        if expected_mode is not None:
+                            data = np.load(f, allow_pickle=True)
+                            meta = data.get("metadata", np.array({})).item() if "metadata" in data else {}
+                            actual_mode = meta.get("copolymer_mode", None)
+                            if actual_mode != expected_mode:
+                                continue
+                        
+                        target_file = f
+                        break
+                    
+                    if target_file is None:
+                        ax.set_visible(False)
                         continue
-                    all_true.append(data["y_true"])
-                    all_pred.append(data["y_pred"])
+                    
+                    # Load predictions for this specific split
+                    data = np.load(target_file, allow_pickle=True)
+                    y_true = data["y_true"]
+                    y_pred = data["y_pred"]
+                    
+                    # Flatten if needed
+                    if y_true.ndim > 1:
+                        y_true = y_true.flatten()
+                    if y_pred.ndim > 1:
+                        y_pred = y_pred.flatten()
+                    
+                    any_data = True
+                    
+                    # Plot this split's data
+                    lo = min(y_true.min(), y_pred.min())
+                    hi = max(y_true.max(), y_pred.max())
+                    pad = (hi - lo) * 0.05
+                    lim = [lo - pad, hi + pad]
 
-                if not all_true:
-                    ax.set_visible(False)
-                    continue
+                    ax.plot(lim, lim, "k--", lw=1, alpha=0.5, label="y = x")
+                    ax.scatter(y_true, y_pred, s=15, alpha=0.4,
+                               color=MODEL_COLORS.get(model, "#888"),
+                               edgecolors="none")
+                    r2   = 1 - np.sum((y_true - y_pred) ** 2) / np.sum((y_true - y_true.mean()) ** 2)
+                    rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
+                    ax.set_xlim(lim); ax.set_ylim(lim)
+                    ax.set_xlabel(f"True {target}", fontsize=10)
+                    ax.set_ylabel(f"Predicted {target}", fontsize=10)
+                    ax.set_title(
+                        f"{model}\nRMSE={rmse:.3f}  R²={r2:.4f}",
+                        fontsize=10, fontweight="bold",
+                    )
+                    sns.despine(ax=ax)
 
-                y_true = np.concatenate(all_true)
-                y_pred = np.concatenate(all_pred)
-
-                lo = min(y_true.min(), y_pred.min())
-                hi = max(y_true.max(), y_pred.max())
-                pad = (hi - lo) * 0.05
-                lim = [lo - pad, hi + pad]
-
-                ax.plot(lim, lim, "k--", lw=1, alpha=0.5, label="y = x")
-                ax.scatter(y_true, y_pred, s=15, alpha=0.4,
-                           color=MODEL_COLORS.get(model, "#888"),
-                           edgecolors="none")
-                r2   = 1 - np.sum((y_true - y_pred) ** 2) / np.sum((y_true - y_true.mean()) ** 2)
-                rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
-                ax.set_xlim(lim); ax.set_ylim(lim)
-                ax.set_xlabel(f"True {target}", fontsize=10)
-                ax.set_ylabel(f"Predicted {target}", fontsize=10)
-                ax.set_title(
-                    f"{model}\nRMSE={rmse:.3f}  R²={r2:.4f}",
-                    fontsize=10, fontweight="bold",
-                )
-                sns.despine(ax=ax)
-
-        fig.tight_layout()
-        fname = OUT_DIR / f"parity_{split_short}.png"
-        fig.savefig(fname, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        print(f"  Saved: {fname.name}")
+            # Save figure for this split (only if it has data)
+            if any_data:
+                fig.tight_layout()
+                fname = OUT_DIR / f"parity_{split_short}_split{split_idx}.png"
+                fig.savefig(fname, dpi=150, bbox_inches="tight")
+                plt.close(fig)
+                print(f"  Saved: {fname.name}")
+            else:
+                plt.close(fig)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -381,7 +473,7 @@ def task3_paired(split_type: str):
         return
 
     wdf = df[df["model"] == "wDMPNN"].copy()
-    baselines = [m for m in ["DMPNN", "GIN+polytype", "GAT+polytype"]
+    baselines = [m for m in ["DMPNN+polytype", "GIN+polytype", "GAT+polytype"]
                  if m in df["model"].values]
     targets = sorted(df["target"].unique())
 

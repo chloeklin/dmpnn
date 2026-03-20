@@ -56,6 +56,22 @@ def parse_filename(filename: str) -> tuple:
         split_type = 'a_held_out'
         base = base.replace('__a_held_out', '')
     
+    # Extract copolymer mode if present (for tabular files)
+    copoly_mode = None
+    if '_copoly_' in base:
+        # Extract the mode (e.g., mix, mean, interact)
+        match = re.search(r'_copoly_([a-z_]+)', base)
+        if match:
+            copoly_mode = match.group(1)
+            # Remove the copoly suffix from base for further processing
+            base = base.replace(f'_copoly_{copoly_mode}', '')
+    
+    # Extract poly_type flag if present (for tabular files)
+    has_poly_type = False
+    if '_poly_type' in base:
+        has_poly_type = True
+        base = base.replace('_poly_type', '')
+    
     # Handle tabular files - order matters! Check most specific patterns first
     if '_descriptors_rdkit_ab' in base:
         dataset = base.replace('_descriptors_rdkit_ab', '')
@@ -85,6 +101,14 @@ def parse_filename(filename: str) -> tuple:
         # Handle basic dataset files
         dataset = base
         features = 'AB'
+    
+    # Add copolymer mode to features if present
+    if copoly_mode:
+        features = f"{features} ({copoly_mode})"
+    
+    # Add poly_type to features if present
+    if has_poly_type:
+        features = f"{features} +poly_type"
     
     # Append split type to features if present
     if split_type:
