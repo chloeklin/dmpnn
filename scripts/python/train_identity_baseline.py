@@ -10,9 +10,11 @@ Each unique monomer SMILES is mapped to an integer ID.  A shared
 ``nn.Embedding(num_monomers, embed_dim)`` table produces embeddings
 ``e_A`` and ``e_B`` for the two monomers.
 
-Two modes are supported (``--mode``):
+Three modes are supported (``--copolymer_mode``):
 
 * **mix**:      ``z = fracA * e_A + fracB * e_B``
+                head input = ``[z]`` or ``[z || meta]`` if descriptors present.
+* **mean**:     ``z = (e_A + e_B) / 2``
                 head input = ``[z]`` or ``[z || meta]`` if descriptors present.
 * **interact**: head input = ``[e_A || e_B || |e_A-e_B| || e_A*e_B || fracA || fracB || meta]``
 
@@ -85,6 +87,8 @@ class IdentityBaselineModel(nn.Module):
         # Compute input dim for the MLP head
         if mode == "mix":
             head_input_dim = embed_dim + meta_dim
+        elif mode == "mean":
+            head_input_dim = embed_dim + meta_dim
         elif mode == "interact":
             # e_A, e_B, |e_A-e_B|, e_A*e_B  → 4*embed_dim
             # + fracA, fracB → +2
@@ -128,6 +132,10 @@ class IdentityBaselineModel(nn.Module):
 
         if self.mode == "mix":
             z = fracA.unsqueeze(1) * e_A + fracB.unsqueeze(1) * e_B  # [B, D]
+            if meta is not None:
+                z = torch.cat([z, meta], dim=1)
+        elif self.mode == "mean":
+            z = (e_A + e_B) / 2.0  # [B, D]
             if meta is not None:
                 z = torch.cat([z, meta], dim=1)
         elif self.mode == "interact":
@@ -395,8 +403,8 @@ def parse_args():
                         help="Include one-hot encoding of poly_type column (ea_ip only)")
 
     # Mode (use --copolymer_mode to match other graph models)
-    parser.add_argument("--copolymer_mode", type=str, choices=["mix", "interact"], default="mix",
-                        help="Composition mode: mix or interact")
+    parser.add_argument("--copolymer_mode", type=str, choices=["mix", "mean", "interact"], default="mix",
+                        help="Composition mode: mix (weighted), mean (unweighted average), or interact")
     parser.add_argument("--embed_dim", type=int, default=128,
                         help="Dimensionality of monomer identity embeddings")
 
