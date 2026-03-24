@@ -87,6 +87,7 @@ def combine_results(results_dir: str):
 
         combined_df = existing_df.copy()
         successfully_processed = []
+        already_in_aggregate = []  # per-target files whose data is already in aggregate
         
         for file_path in file_paths:
             # Extract target name from filename
@@ -101,6 +102,7 @@ def combine_results(results_dir: str):
             # Skip if this target is already in the existing combined file
             if target in existing_targets:
                 print(f"Skipping {file_path.name}: target '{target}' already in combined file")
+                already_in_aggregate.append(file_path)
                 continue
 
             # Check if this is an OPV dataset and filter targets
@@ -133,7 +135,9 @@ def combine_results(results_dir: str):
             print(f"Saved combined results to: {output_path}")
             
             # Delete individual files after successful combination
-            for file_path in successfully_processed:
+            # Also delete per-target files that were skipped because their
+            # data is already in the aggregate (prevents double-counting)
+            for file_path in successfully_processed + already_in_aggregate:
                 try:
                     file_path.unlink()
                     print(f"Deleted: {file_path.name}")

@@ -16,12 +16,40 @@ from chemprop.schedulers import build_NoamLike_LRSched
 logger = logging.getLogger(__name__)
 
 
+class MonomerScorer(nn.Module):
+    """Lightweight MLP that maps a monomer embedding to a scalar attention score.
+
+    Architecture: Linear(d_in, hidden) → ReLU → Linear(hidden, 1).
+    """
+
+    def __init__(self, d_in: int, hidden: int = 64):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(d_in, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, 1),
+        )
+
+    def forward(self, h: Tensor) -> Tensor:
+        """Return scalar scores for each monomer embedding.
+
+        Parameters
+        ----------
+        h : Tensor [N, d_in]
+
+        Returns
+        -------
+        Tensor [N, 1]
+        """
+        return self.net(h)
+
+
 class CopolymerMPNN(pl.LightningModule):
     """Two-monomer copolymer model with shared GNN encoder.
 
     Encodes monomer A and monomer B independently through a **shared** message-passing
     encoder + aggregation, then combines their graph-level embeddings using one of
-    five integration modes:
+    several integration modes:
 
     **Mean family** (unweighted average):
 
@@ -35,6 +63,16 @@ class CopolymerMPNN(pl.LightningModule):
     * **mix_frac**: same ``z`` → head input: ``[z || fracA || fracB]``
     * **mix_frac_meta**: same ``z`` → head input: ``[z || fracA || fracB || meta]``
 
+    **Attention family** (learned attention without fraction prior):
+
+    * **attention**: ``α_i = softmax(s_i)``, ``z = Σ α_i z_i`` → head input: ``z``
+    * **attention_meta**: same ``z`` → head input: ``[z || meta]``
+
+    **Fraction-aware attention family** (learned attention with fraction prior):
+
+    * **frac_attn**: ``α_i = softmax(s_i + log(f_i + ε))``, ``z = Σ α_i z_i`` → head input: ``z``
+    * **frac_attn_meta**: same ``z`` → head input: ``[z || meta]``
+
     **Interact family** (interaction-aware concatenation):
 
     * **interact**: head input: ``[z_A || z_B || |z_A-z_B| || z_A⊙z_B || fracA || fracB]``
@@ -43,7 +81,13 @@ class CopolymerMPNN(pl.LightningModule):
     where ``meta`` = additional scalar descriptors (e.g. RDKit, dataset-specific).
     """
 
-    VALID_MODES = ("mean", "mean_meta", "mix", "mix_meta", "mix_frac", "mix_frac_meta", "interact", "interact_meta")
+    VALID_MODES = (
+        "mean", "mean_meta",
+        "mix", "mix_meta", "mix_frac", "mix_frac_meta",
+        "attention", "attention_meta",
+        "frac_attn", "frac_attn_meta",
+        "interact", "interact_meta",
+    )
 
     def __init__(
         self,
@@ -88,6 +132,12 @@ class CopolymerMPNN(pl.LightningModule):
                 f"Valid modes: {self.VALID_MODES}"
             )
         self.copolymer_mode = copolymer_mode
+
+        # Build scorer MLP for attention-based modes
+        if copolymer_mode.startswith("attention") or copolymer_mode.startswith("frac_attn"):
+            self.monomer_scorer = MonomerScorer(self.message_passing.output_dim)
+        else:
+            self.monomer_scorer = None
 
         # Initialize metrics - handle checkpoint loading where criterion might not exist yet
         if metrics:
@@ -232,6 +282,43 @@ class CopolymerMPNN(pl.LightningModule):
         half = flat_z_A.new_full((batch_size,), 0.5)
         return self._apply_mode(z_A, z_B, half, half, X_d)
 
+    def _attention_fuse(
+        self,
+        embeddings: list[Tensor],
+        fracs: list[Tensor] | None = None,
+    ) -> Tensor:
+        """Fuse monomer embeddings via learned attention, optionally with fraction prior.
+
+        **attention** (``fracs=None``):
+            ``α_i = softmax(s_i)``
+        **fraction_aware_attention** (``fracs`` provided):
+            ``α_i = softmax(s_i + log(f_i + ε))``
+
+        The operation is permutation-invariant: re-ordering (embedding, fraction)
+        pairs yields the same output.
+
+        Parameters
+        ----------
+        embeddings : list[Tensor]
+            Each element has shape ``[B, d]``.
+        fracs : list[Tensor] | None
+            Each element has shape ``[B, 1]``.  If ``None``, pure attention is used.
+
+        Returns
+        -------
+        Tensor [B, d]
+        """
+        H = torch.stack(embeddings, dim=1)           # [B, N, d]
+        scores = self.monomer_scorer(H).squeeze(-1)   # [B, N]
+
+        if fracs is not None:
+            F = torch.cat(fracs, dim=1)               # [B, N]
+            scores = scores + torch.log(F + 1e-8)
+
+        alpha = torch.softmax(scores, dim=1)          # [B, N]
+        z = (alpha.unsqueeze(-1) * H).sum(dim=1)      # [B, d]
+        return z
+
     def _apply_mode(
         self,
         z_A: Tensor,
@@ -278,6 +365,37 @@ class CopolymerMPNN(pl.LightningModule):
                     parts.append(self.X_d_transform(X_d))
             else:
                 raise ValueError(f"Unknown mix sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
+
+        # --- Attention family: α_i = softmax(s_i), z = Σ α_i z_i ---
+        # Pure learned attention — no fraction prior. Useful as an ablation
+        # baseline for fraction_aware_attention.
+        if mode.startswith("attention"):
+            z = self._attention_fuse([z_A, z_B], fracs=None)
+            if mode == "attention":
+                parts = [z]
+            elif mode == "attention_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown attention sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
+
+        # --- Fraction-aware attention family: α_i = softmax(s_i + log(f_i + ε)) ---
+        # Fractions act as a soft prior on the attention weights. When the
+        # learned scores are zero-initialised, the initial weights equal the
+        # monomer fractions, and the network can subsequently refine them.
+        if mode.startswith("frac_attn"):
+            z = self._attention_fuse([z_A, z_B], fracs=[fA, fB])
+            if mode == "frac_attn":
+                parts = [z]
+            elif mode == "frac_attn_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown frac_attn sub-mode: {mode}")
             return torch.cat(parts, dim=1)
 
         # --- Interact family ---

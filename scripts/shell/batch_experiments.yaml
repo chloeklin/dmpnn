@@ -40,6 +40,9 @@
 #   mix            head gets [z]                  where z = fracA*z_A + fracB*z_B
 #   mix_frac       head gets [z || fracA || fracB]
 #   mix_frac_meta  head gets [z || frac || descriptors]           (needs incl_desc)
+#   attention      head gets [z]                  where z = Σ softmax(s_i) z_i  (learned, no fraction prior)
+#   frac_attn      head gets [z]                  where z = Σ softmax(s_i + log f_i) z_i  (fraction-aware attention)
+#   attention_meta / frac_attn_meta: above + descriptors          (needs incl_desc)
 #   interact       head gets [z_A || z_B || |diff| || prod || frac]
 #   interact_meta  head gets [z_A || z_B || |diff| || prod || frac || descriptors]  (needs incl_desc)
 #
@@ -870,6 +873,48 @@ experiments:
     walltime: "5:30:00"
     targets: *eaip_targets
 
+  # -- DMPNN + poly_type (attention) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: attention
+    incl_poly_type: true
+    walltime: "5:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: frac_attn
+    incl_poly_type: true
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- GIN + poly_type (attention) --
+  - <<: *eaip_base
+    model: GIN
+    copolymer_mode: attention
+    incl_poly_type: true
+    walltime: "5:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: GIN
+    copolymer_mode: frac_attn
+    incl_poly_type: true
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- GAT + poly_type (attention) --
+  - <<: *eaip_base
+    model: GAT
+    copolymer_mode: attention
+    incl_poly_type: true
+    walltime: "5:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: GAT
+    copolymer_mode: frac_attn
+    incl_poly_type: true
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
   # -- wDMPNN --
   - <<: *eaip_base
     model: wDMPNN
@@ -1161,6 +1206,54 @@ experiments:
   - <<: *eaip_base
     model: GAT
     copolymer_mode: interact
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- DMPNN + poly_type (attention, a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: attention
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: frac_attn
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- GIN + poly_type (attention, a_held_out) --
+  - <<: *eaip_base
+    model: GIN
+    copolymer_mode: attention
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: GIN
+    copolymer_mode: frac_attn
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- GAT + poly_type (attention, a_held_out) --
+  - <<: *eaip_base
+    model: GAT
+    copolymer_mode: attention
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: GAT
+    copolymer_mode: frac_attn
     incl_poly_type: true
     split_type: a_held_out
     walltime: "5:30:00"

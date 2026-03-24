@@ -34,6 +34,7 @@ Configuration
 Edit MODEL_FILES below to adjust which result CSV is used for each model.
 """
 
+import re
 import warnings
 from pathlib import Path
 
@@ -170,6 +171,20 @@ plt.rcParams.update({
 # Data loading helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _aggregate_path_for(per_target_path: Path) -> Path:
+    """Given .../base__target_X_results.csv, return .../base_results.csv (or None)."""
+    m = re.match(r'(.+?)__target_.+_results\.csv$', per_target_path.name)
+    if m:
+        return per_target_path.parent / f"{m.group(1)}_results.csv"
+    return None
+
+
+def _target_from_per_target_path(per_target_path: Path) -> str:
+    """Extract target name from a per-target filename, or None."""
+    m = re.match(r'.+?__target_(.+)_results\.csv$', per_target_path.name)
+    return m.group(1) if m else None
+
+
 def _load_single(path: Path, model_name: str) -> pd.DataFrame:
     df = pd.read_csv(path)
     # For tabular results, filter by model column if it exists
@@ -196,10 +211,21 @@ def load_model_data(model_name: str, split_type: str):
     frames = []
     for rel in file_list:
         p = RESULTS_DIR / rel
-        if not p.exists():
-            warnings.warn(f"[data] Missing result file: {p}")
-            continue
-        frames.append(_load_single(p, model_name))
+        if p.exists():
+            frames.append(_load_single(p, model_name))
+        else:
+            # Per-target file may have been consolidated into an aggregate CSV.
+            # Try loading the aggregate and filtering to the expected target.
+            agg = _aggregate_path_for(p)
+            target = _target_from_per_target_path(p)
+            if agg is not None and agg.exists():
+                df = pd.read_csv(agg)
+                if "target" in df.columns and target:
+                    df = df[df["target"] == target].copy()
+                df["model"] = model_name
+                frames.append(df)
+            else:
+                warnings.warn(f"[data] Missing result file: {p}")
     if not frames:
         return None
     return pd.concat(frames, ignore_index=True)

@@ -54,7 +54,9 @@ def create_base_argument_parser(description="Train a graph model"):
     parser.add_argument("--polymer_type", type=str, choices=["homo", "copolymer"], default="homo",
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
     parser.add_argument("--copolymer_mode", type=str,
-                        choices=["mean", "mean_meta", "mix", "mix_meta", "mix_frac", "mix_frac_meta", "interact", "interact_meta"],
+                        choices=["mean", "mean_meta", "mix", "mix_meta", "mix_frac", "mix_frac_meta",
+                                 "attention", "attention_meta", "frac_attn", "frac_attn_meta",
+                                 "interact", "interact_meta"],
                         default="mix",
                         help='Copolymer integration mode: '
                              '"mean" = (z_A+z_B)/2, '
@@ -874,6 +876,14 @@ def build_copolymer_model_and_trainer(
     * **mix_frac**:      ``d_mp + 2``                  (z + fracA + fracB)
     * **mix_frac_meta**: ``d_mp + 2 + d_desc``         (z + fracA + fracB + meta)
 
+    Attention family (z = Σ softmax(s_i) z_i):
+    * **attention**:      ``d_mp``                    (z only)
+    * **attention_meta**: ``d_mp + d_desc``            (z + meta descriptors)
+
+    Fraction-aware attention family (z = Σ softmax(s_i + log f_i) z_i):
+    * **frac_attn**:      ``d_mp``                    (z only)
+    * **frac_attn_meta**: ``d_mp + d_desc``            (z + meta descriptors)
+
     Interact family:
     * **interact**:      ``4*d_mp + 2``                (z_A, z_B, |diff|, prod, fracA, fracB)
     * **interact_meta**: ``4*d_mp + 2 + d_desc``       (above + meta descriptors)
@@ -941,6 +951,14 @@ def build_copolymer_model_and_trainer(
         ffn_input_dim = d_mp + 2
     elif copolymer_mode == "mix_frac_meta":
         ffn_input_dim = d_mp + 2 + descriptor_dim
+    elif copolymer_mode == "attention":
+        ffn_input_dim = d_mp
+    elif copolymer_mode == "attention_meta":
+        ffn_input_dim = d_mp + descriptor_dim
+    elif copolymer_mode == "frac_attn":
+        ffn_input_dim = d_mp
+    elif copolymer_mode == "frac_attn_meta":
+        ffn_input_dim = d_mp + descriptor_dim
     elif copolymer_mode == "interact":
         ffn_input_dim = 4 * d_mp + 2
     elif copolymer_mode == "interact_meta":
@@ -948,7 +966,7 @@ def build_copolymer_model_and_trainer(
     else:
         raise ValueError(
             f"Unknown copolymer_mode: {copolymer_mode}. "
-            f"Valid: mean, mean_meta, mix, mix_meta, mix_frac, mix_frac_meta, interact, interact_meta"
+            f"Valid: {CopolymerMPNN.VALID_MODES}"
         )
 
     # ---------- output transform ----------

@@ -91,7 +91,7 @@ feature_order:
   
   # Copolymer variants (auto-generated patterns)
   - group: "Copolymer Variants"
-    pattern: "Graph \\((mix|interact|mix_meta|interact_meta|mix_frac|mix_frac_meta)\\)"
+    pattern: "Graph \\((mean|mix|interact|mix_meta|interact_meta|mix_frac|mix_frac_meta)\\)"
     # This will match any Graph (mode) pattern
   
   # Note: IdentityBaseline uses 'Graph' feature prefix so it is matched by
