@@ -44,6 +44,45 @@ class MonomerScorer(nn.Module):
         return self.net(h)
 
 
+class PairInteractionMLP(nn.Module):
+    """MLP that maps a symmetric pair feature vector to a pair embedding.
+
+    Input: ``[h_i + h_j, h_i * h_j, |h_i - h_j|]``  →  dim = 3 * d_in.
+    Output: pair embedding of dimension d_out (defaults to d_in).
+    """
+
+    def __init__(self, d_in: int, d_out: int | None = None, hidden: int = 128):
+        super().__init__()
+        d_out = d_out or d_in
+        self.net = nn.Sequential(
+            nn.Linear(3 * d_in, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, d_out),
+        )
+
+    def forward(self, pair_feat: Tensor) -> Tensor:
+        return self.net(pair_feat)
+
+
+class PairScorer(nn.Module):
+    """Lightweight MLP that maps a pair feature vector to a scalar score.
+
+    Input: ``[h_i + h_j, h_i * h_j, |h_i - h_j|]``  →  dim = 3 * d_in.
+    Output: scalar score per pair.
+    """
+
+    def __init__(self, d_in: int, hidden: int = 64):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(3 * d_in, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, 1),
+        )
+
+    def forward(self, pair_feat: Tensor) -> Tensor:
+        return self.net(pair_feat)
+
+
 class CopolymerMPNN(pl.LightningModule):
     """Two-monomer copolymer model with shared GNN encoder.
 
@@ -73,6 +112,16 @@ class CopolymerMPNN(pl.LightningModule):
     * **frac_attn**: ``α_i = softmax(s_i + log(f_i + ε))``, ``z = Σ α_i z_i`` → head input: ``z``
     * **frac_attn_meta**: same ``z`` → head input: ``[z || meta]``
 
+    **Frac-attn + pairwise fixed** (attention h_mix + fraction-product–weighted pairwise):
+
+    * **frac_attn_pair**: ``h = h_mix + Σ_{i<j} (f_i·f_j)·φ_ij`` → head input: ``h``
+    * **frac_attn_pair_meta**: same ``h`` → head input: ``[h || meta]``
+
+    **Frac-attn + pairwise attention** (attention h_mix + attention-weighted pairwise):
+
+    * **frac_attn_pair_attn**: ``h = h_mix + Σ_{i<j} β_ij·φ_ij`` → head input: ``h``
+    * **frac_attn_pair_attn_meta**: same ``h`` → head input: ``[h || meta]``
+
     **Interact family** (interaction-aware concatenation):
 
     * **interact**: head input: ``[z_A || z_B || |z_A-z_B| || z_A⊙z_B || fracA || fracB]``
@@ -86,6 +135,8 @@ class CopolymerMPNN(pl.LightningModule):
         "mix", "mix_meta", "mix_frac", "mix_frac_meta",
         "attention", "attention_meta",
         "frac_attn", "frac_attn_meta",
+        "frac_attn_pair", "frac_attn_pair_meta",
+        "frac_attn_pair_attn", "frac_attn_pair_attn_meta",
         "interact", "interact_meta",
     )
 
@@ -138,6 +189,18 @@ class CopolymerMPNN(pl.LightningModule):
             self.monomer_scorer = MonomerScorer(self.message_passing.output_dim)
         else:
             self.monomer_scorer = None
+
+        # Build pair interaction MLPs for pairwise modes
+        if copolymer_mode.startswith("frac_attn_pair"):
+            d_mp = self.message_passing.output_dim
+            self.pair_mlp = PairInteractionMLP(d_mp)
+            if copolymer_mode.startswith("frac_attn_pair_attn"):
+                self.pair_scorer = PairScorer(d_mp)
+            else:
+                self.pair_scorer = None
+        else:
+            self.pair_mlp = None
+            self.pair_scorer = None
 
         # Initialize metrics - handle checkpoint loading where criterion might not exist yet
         if metrics:
@@ -319,6 +382,79 @@ class CopolymerMPNN(pl.LightningModule):
         z = (alpha.unsqueeze(-1) * H).sum(dim=1)      # [B, d]
         return z
 
+    def _pairwise_fixed(
+        self,
+        embeddings: list[Tensor],
+        fracs: list[Tensor],
+    ) -> Tensor:
+        """Frac-attn h_mix + fraction-product–weighted pairwise interaction.
+
+        ``h_int = Σ_{i<j} (f_i · f_j) · φ_ij``  where
+        ``φ_ij = MLP_pair([h_i+h_j, h_i*h_j, |h_i−h_j|])``.
+        Returns ``h_mix + h_int``.
+        """
+        h_mix = self._attention_fuse(embeddings, fracs)
+
+        H = torch.stack(embeddings, dim=1)           # [B, N, d]
+        F = torch.cat(fracs, dim=1)                   # [B, N]
+        B, N, d = H.shape
+
+        h_int = H.new_zeros(B, d)
+        for i in range(N):
+            for j in range(i + 1, N):
+                pair_feat = torch.cat([
+                    H[:, i] + H[:, j],
+                    H[:, i] * H[:, j],
+                    (H[:, i] - H[:, j]).abs(),
+                ], dim=1)                             # [B, 3d]
+                phi_ij = self.pair_mlp(pair_feat)      # [B, d]
+                w_ij = (F[:, i] * F[:, j]).unsqueeze(1)  # [B, 1]
+                h_int = h_int + w_ij * phi_ij
+
+        return h_mix + h_int
+
+    def _pairwise_attention(
+        self,
+        embeddings: list[Tensor],
+        fracs: list[Tensor],
+    ) -> Tensor:
+        """Frac-attn h_mix + attention-weighted pairwise interaction.
+
+        ``β_ij = softmax(t_ij + log(f_i·f_j + ε))`` over all pairs ``i<j``.
+        ``h_int = Σ_{i<j} β_ij · φ_ij``.
+        Returns ``h_mix + h_int``.
+        """
+        h_mix = self._attention_fuse(embeddings, fracs)
+
+        H = torch.stack(embeddings, dim=1)           # [B, N, d]
+        F = torch.cat(fracs, dim=1)                   # [B, N]
+        B, N, d = H.shape
+
+        pair_phis = []
+        pair_logits = []
+        for i in range(N):
+            for j in range(i + 1, N):
+                pair_feat = torch.cat([
+                    H[:, i] + H[:, j],
+                    H[:, i] * H[:, j],
+                    (H[:, i] - H[:, j]).abs(),
+                ], dim=1)                              # [B, 3d]
+                phi_ij = self.pair_mlp(pair_feat)       # [B, d]
+                t_ij = self.pair_scorer(pair_feat).squeeze(-1)  # [B]
+                f_ij = F[:, i] * F[:, j]
+                pair_phis.append(phi_ij)
+                pair_logits.append(t_ij + torch.log(f_ij + 1e-8))
+
+        if not pair_phis:
+            return h_mix
+
+        Phi = torch.stack(pair_phis, dim=1)            # [B, P, d]
+        logits = torch.stack(pair_logits, dim=1)       # [B, P]
+        beta = torch.softmax(logits, dim=1)            # [B, P]
+        h_int = (beta.unsqueeze(-1) * Phi).sum(dim=1)  # [B, d]
+
+        return h_mix + h_int
+
     def _apply_mode(
         self,
         z_A: Tensor,
@@ -380,6 +516,33 @@ class CopolymerMPNN(pl.LightningModule):
                     parts.append(self.X_d_transform(X_d))
             else:
                 raise ValueError(f"Unknown attention sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
+
+        # --- Frac-attn + pairwise attention: h = h_mix + Σ β_ij·φ_ij ---
+        # (checked before frac_attn_pair because of startswith ordering)
+        if mode.startswith("frac_attn_pair_attn"):
+            z = self._pairwise_attention([z_A, z_B], fracs=[fA, fB])
+            if mode == "frac_attn_pair_attn":
+                parts = [z]
+            elif mode == "frac_attn_pair_attn_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown frac_attn_pair_attn sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
+
+        # --- Frac-attn + pairwise fixed: h = h_mix + Σ (f_i·f_j)·φ_ij ---
+        if mode.startswith("frac_attn_pair"):
+            z = self._pairwise_fixed([z_A, z_B], fracs=[fA, fB])
+            if mode == "frac_attn_pair":
+                parts = [z]
+            elif mode == "frac_attn_pair_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown frac_attn_pair sub-mode: {mode}")
             return torch.cat(parts, dim=1)
 
         # --- Fraction-aware attention family: α_i = softmax(s_i + log(f_i + ε)) ---
