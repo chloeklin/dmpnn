@@ -102,6 +102,16 @@ class CopolymerMPNN(pl.LightningModule):
     * **mix_frac**: same ``z`` → head input: ``[z || fracA || fracB]``
     * **mix_frac_meta**: same ``z`` → head input: ``[z || fracA || fracB || meta]``
 
+    **Mix + pairwise fixed** (mixture h_mix + fraction-product–weighted pairwise):
+
+    * **mix_pair**: ``h = h_mix + Σ_{i<j} (f_i·f_j)·φ_ij`` → head input: ``h``
+    * **mix_pair_meta**: same ``h`` → head input: ``[h || meta]``
+
+    **Mix + pairwise attention** (mixture h_mix + attention-weighted pairwise):
+
+    * **mix_pair_attn**: ``h = h_mix + Σ_{i<j} β_ij·φ_ij`` → head input: ``h``
+    * **mix_pair_attn_meta**: same ``h`` → head input: ``[h || meta]``
+
     **Attention family** (learned attention without fraction prior):
 
     * **attention**: ``α_i = softmax(s_i)``, ``z = Σ α_i z_i`` → head input: ``z``
@@ -133,6 +143,8 @@ class CopolymerMPNN(pl.LightningModule):
     VALID_MODES = (
         "mean", "mean_meta",
         "mix", "mix_meta", "mix_frac", "mix_frac_meta",
+        "mix_pair", "mix_pair_meta",
+        "mix_pair_attn", "mix_pair_attn_meta",
         "attention", "attention_meta",
         "frac_attn", "frac_attn_meta",
         "frac_attn_pair", "frac_attn_pair_meta",
@@ -191,10 +203,14 @@ class CopolymerMPNN(pl.LightningModule):
             self.monomer_scorer = None
 
         # Build pair interaction MLPs for pairwise modes
-        if copolymer_mode.startswith("frac_attn_pair"):
+        _is_pairwise = (copolymer_mode.startswith("frac_attn_pair")
+                        or copolymer_mode.startswith("mix_pair"))
+        if _is_pairwise:
             d_mp = self.message_passing.output_dim
             self.pair_mlp = PairInteractionMLP(d_mp)
-            if copolymer_mode.startswith("frac_attn_pair_attn"):
+            _is_pair_attn = (copolymer_mode.startswith("frac_attn_pair_attn")
+                             or copolymer_mode.startswith("mix_pair_attn"))
+            if _is_pair_attn:
                 self.pair_scorer = PairScorer(d_mp)
             else:
                 self.pair_scorer = None
@@ -455,6 +471,82 @@ class CopolymerMPNN(pl.LightningModule):
 
         return h_mix + h_int
 
+    def _mixture_pairwise_fixed(
+        self,
+        embeddings: list[Tensor],
+        fracs: list[Tensor],
+    ) -> Tensor:
+        """Mixture h_mix + fraction-product–weighted pairwise interaction.
+
+        ``h_mix = Σ f_i · h_i``  (simple mixture),
+        ``h_int = Σ_{i<j} (f_i · f_j) · φ_ij``.
+        Returns ``h_mix + h_int``.
+        """
+        H = torch.stack(embeddings, dim=1)           # [B, N, d]
+        F = torch.cat(fracs, dim=1)                   # [B, N]
+        B, N, d = H.shape
+
+        # Simple mixture: h_mix = Σ f_i · h_i
+        h_mix = (F.unsqueeze(-1) * H).sum(dim=1)     # [B, d]
+
+        h_int = H.new_zeros(B, d)
+        for i in range(N):
+            for j in range(i + 1, N):
+                pair_feat = torch.cat([
+                    H[:, i] + H[:, j],
+                    H[:, i] * H[:, j],
+                    (H[:, i] - H[:, j]).abs(),
+                ], dim=1)                             # [B, 3d]
+                phi_ij = self.pair_mlp(pair_feat)      # [B, d]
+                w_ij = (F[:, i] * F[:, j]).unsqueeze(1)  # [B, 1]
+                h_int = h_int + w_ij * phi_ij
+
+        return h_mix + h_int
+
+    def _mixture_pairwise_attention(
+        self,
+        embeddings: list[Tensor],
+        fracs: list[Tensor],
+    ) -> Tensor:
+        """Mixture h_mix + attention-weighted pairwise interaction.
+
+        ``h_mix = Σ f_i · h_i``  (simple mixture),
+        ``β_ij = softmax(t_ij + log(f_i·f_j + ε))`` over all pairs ``i<j``,
+        ``h_int = Σ_{i<j} β_ij · φ_ij``.
+        Returns ``h_mix + h_int``.
+        """
+        H = torch.stack(embeddings, dim=1)           # [B, N, d]
+        F = torch.cat(fracs, dim=1)                   # [B, N]
+        B, N, d = H.shape
+
+        # Simple mixture: h_mix = Σ f_i · h_i
+        h_mix = (F.unsqueeze(-1) * H).sum(dim=1)     # [B, d]
+
+        pair_phis = []
+        pair_logits = []
+        for i in range(N):
+            for j in range(i + 1, N):
+                pair_feat = torch.cat([
+                    H[:, i] + H[:, j],
+                    H[:, i] * H[:, j],
+                    (H[:, i] - H[:, j]).abs(),
+                ], dim=1)                              # [B, 3d]
+                phi_ij = self.pair_mlp(pair_feat)       # [B, d]
+                t_ij = self.pair_scorer(pair_feat).squeeze(-1)  # [B]
+                f_ij = F[:, i] * F[:, j]
+                pair_phis.append(phi_ij)
+                pair_logits.append(t_ij + torch.log(f_ij + 1e-8))
+
+        if not pair_phis:
+            return h_mix
+
+        Phi = torch.stack(pair_phis, dim=1)            # [B, P, d]
+        logits = torch.stack(pair_logits, dim=1)       # [B, P]
+        beta = torch.softmax(logits, dim=1)            # [B, P]
+        h_int = (beta.unsqueeze(-1) * Phi).sum(dim=1)  # [B, d]
+
+        return h_mix + h_int
+
     def _apply_mode(
         self,
         z_A: Tensor,
@@ -482,6 +574,33 @@ class CopolymerMPNN(pl.LightningModule):
                     parts.append(self.X_d_transform(X_d))
             else:
                 raise ValueError(f"Unknown mean sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
+
+        # --- Mix + pairwise attention: h = h_mix_mixture + Σ β_ij·φ_ij ---
+        # (checked before mix_pair because of startswith ordering)
+        if mode.startswith("mix_pair_attn"):
+            z = self._mixture_pairwise_attention([z_A, z_B], fracs=[fA, fB])
+            if mode == "mix_pair_attn":
+                parts = [z]
+            elif mode == "mix_pair_attn_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown mix_pair_attn sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
+
+        # --- Mix + pairwise fixed: h = h_mix_mixture + Σ (f_i·f_j)·φ_ij ---
+        if mode.startswith("mix_pair"):
+            z = self._mixture_pairwise_fixed([z_A, z_B], fracs=[fA, fB])
+            if mode == "mix_pair":
+                parts = [z]
+            elif mode == "mix_pair_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown mix_pair sub-mode: {mode}")
             return torch.cat(parts, dim=1)
 
         # --- Mix family: z = fracA * z_A + fracB * z_B ---

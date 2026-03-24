@@ -55,6 +55,8 @@ def create_base_argument_parser(description="Train a graph model"):
                         help='Type of polymer: "homo" for homopolymer or "copolymer" for copolymer')
     parser.add_argument("--copolymer_mode", type=str,
                         choices=["mean", "mean_meta", "mix", "mix_meta", "mix_frac", "mix_frac_meta",
+                                 "mix_pair", "mix_pair_meta",
+                                 "mix_pair_attn", "mix_pair_attn_meta",
                                  "attention", "attention_meta", "frac_attn", "frac_attn_meta",
                                  "frac_attn_pair", "frac_attn_pair_meta",
                                  "frac_attn_pair_attn", "frac_attn_pair_attn_meta",
@@ -960,6 +962,14 @@ def build_copolymer_model_and_trainer(
     elif copolymer_mode == "frac_attn":
         ffn_input_dim = d_mp
     elif copolymer_mode == "frac_attn_meta":
+        ffn_input_dim = d_mp + descriptor_dim
+    elif copolymer_mode == "mix_pair":
+        ffn_input_dim = d_mp
+    elif copolymer_mode == "mix_pair_meta":
+        ffn_input_dim = d_mp + descriptor_dim
+    elif copolymer_mode == "mix_pair_attn":
+        ffn_input_dim = d_mp
+    elif copolymer_mode == "mix_pair_attn_meta":
         ffn_input_dim = d_mp + descriptor_dim
     elif copolymer_mode == "frac_attn_pair":
         ffn_input_dim = d_mp

@@ -30,15 +30,13 @@ def _make_model(mode: str, d_mp: int = 64, descriptor_dim: int = 0):
     d_mp_actual = mp.output_dim
 
     # Compute FFN input dim
-    if mode.startswith("mean") or mode.startswith("mix") and "frac" not in mode:
-        ffn_dim = d_mp_actual
-    elif mode.startswith("attention") or mode.startswith("frac_attn"):
-        ffn_dim = d_mp_actual
-    elif mode.startswith("interact"):
+    if mode.startswith("interact"):
         ffn_dim = 4 * d_mp_actual + 2
-    elif "frac" in mode:
+    elif mode.startswith("mix_frac"):
         ffn_dim = d_mp_actual + 2
     else:
+        # mean, mix, mix_pair, mix_pair_attn, attention, frac_attn,
+        # frac_attn_pair, frac_attn_pair_attn all output d_mp
         ffn_dim = d_mp_actual
 
     if mode.endswith("_meta"):
@@ -121,7 +119,8 @@ def test_frac_attn_changes_with_fractions():
 def test_output_dim_consistency():
     """All fusion modes that map to d_mp should produce the same embedding width."""
     d_mp_target = 64
-    modes_same_dim = ["mean", "mix", "attention", "frac_attn", "frac_attn_pair", "frac_attn_pair_attn"]
+    modes_same_dim = ["mean", "mix", "mix_pair", "mix_pair_attn",
+                      "attention", "frac_attn", "frac_attn_pair", "frac_attn_pair_attn"]
     B = 2
     dims = {}
 
@@ -289,6 +288,86 @@ def test_permutation_invariance_pairwise_attn():
     print("PASS: frac_attn_pair_attn is permutation-invariant")
 
 
+def test_mix_pair_changes_with_fractions():
+    """mix_pair h_int should change when pair fractions change."""
+    model, d = _make_model("mix_pair")
+    B = 4
+    z_A = torch.randn(B, d)
+    z_B = torch.randn(B, d)
+
+    fA_1 = torch.full((B,), 0.3)
+    fB_1 = torch.full((B,), 0.7)
+    with torch.no_grad():
+        out1 = model._apply_mode(z_A, z_B, fA_1, fB_1)
+
+    fA_2 = torch.full((B,), 0.9)
+    fB_2 = torch.full((B,), 0.1)
+    with torch.no_grad():
+        out2 = model._apply_mode(z_A, z_B, fA_2, fB_2)
+
+    assert not torch.allclose(out1, out2, atol=1e-6), \
+        "mix_pair output should change when fractions change"
+    print("PASS: mix_pair changes with fractions")
+
+
+def test_mix_pair_attn_changes_with_fractions():
+    """mix_pair_attn h_int should change when pair fractions change."""
+    model, d = _make_model("mix_pair_attn")
+    B = 4
+    z_A = torch.randn(B, d)
+    z_B = torch.randn(B, d)
+
+    fA_1 = torch.full((B,), 0.3)
+    fB_1 = torch.full((B,), 0.7)
+    with torch.no_grad():
+        out1 = model._apply_mode(z_A, z_B, fA_1, fB_1)
+
+    fA_2 = torch.full((B,), 0.9)
+    fB_2 = torch.full((B,), 0.1)
+    with torch.no_grad():
+        out2 = model._apply_mode(z_A, z_B, fA_2, fB_2)
+
+    assert not torch.allclose(out1, out2, atol=1e-6), \
+        "mix_pair_attn output should change when fractions change"
+    print("PASS: mix_pair_attn changes with fractions")
+
+
+def test_permutation_invariance_mix_pair():
+    """mix_pair: swapping (z_A, fA) <-> (z_B, fB) should give same output."""
+    model, d = _make_model("mix_pair")
+    B = 4
+    z_A = torch.randn(B, d)
+    z_B = torch.randn(B, d)
+    fA = torch.full((B,), 0.3)
+    fB = torch.full((B,), 0.7)
+
+    with torch.no_grad():
+        out_AB = model._apply_mode(z_A, z_B, fA, fB)
+        out_BA = model._apply_mode(z_B, z_A, fB, fA)
+
+    assert torch.allclose(out_AB, out_BA, atol=1e-5), \
+        f"mix_pair not permutation-invariant. max diff={torch.max(torch.abs(out_AB - out_BA))}"
+    print("PASS: mix_pair is permutation-invariant")
+
+
+def test_permutation_invariance_mix_pair_attn():
+    """mix_pair_attn: swapping (z_A, fA) <-> (z_B, fB) should give same output."""
+    model, d = _make_model("mix_pair_attn")
+    B = 4
+    z_A = torch.randn(B, d)
+    z_B = torch.randn(B, d)
+    fA = torch.full((B,), 0.3)
+    fB = torch.full((B,), 0.7)
+
+    with torch.no_grad():
+        out_AB = model._apply_mode(z_A, z_B, fA, fB)
+        out_BA = model._apply_mode(z_B, z_A, fB, fA)
+
+    assert torch.allclose(out_AB, out_BA, atol=1e-5), \
+        f"mix_pair_attn not permutation-invariant. max diff={torch.max(torch.abs(out_AB - out_BA))}"
+    print("PASS: mix_pair_attn is permutation-invariant")
+
+
 if __name__ == "__main__":
     test_attention_weights_sum_to_one()
     test_frac_attn_weights_sum_to_one()
@@ -301,4 +380,8 @@ if __name__ == "__main__":
     test_pairwise_attn_changes_with_fractions()
     test_permutation_invariance_pairwise_fixed()
     test_permutation_invariance_pairwise_attn()
+    test_mix_pair_changes_with_fractions()
+    test_mix_pair_attn_changes_with_fractions()
+    test_permutation_invariance_mix_pair()
+    test_permutation_invariance_mix_pair_attn()
     print("\n=== All sanity checks passed ===")
