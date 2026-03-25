@@ -194,6 +194,11 @@ try:
         if copolymer_mode:
             args.append(f'copolymer_mode={copolymer_mode}')
         
+        # Add fusion_type if specified (sum_fusion | concat_fusion | gated_fusion | scalar_residual_fusion)
+        fusion_type = exp.get('fusion_type')
+        if fusion_type:
+            args.append(f'fusion_type={fusion_type}')
+        
         # Add pretrain_monomer flag if specified
         if exp.get('pretrain_monomer', False):
             args.append('pretrain_monomer')

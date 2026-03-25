@@ -570,12 +570,14 @@ if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
     from chemprop.models.copolymer import CopolymerMPNN
 
     copolymer_mode = args.copolymer_mode
+    fusion_type = getattr(args, 'fusion_type', 'sum_fusion')
     is_multi_monomer = df_input.attrs.get("multi_monomer", False)
-    logger.info(f"\n=== Copolymer Training (mode={copolymer_mode}) ===")
+    logger.info(f"\n=== Copolymer Training (mode={copolymer_mode}, fusion={fusion_type}) ===")
     logger.info(f"Dataset          : {args.dataset_name}")
     logger.info(f"Model            : {args.model_name}")
     logger.info(f"Target columns   : {target_columns}")
     logger.info(f"Copolymer mode   : {copolymer_mode}")
+    logger.info(f"Fusion type      : {fusion_type}")
     logger.info(f"Multi-monomer    : {is_multi_monomer}")
     logger.info(f"Split type       : {args.split_type}")
     logger.info("================================\n")
@@ -1141,7 +1143,10 @@ if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
                 embeddings_dir = results_dir / "embeddings"
                 embeddings_dir.mkdir(parents=True, exist_ok=True)
                 split_type_suffix = f"__{args.split_type}" if args.split_type != "random" else ""
-                emb_prefix = f"{args.dataset_name}__{args.model_name}__{target}__copoly_{copolymer_mode}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{split_type_suffix}{size_suffix}"
+                _ft = getattr(args, 'fusion_type', 'sum_fusion')
+                _is_pw = (copolymer_mode.startswith('frac_attn_pair') or copolymer_mode.startswith('mix_pair'))
+                _fusion_sfx = f"__fusion_{_ft}" if _is_pw else ""
+                emb_prefix = f"{args.dataset_name}__{args.model_name}__{target}__copoly_{copolymer_mode}{_fusion_sfx}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{split_type_suffix}{size_suffix}"
 
                 for key in ["z_A", "z_B", "z_final"]:
                     np.save(embeddings_dir / f"{emb_prefix}__{key}_train_split_{i}.npy", emb_train[key])

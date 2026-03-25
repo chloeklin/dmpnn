@@ -83,6 +83,79 @@ class PairScorer(nn.Module):
         return self.net(pair_feat)
 
 
+VALID_FUSION_TYPES = ("sum_fusion", "concat_fusion", "gated_fusion", "scalar_residual_fusion")
+
+
+class SumFusion(nn.Module):
+    """``h = h_mix + h_int``  (additive residual — the original default)."""
+
+    def forward(self, h_mix: Tensor, h_int: Tensor) -> Tensor:
+        return h_mix + h_int
+
+
+class ConcatFusion(nn.Module):
+    """``h = MLP([h_mix || h_int])``  →  output dim = d."""
+
+    def __init__(self, d: int, hidden: int = 128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2 * d, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, d),
+        )
+
+    def forward(self, h_mix: Tensor, h_int: Tensor) -> Tensor:
+        return self.net(torch.cat([h_mix, h_int], dim=1))
+
+
+class GatedFusion(nn.Module):
+    """Element-wise gating: ``g = σ(MLP([h_mix || h_int]))``, ``h = (1-g)·h_mix + g·h_int``."""
+
+    def __init__(self, d: int, hidden: int = 64):
+        super().__init__()
+        self.gate = nn.Sequential(
+            nn.Linear(2 * d, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, d),
+        )
+
+    def forward(self, h_mix: Tensor, h_int: Tensor) -> Tensor:
+        g = torch.sigmoid(self.gate(torch.cat([h_mix, h_int], dim=1)))
+        return (1 - g) * h_mix + g * h_int
+
+
+class ScalarResidualFusion(nn.Module):
+    """``h = h_mix + λ · h_int``  where λ is a learned scalar (init 0.1)."""
+
+    def __init__(self, init_lambda: float = 0.1):
+        super().__init__()
+        self.lam = nn.Parameter(torch.tensor(float(init_lambda)))
+
+    def forward(self, h_mix: Tensor, h_int: Tensor) -> Tensor:
+        return h_mix + self.lam * h_int
+
+
+def build_fusion_module(fusion_type: str, d: int) -> nn.Module:
+    """Factory: create a fusion module by name.
+
+    Parameters
+    ----------
+    fusion_type : str
+        One of :data:`VALID_FUSION_TYPES`.
+    d : int
+        Embedding dimension (= d_mp).
+    """
+    if fusion_type == "sum_fusion":
+        return SumFusion()
+    if fusion_type == "concat_fusion":
+        return ConcatFusion(d)
+    if fusion_type == "gated_fusion":
+        return GatedFusion(d)
+    if fusion_type == "scalar_residual_fusion":
+        return ScalarResidualFusion()
+    raise ValueError(f"Unknown fusion_type '{fusion_type}'. Valid: {VALID_FUSION_TYPES}")
+
+
 class CopolymerMPNN(pl.LightningModule):
     """Two-monomer copolymer model with shared GNN encoder.
 
@@ -104,12 +177,12 @@ class CopolymerMPNN(pl.LightningModule):
 
     **Mix + pairwise fixed** (mixture h_mix + fraction-product–weighted pairwise):
 
-    * **mix_pair**: ``h = h_mix + Σ_{i<j} (f_i·f_j)·φ_ij`` → head input: ``h``
+    * **mix_pair**: ``h = fuse(h_mix, Σ_{i<j} (f_i·f_j)·φ_ij)`` → head input: ``h``
     * **mix_pair_meta**: same ``h`` → head input: ``[h || meta]``
 
     **Mix + pairwise attention** (mixture h_mix + attention-weighted pairwise):
 
-    * **mix_pair_attn**: ``h = h_mix + Σ_{i<j} β_ij·φ_ij`` → head input: ``h``
+    * **mix_pair_attn**: ``h = fuse(h_mix, Σ_{i<j} β_ij·φ_ij)`` → head input: ``h``
     * **mix_pair_attn_meta**: same ``h`` → head input: ``[h || meta]``
 
     **Attention family** (learned attention without fraction prior):
@@ -124,12 +197,12 @@ class CopolymerMPNN(pl.LightningModule):
 
     **Frac-attn + pairwise fixed** (attention h_mix + fraction-product–weighted pairwise):
 
-    * **frac_attn_pair**: ``h = h_mix + Σ_{i<j} (f_i·f_j)·φ_ij`` → head input: ``h``
+    * **frac_attn_pair**: ``h = fuse(h_mix, Σ_{i<j} (f_i·f_j)·φ_ij)`` → head input: ``h``
     * **frac_attn_pair_meta**: same ``h`` → head input: ``[h || meta]``
 
     **Frac-attn + pairwise attention** (attention h_mix + attention-weighted pairwise):
 
-    * **frac_attn_pair_attn**: ``h = h_mix + Σ_{i<j} β_ij·φ_ij`` → head input: ``h``
+    * **frac_attn_pair_attn**: ``h = fuse(h_mix, Σ_{i<j} β_ij·φ_ij)`` → head input: ``h``
     * **frac_attn_pair_attn_meta**: same ``h`` → head input: ``[h || meta]``
 
     **Interact family** (interaction-aware concatenation):
@@ -138,6 +211,13 @@ class CopolymerMPNN(pl.LightningModule):
     * **interact_meta**: head input: ``[z_A || z_B || |z_A-z_B| || z_A⊙z_B || fracA || fracB || meta]``
 
     where ``meta`` = additional scalar descriptors (e.g. RDKit, dataset-specific).
+
+    **Fusion strategies** (for pairwise modes only):
+
+    * **sum_fusion**: ``h = h_mix + h_int``  (default, backward-compatible)
+    * **concat_fusion**: ``h = MLP([h_mix || h_int])``
+    * **gated_fusion**: ``g = σ(MLP([h_mix || h_int]))``, ``h = (1-g)·h_mix + g·h_int``
+    * **scalar_residual_fusion**: ``h = h_mix + λ·h_int``  (λ learned, init 0.1)
     """
 
     VALID_MODES = (
@@ -158,6 +238,7 @@ class CopolymerMPNN(pl.LightningModule):
         agg: Aggregation,
         predictor: Predictor,
         copolymer_mode: str = "mix",
+        fusion_type: str = "sum_fusion",
         batch_norm: bool = False,
         metrics: Iterable[ChempropMetric] | None = None,
         warmup_epochs: int = 2,
@@ -202,10 +283,15 @@ class CopolymerMPNN(pl.LightningModule):
         else:
             self.monomer_scorer = None
 
-        # Build pair interaction MLPs for pairwise modes
+        # Build pair interaction MLPs and fusion module for pairwise modes
         _is_pairwise = (copolymer_mode.startswith("frac_attn_pair")
                         or copolymer_mode.startswith("mix_pair"))
         if _is_pairwise:
+            if fusion_type not in VALID_FUSION_TYPES:
+                raise ValueError(
+                    f"Unknown fusion_type '{fusion_type}'. "
+                    f"Valid: {VALID_FUSION_TYPES}"
+                )
             d_mp = self.message_passing.output_dim
             self.pair_mlp = PairInteractionMLP(d_mp)
             _is_pair_attn = (copolymer_mode.startswith("frac_attn_pair_attn")
@@ -214,9 +300,12 @@ class CopolymerMPNN(pl.LightningModule):
                 self.pair_scorer = PairScorer(d_mp)
             else:
                 self.pair_scorer = None
+            self.fuse = build_fusion_module(fusion_type, d_mp)
         else:
             self.pair_mlp = None
             self.pair_scorer = None
+            self.fuse = None
+        self.fusion_type = fusion_type
 
         # Initialize metrics - handle checkpoint loading where criterion might not exist yet
         if metrics:
@@ -407,7 +496,7 @@ class CopolymerMPNN(pl.LightningModule):
 
         ``h_int = Σ_{i<j} (f_i · f_j) · φ_ij``  where
         ``φ_ij = MLP_pair([h_i+h_j, h_i*h_j, |h_i−h_j|])``.
-        Returns ``h_mix + h_int``.
+        Returns ``fuse(h_mix, h_int)``.
         """
         h_mix = self._attention_fuse(embeddings, fracs)
 
@@ -427,7 +516,7 @@ class CopolymerMPNN(pl.LightningModule):
                 w_ij = (F[:, i] * F[:, j]).unsqueeze(1)  # [B, 1]
                 h_int = h_int + w_ij * phi_ij
 
-        return h_mix + h_int
+        return self.fuse(h_mix, h_int)
 
     def _pairwise_attention(
         self,
@@ -438,7 +527,7 @@ class CopolymerMPNN(pl.LightningModule):
 
         ``β_ij = softmax(t_ij + log(f_i·f_j + ε))`` over all pairs ``i<j``.
         ``h_int = Σ_{i<j} β_ij · φ_ij``.
-        Returns ``h_mix + h_int``.
+        Returns ``fuse(h_mix, h_int)``.
         """
         h_mix = self._attention_fuse(embeddings, fracs)
 
@@ -469,7 +558,7 @@ class CopolymerMPNN(pl.LightningModule):
         beta = torch.softmax(logits, dim=1)            # [B, P]
         h_int = (beta.unsqueeze(-1) * Phi).sum(dim=1)  # [B, d]
 
-        return h_mix + h_int
+        return self.fuse(h_mix, h_int)
 
     def _mixture_pairwise_fixed(
         self,
@@ -480,7 +569,7 @@ class CopolymerMPNN(pl.LightningModule):
 
         ``h_mix = Σ f_i · h_i``  (simple mixture),
         ``h_int = Σ_{i<j} (f_i · f_j) · φ_ij``.
-        Returns ``h_mix + h_int``.
+        Returns ``fuse(h_mix, h_int)``.
         """
         H = torch.stack(embeddings, dim=1)           # [B, N, d]
         F = torch.cat(fracs, dim=1)                   # [B, N]
@@ -501,7 +590,7 @@ class CopolymerMPNN(pl.LightningModule):
                 w_ij = (F[:, i] * F[:, j]).unsqueeze(1)  # [B, 1]
                 h_int = h_int + w_ij * phi_ij
 
-        return h_mix + h_int
+        return self.fuse(h_mix, h_int)
 
     def _mixture_pairwise_attention(
         self,
@@ -513,7 +602,7 @@ class CopolymerMPNN(pl.LightningModule):
         ``h_mix = Σ f_i · h_i``  (simple mixture),
         ``β_ij = softmax(t_ij + log(f_i·f_j + ε))`` over all pairs ``i<j``,
         ``h_int = Σ_{i<j} β_ij · φ_ij``.
-        Returns ``h_mix + h_int``.
+        Returns ``fuse(h_mix, h_int)``.
         """
         H = torch.stack(embeddings, dim=1)           # [B, N, d]
         F = torch.cat(fracs, dim=1)                   # [B, N]
@@ -545,7 +634,7 @@ class CopolymerMPNN(pl.LightningModule):
         beta = torch.softmax(logits, dim=1)            # [B, P]
         h_int = (beta.unsqueeze(-1) * Phi).sum(dim=1)  # [B, d]
 
-        return h_mix + h_int
+        return self.fuse(h_mix, h_int)
 
     def _apply_mode(
         self,

@@ -884,12 +884,12 @@ experiments:
   #   incl_poly_type: true
   #   walltime: "5:30:00"
   #   targets: *eaip_targets
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: frac_attn
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: frac_attn
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- GIN + poly_type (attention) --
   # - <<: *eaip_base
@@ -898,12 +898,12 @@ experiments:
   #   incl_poly_type: true
   #   walltime: "5:30:00"
   #   targets: *eaip_targets
-  - <<: *eaip_base
-    model: GIN
-    copolymer_mode: frac_attn
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: frac_attn
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- GAT + poly_type (attention) --
   # - <<: *eaip_base
@@ -912,55 +912,55 @@ experiments:
   #   incl_poly_type: true
   #   walltime: "5:30:00"
   #   targets: *eaip_targets
-  - <<: *eaip_base
-    model: GAT
-    copolymer_mode: frac_attn
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: frac_attn
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
 
-  # -- DMPNN + poly_type (mix pairwise) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: mix_pair
-    incl_poly_type: true
-    walltime: "7:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: mix_pair_attn
-    incl_poly_type: true
-    walltime: "7:30:00"
-    targets: *eaip_targets
+  # # -- DMPNN + poly_type (mix pairwise) --
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_pair
+  #   incl_poly_type: true
+  #   walltime: "7:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_pair_attn
+  #   incl_poly_type: true
+  #   walltime: "7:30:00"
+  #   targets: *eaip_targets
 
-  # -- GIN + poly_type (mix pairwise) --
-  - <<: *eaip_base
-    model: GIN
-    copolymer_mode: mix_pair
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: GIN
-    copolymer_mode: mix_pair_attn
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # # -- GIN + poly_type (mix pairwise) --
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix_pair
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix_pair_attn
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
-  # -- GAT + poly_type (mix pairwise) --
-  - <<: *eaip_base
-    model: GAT
-    copolymer_mode: mix_pair
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: GAT
-    copolymer_mode: mix_pair_attn
-    incl_poly_type: true
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # # -- GAT + poly_type (mix pairwise) --
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix_pair
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix_pair_attn
+  #   incl_poly_type: true
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # # -- wDMPNN --
   # - <<: *eaip_base
@@ -1308,9 +1308,70 @@ experiments:
 
 
   # -- DMPNN + poly_type (mix pairwise, a_held_out) --
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_pair
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "7:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_pair_attn
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "7:30:00"
+  #   targets: *eaip_targets
+
+  # # -- GIN + poly_type (mix pairwise, a_held_out) --
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix_pair
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: mix_pair_attn
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+
+  # # -- GAT + poly_type (mix pairwise, a_held_out) --
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix_pair
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: mix_pair_attn
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+
+  # ═══════════════════════════════════════════════════════════════════
+  # FUSION STRATEGY COMPARISON (mix_pair_attn × 4 fusion types)
+  #
+  # sum_fusion:              h = h_mix + h_int  (default, backward compat)
+  # concat_fusion:           h = MLP([h_mix || h_int])
+  # gated_fusion:            g = σ(MLP([h_mix||h_int])), h = (1-g)·h_mix + g·h_int
+  # scalar_residual_fusion:  h = h_mix + λ·h_int  (λ learned, init 0.1)
+  #
+  # NOTE: existing mix_pair_attn entries above use the default sum_fusion.
+  # These entries add the three new fusion variants for comparison.
+  # ═══════════════════════════════════════════════════════════════════
+
+  # -- DMPNN + mix_pair_attn + fusion variants (a_held_out) --
   - <<: *eaip_base
     model: DMPNN
-    copolymer_mode: mix_pair
+    copolymer_mode: mix_pair_attn
+    fusion_type: concat_fusion
     incl_poly_type: true
     split_type: a_held_out
     walltime: "7:30:00"
@@ -1318,15 +1379,25 @@ experiments:
   - <<: *eaip_base
     model: DMPNN
     copolymer_mode: mix_pair_attn
+    fusion_type: gated_fusion
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "7:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: mix_pair_attn
+    fusion_type: scalar_residual_fusion
     incl_poly_type: true
     split_type: a_held_out
     walltime: "7:30:00"
     targets: *eaip_targets
 
-  # -- GIN + poly_type (mix pairwise, a_held_out) --
+  # -- GIN + mix_pair_attn + fusion variants (a_held_out) --
   - <<: *eaip_base
     model: GIN
-    copolymer_mode: mix_pair
+    copolymer_mode: mix_pair_attn
+    fusion_type: concat_fusion
     incl_poly_type: true
     split_type: a_held_out
     walltime: "5:30:00"
@@ -1334,15 +1405,25 @@ experiments:
   - <<: *eaip_base
     model: GIN
     copolymer_mode: mix_pair_attn
+    fusion_type: gated_fusion
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: GIN
+    copolymer_mode: mix_pair_attn
+    fusion_type: scalar_residual_fusion
     incl_poly_type: true
     split_type: a_held_out
     walltime: "5:30:00"
     targets: *eaip_targets
 
-  # -- GAT + poly_type (mix pairwise, a_held_out) --
+  # -- GAT + mix_pair_attn + fusion variants (a_held_out) --
   - <<: *eaip_base
     model: GAT
-    copolymer_mode: mix_pair
+    copolymer_mode: mix_pair_attn
+    fusion_type: concat_fusion
     incl_poly_type: true
     split_type: a_held_out
     walltime: "5:30:00"
@@ -1350,6 +1431,15 @@ experiments:
   - <<: *eaip_base
     model: GAT
     copolymer_mode: mix_pair_attn
+    fusion_type: gated_fusion
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: GAT
+    copolymer_mode: mix_pair_attn
+    fusion_type: scalar_residual_fusion
     incl_poly_type: true
     split_type: a_held_out
     walltime: "5:30:00"

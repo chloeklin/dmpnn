@@ -20,6 +20,7 @@
 #   train_size=<float>     # e.g., 0.8
 #   polymer_type=<string>  # e.g., copolymer
 #   copolymer_mode=<string> # mix | interact (for copolymer datasets)
+#   fusion_type=<string>   # sum_fusion | concat_fusion | gated_fusion | scalar_residual_fusion
 #   fusion_mode=<string>   # none | late_concat | film
 #   film_layers=<string>   # all | last
 #   film_hidden_dim=<int>  # FiLM MLP trunk hidden dim
@@ -61,6 +62,7 @@ TARGET=""
 TRAIN_SIZE=""
 POLYMER_TYPE=""
 COPOLYMER_MODE=""
+FUSION_TYPE=""
 FUSION_MODE=""
 FILM_LAYERS=""
 FILM_HIDDEN_DIM=""
@@ -97,6 +99,7 @@ for arg in "${@:4}"; do
     train_size=*)       TRAIN_SIZE="${arg#train_size=}" ;;
     polymer_type=*)     POLYMER_TYPE="${arg#polymer_type=}" ;;
     copolymer_mode=*)   COPOLYMER_MODE="${arg#copolymer_mode=}" ;;
+    fusion_type=*)      FUSION_TYPE="${arg#fusion_type=}" ;;
     identity_mode=*)    IDENTITY_MODE="${arg#identity_mode=}" ;;
     embed_dim=*)        EMBED_DIM="${arg#embed_dim=}" ;;
     fusion_mode=*)      FUSION_MODE="${arg#fusion_mode=}" ;;
@@ -159,6 +162,7 @@ if [ "$MODEL" != "tabular" ]; then
 fi
 [ -n "$POLYMER_TYPE" ]       && ARGS="$ARGS --polymer_type $POLYMER_TYPE"
 [ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
+[ -n "$FUSION_TYPE" ]        && ARGS="$ARGS --fusion_type $FUSION_TYPE"
 [ -n "$SPLIT_TYPE" ]         && ARGS="$ARGS --split_type $SPLIT_TYPE"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
 if [ -n "$TARGETS" ]; then
@@ -193,6 +197,7 @@ SUFFIX="_${MODEL}"
 [ "$TASK_TYPE" != "reg" ]  && SUFFIX="${SUFFIX}_${TASK_TYPE}"
 [ -n "$POLYMER_TYPE" ]     && SUFFIX="${SUFFIX}_$POLYMER_TYPE"
 [ -n "$COPOLYMER_MODE" ]   && SUFFIX="${SUFFIX}_${COPOLYMER_MODE}"
+[ -n "$FUSION_TYPE" ]      && SUFFIX="${SUFFIX}_${FUSION_TYPE}"
 [ -n "$TRAIN_SIZE" ]       && SUFFIX="${SUFFIX}_ts${TRAIN_SIZE}"
 [ -n "$FUSION_MODE" ]      && SUFFIX="${SUFFIX}_${FUSION_MODE}"
 [ -n "$FILM_LAYERS" ]      && SUFFIX="${SUFFIX}_fl${FILM_LAYERS}"

@@ -71,6 +71,12 @@ def create_base_argument_parser(description="Train a graph model"):
                              '"mix_frac_meta" = mix + fracs + descriptors, '
                              '"interact" = [z_A||z_B||diff||prod||fracs], '
                              '"interact_meta" = interact + descriptors')
+    parser.add_argument('--fusion_type', type=str,
+                        choices=['sum_fusion', 'concat_fusion', 'gated_fusion', 'scalar_residual_fusion'],
+                        default='sum_fusion',
+                        help='Fusion strategy for combining h_mix and h_int in pairwise '
+                             'copolymer modes (mix_pair*, frac_attn_pair*). '
+                             'Ignored for non-pairwise modes. Default: sum_fusion')
     parser.add_argument('--incl_poly_type', action='store_true',
                         help='Append one-hot encoded poly_type column as global descriptor '
                              '(copolymer datasets only; auto-upgrades mix→mix_meta, interact→interact_meta)')
@@ -268,6 +274,12 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
         else:
             copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
             filename_parts.append(f"copoly_{copolymer_mode}")
+            # Include fusion_type for pairwise modes
+            _ft = getattr(args, 'fusion_type', 'sum_fusion')
+            _is_pairwise = (copolymer_mode.startswith('frac_attn_pair')
+                            or copolymer_mode.startswith('mix_pair'))
+            if _is_pairwise:
+                filename_parts.append(f"fusion_{_ft}")
     
     # Add poly_type suffix
     if getattr(args, 'incl_poly_type', False):
@@ -1008,11 +1020,13 @@ def build_copolymer_model_and_trainer(
         raise ValueError(f"Unsupported task_type for copolymer: {args.task_type}")
 
     # ---------- model ----------
+    fusion_type = getattr(args, 'fusion_type', 'sum_fusion')
     model = CopolymerMPNN(
         message_passing=mp,
         agg=agg,
         predictor=ffn,
         copolymer_mode=copolymer_mode,
+        fusion_type=fusion_type,
         batch_norm=batch_norm,
         metrics=metric_list or [],
     )
@@ -1927,7 +1941,12 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
             copoly_suffix = poly_type_sfx
         else:
             copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
-            copoly_suffix = f"__copoly_{copolymer_mode}{poly_type_sfx}"
+            # Include fusion_type in filename for pairwise modes
+            _ft = getattr(args, 'fusion_type', 'sum_fusion')
+            _is_pairwise = (copolymer_mode.startswith('frac_attn_pair')
+                            or copolymer_mode.startswith('mix_pair'))
+            fusion_sfx = f"__fusion_{_ft}" if _is_pairwise else ""
+            copoly_suffix = f"__copoly_{copolymer_mode}{fusion_sfx}{poly_type_sfx}"
     
     # Add split type suffix (only for non-random splits, matching save_model_results)
     split_type = getattr(args, 'split_type', 'random')
