@@ -60,6 +60,7 @@ def create_base_argument_parser(description="Train a graph model"):
                                  "attention", "attention_meta", "frac_attn", "frac_attn_meta",
                                  "frac_attn_pair", "frac_attn_pair_meta",
                                  "frac_attn_pair_attn", "frac_attn_pair_attn_meta",
+                                 "self_attn", "self_attn_meta",
                                  "interact", "interact_meta"],
                         default="mix",
                         help='Copolymer integration mode: '
@@ -990,6 +991,10 @@ def build_copolymer_model_and_trainer(
     elif copolymer_mode == "frac_attn_pair_attn":
         ffn_input_dim = d_mp
     elif copolymer_mode == "frac_attn_pair_attn_meta":
+        ffn_input_dim = d_mp + descriptor_dim
+    elif copolymer_mode == "self_attn":
+        ffn_input_dim = d_mp
+    elif copolymer_mode == "self_attn_meta":
         ffn_input_dim = d_mp + descriptor_dim
     elif copolymer_mode == "interact":
         ffn_input_dim = 4 * d_mp + 2

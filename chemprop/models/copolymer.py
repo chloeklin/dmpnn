@@ -83,6 +83,70 @@ class PairScorer(nn.Module):
         return self.net(pair_feat)
 
 
+class SelfAttentionPooling(nn.Module):
+    """Single-head, fraction-aware self-attention over monomer embeddings.
+
+    Produces a single polymer embedding directly (no h_mix / h_int split).
+
+    Steps
+    -----
+    1. Linear projections: q = W_Q h, k = W_K h, v = W_V h
+    2. Scaled dot-product attention with fraction bias:
+       scores = (q k^T) / sqrt(d_k) + log(f_j + eps)
+    3. alpha = softmax(scores, dim=-1)
+    4. h_attn = alpha @ v
+    5. Residual: h_out = h + h_attn
+    6. Pooling: h_poly = sum_i f_i * h_out_i
+
+    Parameters
+    ----------
+    d : int
+        Embedding dimension (= d_mp).
+    """
+
+    def __init__(self, d: int):
+        super().__init__()
+        self.d = d
+        self.W_Q = nn.Linear(d, d, bias=False)
+        self.W_K = nn.Linear(d, d, bias=False)
+        self.W_V = nn.Linear(d, d, bias=False)
+        self.scale = d ** 0.5
+
+    def forward(self, H: Tensor, F: Tensor) -> Tensor:
+        """Compute fraction-aware self-attention pooled polymer embedding.
+
+        Parameters
+        ----------
+        H : Tensor [B, N, d]
+            Monomer embeddings.
+        F : Tensor [B, N]
+            Monomer fractions (sum to 1 per sample).
+
+        Returns
+        -------
+        Tensor [B, d]
+            Single polymer embedding.
+        """
+        Q = self.W_Q(H)                                    # [B, N, d]
+        K = self.W_K(H)                                    # [B, N, d]
+        V = self.W_V(H)                                    # [B, N, d]
+
+        # Scaled dot-product scores + fraction bias
+        scores = torch.bmm(Q, K.transpose(1, 2)) / self.scale  # [B, N, N]
+        frac_bias = torch.log(F + 1e-8).unsqueeze(1)       # [B, 1, N]
+        scores = scores + frac_bias                         # broadcast → [B, N, N]
+
+        alpha = torch.softmax(scores, dim=-1)               # [B, N, N]
+
+        # Context aggregation + residual
+        h_attn = torch.bmm(alpha, V)                        # [B, N, d]
+        h_out = H + h_attn                                  # [B, N, d]
+
+        # Fraction-weighted pooling
+        h_poly = (F.unsqueeze(-1) * h_out).sum(dim=1)       # [B, d]
+        return h_poly
+
+
 VALID_FUSION_TYPES = ("sum_fusion", "concat_fusion", "gated_fusion", "scalar_residual_fusion")
 
 
@@ -212,6 +276,11 @@ class CopolymerMPNN(pl.LightningModule):
 
     where ``meta`` = additional scalar descriptors (e.g. RDKit, dataset-specific).
 
+    **Self-attention family** (transformer-style self-attention over monomers):
+
+    * **self_attn**: fraction-aware self-attention → fraction-weighted pool → ``h_poly``
+    * **self_attn_meta**: same ``h_poly`` → head input: ``[h_poly || meta]``
+
     **Fusion strategies** (for pairwise modes only):
 
     * **sum_fusion**: ``h = h_mix + h_int``  (default, backward-compatible)
@@ -229,6 +298,7 @@ class CopolymerMPNN(pl.LightningModule):
         "frac_attn", "frac_attn_meta",
         "frac_attn_pair", "frac_attn_pair_meta",
         "frac_attn_pair_attn", "frac_attn_pair_attn_meta",
+        "self_attn", "self_attn_meta",
         "interact", "interact_meta",
     )
 
@@ -282,6 +352,12 @@ class CopolymerMPNN(pl.LightningModule):
             self.monomer_scorer = MonomerScorer(self.message_passing.output_dim)
         else:
             self.monomer_scorer = None
+
+        # Build self-attention pooling module
+        if copolymer_mode.startswith("self_attn"):
+            self.self_attn_pool = SelfAttentionPooling(self.message_passing.output_dim)
+        else:
+            self.self_attn_pool = None
 
         # Build pair interaction MLPs and fusion module for pairwise modes
         _is_pairwise = (copolymer_mode.startswith("frac_attn_pair")
@@ -767,6 +843,21 @@ class CopolymerMPNN(pl.LightningModule):
                     parts.append(self.X_d_transform(X_d))
             else:
                 raise ValueError(f"Unknown frac_attn sub-mode: {mode}")
+            return torch.cat(parts, dim=1)
+
+        # --- Self-attention family: transformer-style self-attention over monomers ---
+        if mode.startswith("self_attn"):
+            H = torch.stack([z_A, z_B], dim=1)             # [B, 2, d]
+            F_cat = torch.cat([fA, fB], dim=1)              # [B, 2]
+            z = self.self_attn_pool(H, F_cat)               # [B, d]
+            if mode == "self_attn":
+                parts = [z]
+            elif mode == "self_attn_meta":
+                parts = [z]
+                if X_d is not None:
+                    parts.append(self.X_d_transform(X_d))
+            else:
+                raise ValueError(f"Unknown self_attn sub-mode: {mode}")
             return torch.cat(parts, dim=1)
 
         # --- Interact family ---

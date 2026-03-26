@@ -656,7 +656,7 @@ if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
         else:
             combined_descriptor_data = _poly_oh.astype(np.float32)
         # Auto-upgrade base mode → meta variant so X_d is forwarded
-        _UPGRADES = {'mean': 'mean_meta', 'mix': 'mix_meta', 'mix_pair': 'mix_pair_meta', 'mix_pair_attn': 'mix_pair_attn_meta', 'attention': 'attention_meta', 'frac_attn': 'frac_attn_meta', 'frac_attn_pair': 'frac_attn_pair_meta', 'frac_attn_pair_attn': 'frac_attn_pair_attn_meta', 'interact': 'interact_meta', 'mix_frac': 'mix_frac_meta'}
+        _UPGRADES = {'mean': 'mean_meta', 'mix': 'mix_meta', 'mix_pair': 'mix_pair_meta', 'mix_pair_attn': 'mix_pair_attn_meta', 'attention': 'attention_meta', 'frac_attn': 'frac_attn_meta', 'frac_attn_pair': 'frac_attn_pair_meta', 'frac_attn_pair_attn': 'frac_attn_pair_attn_meta', 'self_attn': 'self_attn_meta', 'interact': 'interact_meta', 'mix_frac': 'mix_frac_meta'}
         if copolymer_mode in _UPGRADES:
             args.copolymer_mode = _UPGRADES[copolymer_mode]
             copolymer_mode = args.copolymer_mode

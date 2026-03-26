@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from chemprop.models.copolymer import (
     CopolymerMPNN, MonomerScorer, PairInteractionMLP, PairScorer,
+    SelfAttentionPooling,
     VALID_FUSION_TYPES, SumFusion, ConcatFusion, GatedFusion, ScalarResidualFusion,
 )
 from chemprop import nn as cpnn
@@ -39,7 +40,7 @@ def _make_model(mode: str, d_mp: int = 64, descriptor_dim: int = 0, fusion_type:
         ffn_dim = d_mp_actual + 2
     else:
         # mean, mix, mix_pair, mix_pair_attn, attention, frac_attn,
-        # frac_attn_pair, frac_attn_pair_attn all output d_mp
+        # frac_attn_pair, frac_attn_pair_attn, self_attn all output d_mp
         ffn_dim = d_mp_actual
 
     if mode.endswith("_meta"):
@@ -124,7 +125,8 @@ def test_output_dim_consistency():
     """All fusion modes that map to d_mp should produce the same embedding width."""
     d_mp_target = 64
     modes_same_dim = ["mean", "mix", "mix_pair", "mix_pair_attn",
-                      "attention", "frac_attn", "frac_attn_pair", "frac_attn_pair_attn"]
+                      "attention", "frac_attn", "frac_attn_pair", "frac_attn_pair_attn",
+                      "self_attn"]
     B = 2
     dims = {}
 
@@ -488,6 +490,111 @@ def test_fusion_type_in_hparams():
     print("PASS: fusion_type correctly stored on model")
 
 
+# ================================================================
+# Self-attention tests
+# ================================================================
+
+def test_self_attn_output_dim():
+    """self_attn should output d_mp (same as mix, frac_attn, etc.)."""
+    model, d = _make_model("self_attn")
+    B = 4
+    z_A = torch.randn(B, d)
+    z_B = torch.randn(B, d)
+    fA = torch.full((B,), 0.6)
+    fB = torch.full((B,), 0.4)
+    with torch.no_grad():
+        out = model._apply_mode(z_A, z_B, fA, fB)
+    assert out.shape == (B, d), f"Expected ({B}, {d}), got {out.shape}"
+    print(f"PASS: self_attn output dim = {d}")
+
+
+def test_self_attn_meta_output_dim():
+    """self_attn_meta should output d_mp + descriptor_dim."""
+    desc_dim = 5
+    model, d = _make_model("self_attn_meta", descriptor_dim=desc_dim)
+    B = 4
+    z_A = torch.randn(B, d)
+    z_B = torch.randn(B, d)
+    fA = torch.full((B,), 0.6)
+    fB = torch.full((B,), 0.4)
+    X_d = torch.randn(B, desc_dim)
+    with torch.no_grad():
+        out = model._apply_mode(z_A, z_B, fA, fB, X_d)
+    expected = d + desc_dim
+    assert out.shape == (B, expected), f"Expected ({B}, {expected}), got {out.shape}"
+    print(f"PASS: self_attn_meta output dim = {expected}")
+
+
+def test_self_attn_attention_weights_sum_to_one():
+    """Self-attention softmax rows should sum to 1."""
+    d = 64
+    pool = SelfAttentionPooling(d)
+    pool.eval()
+    B, N = 4, 2
+    H = torch.randn(B, N, d)
+    F = torch.tensor([[0.6, 0.4]] * B)
+    with torch.no_grad():
+        Q = pool.W_Q(H)
+        K = pool.W_K(H)
+        scores = torch.bmm(Q, K.transpose(1, 2)) / pool.scale
+        frac_bias = torch.log(F + 1e-8).unsqueeze(1)
+        scores = scores + frac_bias
+        alpha = torch.softmax(scores, dim=-1)
+    row_sums = alpha.sum(dim=-1)
+    assert torch.allclose(row_sums, torch.ones_like(row_sums), atol=1e-5), \
+        f"Attention rows don't sum to 1: {row_sums}"
+    print("PASS: self_attn attention weights sum to 1")
+
+
+def test_self_attn_changes_with_fractions():
+    """Changing fractions should change self_attn output."""
+    model, d = _make_model("self_attn")
+    B = 4
+    z_A = torch.randn(B, d)
+    z_B = torch.randn(B, d)
+    with torch.no_grad():
+        out1 = model._apply_mode(z_A, z_B, torch.full((B,), 0.5), torch.full((B,), 0.5))
+        out2 = model._apply_mode(z_A, z_B, torch.full((B,), 0.8), torch.full((B,), 0.2))
+    assert not torch.allclose(out1, out2, atol=1e-5), \
+        "self_attn output did not change when fractions changed"
+    print("PASS: self_attn changes with fractions")
+
+
+def test_self_attn_permutation_invariance():
+    """Swapping (z_A, fA) <-> (z_B, fB) should yield the same output."""
+    model, d = _make_model("self_attn")
+    B = 4
+    z_A = torch.randn(B, d)
+    z_B = torch.randn(B, d)
+    fA = torch.full((B,), 0.3)
+    fB = torch.full((B,), 0.7)
+    with torch.no_grad():
+        out_AB = model._apply_mode(z_A, z_B, fA, fB)
+        out_BA = model._apply_mode(z_B, z_A, fB, fA)
+    assert torch.allclose(out_AB, out_BA, atol=1e-5), \
+        f"self_attn not permutation-invariant. max diff={torch.max(torch.abs(out_AB - out_BA))}"
+    print("PASS: self_attn is permutation-invariant")
+
+
+def test_self_attn_has_qkv_params():
+    """self_attn model should have W_Q, W_K, W_V parameters."""
+    model, d = _make_model("self_attn")
+    param_names = [n for n, _ in model.named_parameters()]
+    for proj in ["self_attn_pool.W_Q.weight", "self_attn_pool.W_K.weight", "self_attn_pool.W_V.weight"]:
+        assert proj in param_names, f"Missing parameter: {proj}"
+    print("PASS: self_attn has W_Q, W_K, W_V parameters")
+
+
+def test_self_attn_no_fusion_module():
+    """self_attn should NOT build a fusion module (no h_mix/h_int split)."""
+    model, _ = _make_model("self_attn")
+    assert model.fuse is None, f"Expected fuse=None, got {model.fuse}"
+    assert model.pair_mlp is None, f"Expected pair_mlp=None, got {model.pair_mlp}"
+    assert model.pair_scorer is None, f"Expected pair_scorer=None, got {model.pair_scorer}"
+    assert model.monomer_scorer is None, f"Expected monomer_scorer=None, got {model.monomer_scorer}"
+    print("PASS: self_attn has no fusion/pairwise/scorer modules")
+
+
 if __name__ == "__main__":
     test_attention_weights_sum_to_one()
     test_frac_attn_weights_sum_to_one()
@@ -512,4 +619,12 @@ if __name__ == "__main__":
     test_gated_fusion_no_shape_mismatch()
     test_fusion_permutation_invariance_all_types()
     test_fusion_type_in_hparams()
+    # Self-attention tests
+    test_self_attn_output_dim()
+    test_self_attn_meta_output_dim()
+    test_self_attn_attention_weights_sum_to_one()
+    test_self_attn_changes_with_fractions()
+    test_self_attn_permutation_invariance()
+    test_self_attn_has_qkv_params()
+    test_self_attn_no_fusion_module()
     print("\n=== All sanity checks passed ===")
