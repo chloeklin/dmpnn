@@ -5,10 +5,14 @@ so it can be used with the same Trainer infrastructure.
 
 Architecture (matching the original HPG-GAT paper):
   1. HPGMessagePassing: stack of edge-aware GAT layers on the hierarchical graph
-  2. Sum-pooling over all nodes → graph-level embedding [B, d_h]
+  2. Polymer readout (sum-pooling or fraction-weighted pooling) → [B, d_h]
   3. Linear projection d_h → d_ffn
-  4. Optional concatenation of scalar features (X_d)
+  4. Optional concatenation of scalar features (X_d, e.g. polytype)
   5. FFN → prediction
+
+Variants (selected via ``pooling_type``):
+  - ``"sum"``          : sum over ALL nodes           (HPG_baseline)
+  - ``"frac_weighted"`` : Σ f_i · h_i over fragments  (HPG_frac / HPG_frac_polytype)
 """
 
 from __future__ import annotations
@@ -29,7 +33,9 @@ from chemprop.utils.registry import Factory
 
 logger = logging.getLogger(__name__)
 
-VALID_HPG_VARIANTS = ("HPG_baseline", "HPG_frac", "HPG_frac_polytype")
+
+# Valid pooling types for HPG polymer readout.
+VALID_POOLING_TYPES = ("sum", "frac_weighted")
 
 
 class HPGMPNN(pl.LightningModule):
@@ -55,6 +61,11 @@ class HPGMPNN(pl.LightningModule):
         Number of output targets.
     d_xd : int
         Dimension of extra scalar features (X_d). 0 if none.
+    pooling_type : str
+        Polymer readout strategy:
+        - ``"sum"``: sum over all nodes (original HPG_baseline).
+        - ``"frac_weighted"``: Σ f_i · h_i over fragment nodes only,
+          where f_i are monomer fractions from ``bmg.frag_fracs``.
     task_type : str
         ``"regression"`` or ``"classification"``.
     metrics : Iterable[ChempropMetric] | None
@@ -65,11 +76,6 @@ class HPGMPNN(pl.LightningModule):
         Learning rate warmup epochs.
     init_lr, max_lr, final_lr : float
         Learning rate schedule parameters.
-    hpg_variant : str
-        One of ``VALID_HPG_VARIANTS``:
-        - ``"HPG_baseline"``: sum-pool over all nodes (original HPG).
-        - ``"HPG_frac"``: fraction-weighted pool over fragment nodes.
-        - ``"HPG_frac_polytype"``: fraction-weighted pool + polytype via X_d.
     """
 
     def __init__(
@@ -83,6 +89,7 @@ class HPGMPNN(pl.LightningModule):
         dropout_ffn: float = 0.2,
         n_tasks: int = 1,
         d_xd: int = 0,
+        pooling_type: str = "sum",
         task_type: str = "regression",
         metrics: Iterable[ChempropMetric] | None = None,
         criterion: ChempropMetric | None = None,
@@ -90,35 +97,25 @@ class HPGMPNN(pl.LightningModule):
         init_lr: float = 1e-4,
         max_lr: float = 1e-3,
         final_lr: float = 1e-4,
-        hpg_variant: str = "HPG_baseline",
     ):
-        super().__init__()
-        if hpg_variant not in VALID_HPG_VARIANTS:
+        if pooling_type not in VALID_POOLING_TYPES:
             raise ValueError(
-                f"Unknown hpg_variant={hpg_variant!r}. "
-                f"Valid: {VALID_HPG_VARIANTS}"
+                f"Invalid pooling_type={pooling_type!r}. "
+                f"Choose from {VALID_POOLING_TYPES}"
             )
+        super().__init__()
         self.save_hyperparameters()
-        self.hpg_variant = hpg_variant
 
-        # ── 1. Encoder: GAT message passing ──
+        # Message passing
         self.message_passing = HPGMessagePassing(
             d_v=d_v, d_h=d_h, d_e=1, depth=depth,
             num_heads=num_heads, dropout=dropout_mp,
         )
 
-        # ── 2. Polymer pooling → linear projection ──
+        # Graph readout: project pooled embedding down
         self.linear_pool = nn.Linear(d_h, d_ffn)
 
-        # ── 3. Optional metadata concatenation ──
-        # d_xd covers any global scalars (e.g. polytype one-hot for
-        # HPG_frac_polytype, or legacy [fracA, fracB] for old HPG+incl_desc).
-        if d_xd > 0:
-            self.xd_transform = nn.Identity()
-        else:
-            self.xd_transform = None
-
-        # ── 4. Predictor: FFN ──
+        # FFN: pool_dim [+ xd_dim] → hidden → prediction
         ffn_in = d_ffn + d_xd
         self.ffn = nn.Sequential(
             nn.Linear(ffn_in, 512),
@@ -126,6 +123,12 @@ class HPGMPNN(pl.LightningModule):
             nn.Dropout(dropout_ffn),
             nn.Linear(512, n_tasks),
         )
+
+        # Scalar feature projection (optional)
+        if d_xd > 0:
+            self.xd_transform = nn.Identity()
+        else:
+            self.xd_transform = None
 
         # Loss and metrics
         self.task_type = task_type
@@ -164,69 +167,53 @@ class HPGMPNN(pl.LightningModule):
         return self._criterion
 
     # ------------------------------------------------------------------
-    #  Polymer-level pooling (modular – extend here for Phase 2)
+    #  Polymer readout helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _standard_pooling(H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
-        """Sum-pool over **all** nodes per graph (original HPG readout).
-
-        Parameters
-        ----------
-        H : Tensor [N, d_h]
-            Node embeddings after message passing.
-        bmg : BatchHPGMolGraph
-
-        Returns
-        -------
-        Tensor [B, d_h]
-        """
+    def _pool_sum(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
+        """Sum-pooling over ALL nodes per graph → [B, d_h]."""
         B = int(bmg.batch.max().item()) + 1 if bmg.batch.numel() else 1
         idx = bmg.batch.unsqueeze(-1).expand(-1, H.size(1))
         H_graph = torch.zeros(B, H.size(1), dtype=H.dtype, device=H.device)
         H_graph.scatter_add_(0, idx, H)
         return H_graph
 
-    @staticmethod
-    def _fraction_weighted_pooling(H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
-        """Fraction-weighted pool over **fragment nodes** only.
+    def _pool_frac_weighted(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
+        """Fraction-weighted pooling over **fragment** nodes only.
 
-        Computes  h_poly = sum_i  f_i * h_i'  per polymer, where h_i' are
-        the polymer-contextualized fragment (monomer) embeddings and f_i are
-        the corresponding monomer fractions.
+        Computes  h_poly = Σ_i  f_i · h_i  per polymer, where
+        h_i are fragment node embeddings and f_i are monomer fractions.
 
         Parameters
         ----------
         H : Tensor [N, d_h]
             Node embeddings after message passing (all nodes).
         bmg : BatchHPGMolGraph
-            Must have ``frag_fracs`` populated (shape [N_frag_total]).
+            Must have ``frag_fracs`` set (non-None).
 
         Returns
         -------
         Tensor [B, d_h]
         """
-        assert bmg.frag_fracs is not None, (
-            "frag_fracs must be provided for fraction-weighted pooling "
-            "(HPG_frac / HPG_frac_polytype)"
-        )
-        frag_fracs = bmg.frag_fracs  # [N_frag_total]
-
-        # Lightweight sanity checks (training-time only via assert)
-        assert (frag_fracs >= 0).all(), "Fractions must be non-negative"
+        if bmg.frag_fracs is None:
+            raise ValueError(
+                "frac_weighted pooling requires bmg.frag_fracs to be set. "
+                "Ensure fractions are provided in the HPGMolGraph."
+            )
 
         # Select fragment-node embeddings and their batch indices
-        H_frag = H[bmg.frag_mask]          # [N_frag_total, d_h]
-        batch_frag = bmg.batch[bmg.frag_mask]  # [N_frag_total]
+        frag_mask = bmg.frag_mask                  # [N] bool
+        H_frag = H[frag_mask]                      # [F_total, d_h]
+        frag_batch = bmg.batch[frag_mask]           # [F_total]
+        fracs = bmg.frag_fracs                      # [F_total]
 
-        # Weight each fragment embedding by its fraction
-        H_weighted = frag_fracs.unsqueeze(-1) * H_frag  # [N_frag_total, d_h]
+        # Weighted embeddings
+        weighted = H_frag * fracs.unsqueeze(-1)     # [F_total, d_h]
 
-        # Scatter-add per graph
         B = int(bmg.batch.max().item()) + 1 if bmg.batch.numel() else 1
-        H_graph = torch.zeros(B, H.size(1), dtype=H.dtype, device=H.device)
-        idx = batch_frag.unsqueeze(-1).expand_as(H_weighted)
-        H_graph.scatter_add_(0, idx, H_weighted)
+        idx = frag_batch.unsqueeze(-1).expand(-1, weighted.size(1))
+        H_graph = torch.zeros(B, weighted.size(1), dtype=weighted.dtype, device=weighted.device)
+        H_graph.scatter_add_(0, idx, weighted)
         return H_graph
 
     # ------------------------------------------------------------------
@@ -236,29 +223,21 @@ class HPGMPNN(pl.LightningModule):
     def fingerprint(self, bmg: BatchHPGMolGraph, X_d: Tensor | None = None) -> Tensor:
         """Compute graph-level fingerprint.
 
-        Pipeline:
-          1. Encoder  → node embeddings H  [N, d_h]
-          2. Pooling  → graph embedding    [B, d_h]
-          3. Project  → [B, d_ffn]
-          4. Concat X_d (polytype / legacy descriptors) if present
-
         Returns
         -------
         Tensor [B, d_ffn] or [B, d_ffn + d_xd]
         """
-        # ── 1. Encoder ──
         H = self.message_passing(bmg)  # [N, d_h]
 
-        # ── 2. Polymer pooling ──
-        if self.hpg_variant in ("HPG_frac", "HPG_frac_polytype"):
-            H_graph = self._fraction_weighted_pooling(H, bmg)
+        # --- Polymer readout ---
+        if self.hparams["pooling_type"] == "frac_weighted":
+            H_graph = self._pool_frac_weighted(H, bmg)
         else:
-            H_graph = self._standard_pooling(H, bmg)
+            H_graph = self._pool_sum(H, bmg)
 
-        # ── 3. Linear projection ──
         H_graph = F.leaky_relu(self.linear_pool(H_graph))  # [B, d_ffn]
 
-        # ── 4. Optional metadata concatenation ──
+        # --- Optional metadata concatenation (e.g. polytype) ---
         if X_d is not None and self.xd_transform is not None:
             X_d_t = self.xd_transform(X_d)
             H_graph = torch.cat([H_graph, X_d_t], dim=1)

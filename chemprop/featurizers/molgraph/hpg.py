@@ -120,6 +120,7 @@ class HPGMolGraphFeaturizer:
         self,
         fragment_smiles: list[str],
         connections: list[tuple[int, int, float]] | None = None,
+        frag_fracs: np.ndarray | None = None,
     ) -> HPGMolGraph:
         """Featurize a polymer into an HPGMolGraph.
 
@@ -130,6 +131,10 @@ class HPGMolGraphFeaturizer:
         connections : list[tuple[int, int, float]] | None
             Each entry is ``(src_frag_idx, dst_frag_idx, degree)``.
             If *None*, fragments are connected linearly with degree 1.0.
+        frag_fracs : np.ndarray | None
+            Monomer fractions ``[n_fragments]``, one per fragment.
+            Used for fraction-weighted pooling in HPG_frac variants.
+            If *None*, no fractions are stored in the graph.
 
         Returns
         -------
@@ -234,6 +239,7 @@ class HPGMolGraphFeaturizer:
             edge_index=edge_index,
             n_fragments=n_frags,
             n_atoms=n_atoms_total,
+            frag_fracs=frag_fracs,
         )
 
     # ------------------------------------------------------------------

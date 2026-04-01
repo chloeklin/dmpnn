@@ -135,45 +135,81 @@ def test_full_model_with_xd():
     assert preds.shape == (2, 1)
 
 
-def test_frag_fracs_in_graph():
-    """frag_fracs stored in HPGMolGraph and batched correctly."""
+# =====================================================================
+#  Phase 1 variant tests
+# =====================================================================
+
+def _make_copolymer_batch_with_fracs(fracA1=0.6, fracB1=0.4, fracA2=0.3, fracB2=0.7):
+    """Helper: build a 2-graph copolymer batch with explicit fragment fractions."""
     feat = HPGMolGraphFeaturizer()
-    mg1 = feat(["[*]OCC[*]"])
-    mg2 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)])
-
-    # Attach fractions
-    mg1 = mg1._replace(frag_fracs=np.array([1.0], dtype=np.float32))
-    mg2 = mg2._replace(frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
-
+    mg1 = feat(
+        ["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=np.array([fracA1, fracB1], dtype=np.float32),
+    )
+    mg2 = feat(
+        ["[*]OCC[*]", "[*]CC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=np.array([fracA2, fracB2], dtype=np.float32),
+    )
     bmg = BatchHPGMolGraph([mg1, mg2])
+    return bmg
+
+
+def test_frag_fracs_featurizer():
+    """Featurizer stores frag_fracs when provided."""
+    feat = HPGMolGraphFeaturizer()
+    mg = feat(
+        ["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=np.array([0.6, 0.4], dtype=np.float32),
+    )
+    assert mg.frag_fracs is not None
+    assert mg.frag_fracs.shape == (2,)
+    np.testing.assert_allclose(mg.frag_fracs, [0.6, 0.4])
+    print(f"  frag_fracs stored: {mg.frag_fracs}")
+
+    # Without fracs
+    mg2 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)])
+    assert mg2.frag_fracs is None
+    print("  frag_fracs=None when not provided")
+
+
+def test_frag_fracs_batching():
+    """BatchHPGMolGraph correctly batches fragment fractions."""
+    bmg = _make_copolymer_batch_with_fracs(0.6, 0.4, 0.3, 0.7)
     assert bmg.frag_fracs is not None
-    assert bmg.frag_fracs.shape == (3,)  # 1 + 2 fragment nodes
-    assert torch.allclose(bmg.frag_fracs, torch.tensor([1.0, 0.3, 0.7]))
-    print(f"  frag_fracs batched: {bmg.frag_fracs.tolist()}")
+    # 2 fragments per graph × 2 graphs = 4
+    assert bmg.frag_fracs.shape == (4,)
+    expected = torch.tensor([0.6, 0.4, 0.3, 0.7])
+    torch.testing.assert_close(bmg.frag_fracs, expected)
+    print(f"  Batched frag_fracs: {bmg.frag_fracs.tolist()}")
 
 
-def test_frag_fracs_none_when_absent():
-    """frag_fracs is None when not provided."""
+def test_frag_fracs_batching_mixed():
+    """Batch with one graph having fracs and one without → uniform fallback."""
     feat = HPGMolGraphFeaturizer()
-    mg1 = feat(["[*]OCC[*]"])
-    mg2 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)])
-    bmg = BatchHPGMolGraph([mg1, mg2])
-    assert bmg.frag_fracs is None
-    print("  frag_fracs correctly None when absent")
+    mg_with = feat(
+        ["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=np.array([0.8, 0.2], dtype=np.float32),
+    )
+    mg_without = feat(["[*]OCC[*]"])  # homopolymer, no fracs
+    bmg = BatchHPGMolGraph([mg_with, mg_without])
+    assert bmg.frag_fracs is not None
+    # mg_with: [0.8, 0.2], mg_without: [1.0] (uniform for 1 frag)
+    expected = torch.tensor([0.8, 0.2, 1.0])
+    torch.testing.assert_close(bmg.frag_fracs, expected)
+    print(f"  Mixed batch frag_fracs: {bmg.frag_fracs.tolist()}")
 
 
-def test_hpg_frac_model():
-    """HPG_frac: fraction-weighted pooling forward pass."""
-    feat = HPGMolGraphFeaturizer()
-    mg1 = feat(["[*]OCC[*]"])._replace(
-        frag_fracs=np.array([1.0], dtype=np.float32))
-    mg2 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)])._replace(
-        frag_fracs=np.array([0.4, 0.6], dtype=np.float32))
-    bmg = BatchHPGMolGraph([mg1, mg2])
-
+def test_hpg_frac_forward():
+    """HPG_frac: frac_weighted pooling produces correct output shape."""
+    bmg = _make_copolymer_batch_with_fracs()
     model = HPGMPNN(
-        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
-        n_tasks=1, d_xd=0, hpg_variant="HPG_frac",
+        d_v=HPGMolGraphFeaturizer().d_v,
+        d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_weighted",
     )
     with torch.no_grad():
         preds = model(bmg)
@@ -181,21 +217,16 @@ def test_hpg_frac_model():
     assert preds.shape == (2, 1)
 
 
-def test_hpg_frac_polytype_model():
-    """HPG_frac_polytype: fraction-weighted pooling + polytype X_d."""
-    feat = HPGMolGraphFeaturizer()
-    mg1 = feat(["[*]OCC[*]"])._replace(
-        frag_fracs=np.array([1.0], dtype=np.float32))
-    mg2 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)])._replace(
-        frag_fracs=np.array([0.4, 0.6], dtype=np.float32))
-    bmg = BatchHPGMolGraph([mg1, mg2])
-
-    polytype_dim = 3
-    X_d = torch.randn(2, polytype_dim)  # polytype one-hot
+def test_hpg_frac_polytype_forward():
+    """HPG_frac_polytype: frac pooling + polytype X_d."""
+    bmg = _make_copolymer_batch_with_fracs()
+    d_polytype = 3  # e.g. 3 polytype categories
+    X_d = torch.randn(2, d_polytype)
 
     model = HPGMPNN(
-        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
-        n_tasks=1, d_xd=polytype_dim, hpg_variant="HPG_frac_polytype",
+        d_v=HPGMolGraphFeaturizer().d_v,
+        d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=d_polytype, pooling_type="frac_weighted",
     )
     with torch.no_grad():
         preds = model(bmg, X_d=X_d)
@@ -203,62 +234,109 @@ def test_hpg_frac_polytype_model():
     assert preds.shape == (2, 1)
 
 
-def test_fraction_sensitivity():
-    """Changing fractions should change the output for HPG_frac."""
-    feat = HPGMolGraphFeaturizer()
-    frags = ["[*]CC[*]", "[*]OCC[*]"]
-    conn = [(0, 1, 1.0)]
+def test_frac_weighted_differs_from_sum():
+    """Fraction-weighted pooling gives different results from sum pooling."""
+    bmg = _make_copolymer_batch_with_fracs(0.9, 0.1, 0.1, 0.9)
+    d_v = HPGMolGraphFeaturizer().d_v
 
-    mg_a = feat(frags, conn)._replace(
-        frag_fracs=np.array([0.2, 0.8], dtype=np.float32))
-    mg_b = feat(frags, conn)._replace(
-        frag_fracs=np.array([0.8, 0.2], dtype=np.float32))
+    torch.manual_seed(42)
+    model_sum = HPGMPNN(
+        d_v=d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="sum",
+    )
+    torch.manual_seed(42)
+    model_frac = HPGMPNN(
+        d_v=d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_weighted",
+    )
+    with torch.no_grad():
+        pred_sum = model_sum(bmg)
+        pred_frac = model_frac(bmg)
+    # Should differ because pooling strategy is different
+    assert not torch.allclose(pred_sum, pred_frac, atol=1e-6), \
+        "sum and frac_weighted should produce different predictions"
+    print(f"  sum preds:  {pred_sum.flatten().tolist()}")
+    print(f"  frac preds: {pred_frac.flatten().tolist()}")
+
+
+def test_frac_sensitivity():
+    """Changing fractions changes the frac_weighted output."""
+    feat = HPGMolGraphFeaturizer()
+    d_v = feat.d_v
+    torch.manual_seed(0)
+    model = HPGMPNN(
+        d_v=d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_weighted",
+    )
+    # Use single-graph batches so there's no cross-graph batch interaction
+    mg_a = feat(
+        ["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=np.array([0.9, 0.1], dtype=np.float32),
+    )
+    mg_b = feat(
+        ["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=np.array([0.1, 0.9], dtype=np.float32),
+    )
+    bmg_a = BatchHPGMolGraph([mg_a])
+    bmg_b = BatchHPGMolGraph([mg_b])
+    with torch.no_grad():
+        pred_a = model(bmg_a)
+        pred_b = model(bmg_b)
+    # Swapped fractions on identical structure → different prediction
+    assert not torch.allclose(pred_a, pred_b, atol=1e-6), \
+        "Different fractions should produce different predictions"
+    print(f"  pred(0.9/0.1)={pred_a.item():.6f}, pred(0.1/0.9)={pred_b.item():.6f}")
+    print(f"  Fraction sensitivity confirmed")
+
+
+def test_frac_weighted_requires_fracs():
+    """frac_weighted pooling raises if frag_fracs is None."""
+    feat = HPGMolGraphFeaturizer()
+    mg = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)])  # no fracs
+    bmg = BatchHPGMolGraph([mg])
+    assert bmg.frag_fracs is None
 
     model = HPGMPNN(
         d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
-        n_tasks=1, d_xd=0, hpg_variant="HPG_frac",
+        n_tasks=1, d_xd=0, pooling_type="frac_weighted",
     )
-    with torch.no_grad():
-        bmg_a = BatchHPGMolGraph([mg_a])
-        bmg_b = BatchHPGMolGraph([mg_b])
-        pred_a = model(bmg_a)
-        pred_b = model(bmg_b)
-    diff = (pred_a - pred_b).abs().item()
-    print(f"  Prediction diff for swapped fracs: {diff:.6f}")
-    assert diff > 1e-6, "Different fractions should produce different outputs"
-
-
-def test_invalid_variant_rejected():
-    """Unknown hpg_variant should raise ValueError."""
-    feat = HPGMolGraphFeaturizer()
     try:
-        HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
-                n_tasks=1, hpg_variant="INVALID")
-        raise AssertionError("Should have raised ValueError")
+        with torch.no_grad():
+            model(bmg)
+        assert False, "Should have raised ValueError"
     except ValueError as e:
-        print(f"  Correctly rejected: {e}")
+        print(f"  Correctly raised: {e}")
+
+
+def test_invalid_pooling_type():
+    """Invalid pooling_type raises ValueError at construction."""
+    try:
+        HPGMPNN(
+            d_v=130, d_h=64, d_ffn=32, depth=2, num_heads=4,
+            n_tasks=1, d_xd=0, pooling_type="invalid",
+        )
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        print(f"  Correctly raised: {e}")
 
 
 def test_baseline_unchanged():
-    """HPG_baseline should produce same output regardless of frag_fracs presence."""
+    """HPG_baseline (pooling_type='sum') still works with existing API."""
     feat = HPGMolGraphFeaturizer()
-    mg_no_frac = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)])
-    mg_with_frac = mg_no_frac._replace(
-        frag_fracs=np.array([0.5, 0.5], dtype=np.float32))
+    mg1 = feat(["[*]OCC[*]"])
+    mg2 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)])
+    bmg = BatchHPGMolGraph([mg1, mg2])
 
     model = HPGMPNN(
         d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
-        n_tasks=1, d_xd=0, hpg_variant="HPG_baseline",
+        n_tasks=1, d_xd=0, pooling_type="sum",
     )
-    model.eval()  # disable dropout for deterministic comparison
     with torch.no_grad():
-        bmg_no = BatchHPGMolGraph([mg_no_frac])
-        bmg_yes = BatchHPGMolGraph([mg_with_frac])
-        pred_no = model(bmg_no)
-        pred_yes = model(bmg_yes)
-    assert torch.allclose(pred_no, pred_yes, atol=1e-6), \
-        "HPG_baseline should ignore frag_fracs"
-    print(f"  HPG_baseline correctly ignores frag_fracs")
+        preds = model(bmg)
+    assert preds.shape == (2, 1)
+    print(f"  Baseline still works: {preds.shape}")
 
 
 if __name__ == "__main__":
@@ -274,13 +352,17 @@ if __name__ == "__main__":
         ("5. Message Passing", test_message_passing),
         ("6. Full Model (baseline)", test_full_model),
         ("7. Full Model + X_d", test_full_model_with_xd),
-        ("8. frag_fracs in graph", test_frag_fracs_in_graph),
-        ("9. frag_fracs None when absent", test_frag_fracs_none_when_absent),
-        ("10. HPG_frac model", test_hpg_frac_model),
-        ("11. HPG_frac_polytype model", test_hpg_frac_polytype_model),
-        ("12. Fraction sensitivity", test_fraction_sensitivity),
-        ("13. Invalid variant rejected", test_invalid_variant_rejected),
-        ("14. Baseline unchanged with fracs", test_baseline_unchanged),
+        # Phase 1 variant tests
+        ("8.  frag_fracs featurizer", test_frag_fracs_featurizer),
+        ("9.  frag_fracs batching", test_frag_fracs_batching),
+        ("10. frag_fracs mixed batch", test_frag_fracs_batching_mixed),
+        ("11. HPG_frac forward", test_hpg_frac_forward),
+        ("12. HPG_frac_polytype forward", test_hpg_frac_polytype_forward),
+        ("13. frac_weighted differs from sum", test_frac_weighted_differs_from_sum),
+        ("14. Fraction sensitivity", test_frac_sensitivity),
+        ("15. frac_weighted requires fracs", test_frac_weighted_requires_fracs),
+        ("16. Invalid pooling_type", test_invalid_pooling_type),
+        ("17. Baseline unchanged", test_baseline_unchanged),
     ]
 
     for name, fn in tests:

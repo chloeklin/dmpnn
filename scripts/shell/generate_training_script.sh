@@ -166,6 +166,7 @@ fi
 [ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
 [ -n "$FUSION_TYPE" ]        && ARGS="$ARGS --fusion_type $FUSION_TYPE"
 [ -n "$SPLIT_TYPE" ]         && ARGS="$ARGS --split_type $SPLIT_TYPE"
+[ -n "$HPG_VARIANT" ]        && ARGS="$ARGS --hpg_variant $HPG_VARIANT"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
 if [ -n "$TARGETS" ]; then
   # Split comma-separated targets and quote each individually (handles spaces/parens)
@@ -186,7 +187,6 @@ if [ "$MODEL" != "tabular" ]; then
   [ -n "$AUX_TASK" ]           && ARGS="$ARGS --aux_task $AUX_TASK"
   [ -n "$AUX_DESCRIPTOR_COLS" ] && ARGS="$ARGS --aux_descriptor_cols $AUX_DESCRIPTOR_COLS"
   [ -n "$LAMBDA_AUX" ]         && ARGS="$ARGS --lambda_aux $LAMBDA_AUX"
-  [ -n "$HPG_VARIANT" ]        && ARGS="$ARGS --hpg_variant $HPG_VARIANT"
 fi
 
 # Filename/jobname suffix
@@ -208,7 +208,7 @@ SUFFIX="_${MODEL}"
 [ -n "$AUX_TASK" ]         && SUFFIX="${SUFFIX}_${AUX_TASK}"
 [ -n "$LAMBDA_AUX" ]       && SUFFIX="${SUFFIX}_la${LAMBDA_AUX}"
 [ -n "$SPLIT_TYPE" ]       && SUFFIX="${SUFFIX}_${SPLIT_TYPE}"
-[ -n "$HPG_VARIANT" ]      && SUFFIX="${SUFFIX}_${HPG_VARIANT}"
+[ -n "$HPG_VARIANT" ] && [ "$HPG_VARIANT" != "baseline" ] && SUFFIX="${SUFFIX}_hpg_${HPG_VARIANT}"
 [ -n "$IDENTITY_MODE" ]    && SUFFIX="${SUFFIX}_${IDENTITY_MODE}"
 [ -n "$EMBED_DIM" ]        && SUFFIX="${SUFFIX}_ed${EMBED_DIM}"
 # Sanitize target name for PBS job name compatibility (alphanumeric, dash, underscore only)

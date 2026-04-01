@@ -970,42 +970,25 @@ experiments:
   #   targets: *eaip_targets
 
 
-  # -- HPG baseline (legacy — already run, results renamed to include HPG_baseline) --
-  # HPG_baseline                        : graph only, no X_d
-  # HPG_baseline + incl_desc            : X_d = [fracA, fracB]
-  # HPG_baseline + incl_desc+poly_type  : X_d = [fracA, fracB, poly_type_one_hot]
+  # -- HPG (hierarchical polymer graph — no copolymer_mode needed) --
+  # HPG                        : graph only, no X_d
+  # HPG + incl_desc            : X_d = [fracA, fracB]
+  # HPG + incl_desc+poly_type  : X_d = [fracA, fracB, poly_type_one_hot]
   # - <<: *eaip_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   incl_desc: true
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   incl_desc: true
   #   incl_poly_type: true
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
-
-  # -- HPG Phase 1 variants (random split) --
-  # HPG_frac         : fraction-weighted pooling over fragment nodes
-  # HPG_frac_polytype: fraction-weighted pooling + polytype concatenated after polymer embedding
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: HPG_frac
-    walltime: "3:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: HPG_frac_polytype
-    walltime: "3:00:00"
-    targets: *eaip_targets
 
   # # -- Identity Baseline --
   # - <<: *eaip_base
@@ -1474,31 +1457,31 @@ experiments:
   # ═══════════════════════════════════════════════════════════════════
 
   # -- DMPNN + self_attn (a_held_out) --
-  # - <<: *eaip_base
-  #   model: DMPNN
-  #   copolymer_mode: self_attn
-  #   incl_poly_type: true
-  #   split_type: a_held_out
-  #   walltime: "5:30:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: self_attn
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
 
   # -- GIN + self_attn (a_held_out) --
-  # - <<: *eaip_base
-  #   model: GIN
-  #   copolymer_mode: self_attn
-  #   incl_poly_type: true
-  #   split_type: a_held_out
-  #   walltime: "5:30:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: GIN
+    copolymer_mode: self_attn
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
 
   # -- GAT + self_attn (a_held_out) --
-  # - <<: *eaip_base
-  #   model: GAT
-  #   copolymer_mode: self_attn
-  #   incl_poly_type: true
-  #   split_type: a_held_out
-  #   walltime: "5:30:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: GAT
+    copolymer_mode: self_attn
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
 
   # -- wDMPNN --
   # - <<: *eaip_base
@@ -1507,42 +1490,25 @@ experiments:
   #   walltime: "00:30:00"
   #   targets: *eaip_targets
 
-  # -- HPG baseline (a_held_out — legacy, already run) --
+  # -- HPG (a_held_out) --
   # - <<: *eaip_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   split_type: a_held_out
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   incl_desc: true
   #   split_type: a_held_out
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
   # - <<: *eaip_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   incl_desc: true
   #   incl_poly_type: true
   #   split_type: a_held_out
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
-
-  # -- HPG Phase 1 variants (a_held_out) --
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: HPG_frac
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: HPG_frac_polytype
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
 
   # -- Identity Baseline --
   # - <<: *eaip_base
@@ -1805,51 +1771,32 @@ experiments:
   #   walltime: "0:30:00"
   #   targets: *block_targets
 
-  # -- HPG baseline (legacy — already run, results renamed) --
-  # HPG_baseline           : graph only, no X_d
-  # HPG_baseline + incl_desc : X_d = [fracA, fracB, Mn]
+  # -- HPG (hierarchical polymer graph — no copolymer_mode needed) --
+  # HPG                : graph only, no X_d
+  # HPG + incl_desc    : X_d = [fracA, fracB, Mn]
   # (block has no poly_type column)
   # ---- random split ----
   # - <<: *block_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   walltime: "3:00:00"
   #   targets: *block_targets
   # - <<: *block_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   incl_desc: true
   #   walltime: "3:00:00"
   #   targets: *block_targets
   # ---- a_held_out split ----
   # - <<: *block_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   split_type: a_held_out
   #   walltime: "3:00:00"
   #   targets: *block_targets
   # - <<: *block_base
   #   model: HPG
-  #   hpg_variant: HPG_baseline
   #   incl_desc: true
   #   split_type: a_held_out
   #   walltime: "3:00:00"
   #   targets: *block_targets
-
-  # -- HPG Phase 1 variants (block has no poly_type, so only HPG_frac) --
-  # ---- random split ----
-  - <<: *block_base
-    model: HPG
-    hpg_variant: HPG_frac
-    walltime: "3:00:00"
-    targets: *block_targets
-  # ---- a_held_out split ----
-  - <<: *block_base
-    model: HPG
-    hpg_variant: HPG_frac
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *block_targets
 
   # -- Identity Baseline --
   # - <<: *block_base

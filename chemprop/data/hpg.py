@@ -39,8 +39,7 @@ class HPGMolGraph(NamedTuple):
     """Number of atom-level nodes."""
 
     frag_fracs: np.ndarray | None = None
-    """Per-fragment monomer fractions [n_fragments].  Optional; used by
-    HPG_frac / HPG_frac_polytype variants for fraction-weighted pooling."""
+    """Optional monomer fractions [n_fragments].  Used for fraction-weighted pooling."""
 
 
 @dataclass(repr=False, eq=False, slots=True)
@@ -56,11 +55,8 @@ class BatchHPGMolGraph:
     """Graph index for each node."""
     frag_mask: Tensor = field(init=False)
     """Boolean mask: True for fragment nodes, False for atom nodes."""
-
-    frag_fracs: Tensor | None = field(init=False, default=None)
-    """Per-fragment monomer fractions aligned with frag_mask.
-    Shape [N_frag_total] where N_frag_total = frag_mask.sum().
-    None when fractions are not used (HPG_baseline)."""
+    frag_fracs: Tensor | None = field(init=False)
+    """Per-fragment monomer fractions [num_frag_nodes_total] or None."""
 
     __size: int = field(init=False)
 
@@ -73,6 +69,7 @@ class BatchHPGMolGraph:
             self.edge_index = torch.empty((2, 0), dtype=torch.long)
             self.batch = torch.empty((0,), dtype=torch.long)
             self.frag_mask = torch.empty((0,), dtype=torch.bool)
+            self.frag_fracs = None
             return
 
         Vs, Es, edge_indexes, batch_indexes, frag_masks = [], [], [], [], []
@@ -98,10 +95,18 @@ class BatchHPGMolGraph:
         self.batch = torch.from_numpy(np.concatenate(batch_indexes)).long()
         self.frag_mask = torch.from_numpy(np.concatenate(frag_masks)).bool()
 
-        # Batch per-fragment fractions (if any graph provides them)
-        if mgs[0].frag_fracs is not None:
-            frac_parts = [np.asarray(mg.frag_fracs, dtype=np.float32) for mg in mgs]
-            self.frag_fracs = torch.from_numpy(np.concatenate(frac_parts)).float()
+        # Batch fragment fractions (only if at least one graph provides them)
+        if any(mg.frag_fracs is not None for mg in mgs):
+            ff_list = []
+            for mg in mgs:
+                if mg.frag_fracs is not None:
+                    ff_list.append(np.asarray(mg.frag_fracs, dtype=np.float32))
+                else:
+                    # Default: uniform fractions for graphs without explicit fracs
+                    ff_list.append(
+                        np.ones(mg.n_fragments, dtype=np.float32) / max(mg.n_fragments, 1)
+                    )
+            self.frag_fracs = torch.from_numpy(np.concatenate(ff_list)).float()
         else:
             self.frag_fracs = None
 
