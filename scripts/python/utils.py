@@ -270,8 +270,9 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
     if polymer_type == 'copolymer':
         if model_name in ['HPG', 'wDMPNN']:
             # HPG and wDMPNN don't use copolymer modes
-            # wDMPNN reads directly from WDMPNN_Input column
-            pass
+            hpg_var = getattr(args, 'hpg_variant', 'HPG_baseline')
+            if model_name == 'HPG' and hpg_var != 'HPG_baseline':
+                filename_parts.append(hpg_var)
         else:
             copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
             filename_parts.append(f"copoly_{copolymer_mode}")
@@ -1943,7 +1944,9 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
         if model_name in ['HPG', 'wDMPNN']:
             # HPG and wDMPNN don't use copolymer modes
             # wDMPNN reads directly from WDMPNN_Input column
-            copoly_suffix = poly_type_sfx
+            hpg_var = getattr(args, 'hpg_variant', 'HPG_baseline')
+            hpg_var_sfx = f"__{hpg_var}" if model_name == 'HPG' and hpg_var != 'HPG_baseline' else ""
+            copoly_suffix = f"{hpg_var_sfx}{poly_type_sfx}"
         else:
             copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
             # Include fusion_type in filename for pairwise modes

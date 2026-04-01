@@ -38,6 +38,10 @@ class HPGMolGraph(NamedTuple):
     n_atoms: int
     """Number of atom-level nodes."""
 
+    frag_fracs: np.ndarray | None = None
+    """Per-fragment monomer fractions [n_fragments].  Optional; used by
+    HPG_frac / HPG_frac_polytype variants for fraction-weighted pooling."""
+
 
 @dataclass(repr=False, eq=False, slots=True)
 class BatchHPGMolGraph:
@@ -52,6 +56,11 @@ class BatchHPGMolGraph:
     """Graph index for each node."""
     frag_mask: Tensor = field(init=False)
     """Boolean mask: True for fragment nodes, False for atom nodes."""
+
+    frag_fracs: Tensor | None = field(init=False, default=None)
+    """Per-fragment monomer fractions aligned with frag_mask.
+    Shape [N_frag_total] where N_frag_total = frag_mask.sum().
+    None when fractions are not used (HPG_baseline)."""
 
     __size: int = field(init=False)
 
@@ -89,6 +98,13 @@ class BatchHPGMolGraph:
         self.batch = torch.from_numpy(np.concatenate(batch_indexes)).long()
         self.frag_mask = torch.from_numpy(np.concatenate(frag_masks)).bool()
 
+        # Batch per-fragment fractions (if any graph provides them)
+        if mgs[0].frag_fracs is not None:
+            frac_parts = [np.asarray(mg.frag_fracs, dtype=np.float32) for mg in mgs]
+            self.frag_fracs = torch.from_numpy(np.concatenate(frac_parts)).float()
+        else:
+            self.frag_fracs = None
+
     def __len__(self) -> int:
         return self.__size
 
@@ -98,6 +114,8 @@ class BatchHPGMolGraph:
         self.edge_index = self.edge_index.to(device)
         self.batch = self.batch.to(device)
         self.frag_mask = self.frag_mask.to(device)
+        if self.frag_fracs is not None:
+            self.frag_fracs = self.frag_fracs.to(device)
 
 
 # ---------------------------------------------------------------------------

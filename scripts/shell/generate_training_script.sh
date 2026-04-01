@@ -70,6 +70,7 @@ AUX_TASK=""
 AUX_DESCRIPTOR_COLS=""
 LAMBDA_AUX=""
 SPLIT_TYPE=""
+HPG_VARIANT=""
 
 # Validate model
 case $MODEL in
@@ -109,6 +110,7 @@ for arg in "${@:4}"; do
     aux_descriptor_cols=*) AUX_DESCRIPTOR_COLS="${arg#aux_descriptor_cols=}" ;;
     lambda_aux=*)       LAMBDA_AUX="${arg#lambda_aux=}" ;;
     split_type=*)       SPLIT_TYPE="${arg#split_type=}" ;;
+    hpg_variant=*)      HPG_VARIANT="${arg#hpg_variant=}" ;;
     *)
       echo "Warning: Unknown argument '$arg' ignored"
       ;;
@@ -184,6 +186,7 @@ if [ "$MODEL" != "tabular" ]; then
   [ -n "$AUX_TASK" ]           && ARGS="$ARGS --aux_task $AUX_TASK"
   [ -n "$AUX_DESCRIPTOR_COLS" ] && ARGS="$ARGS --aux_descriptor_cols $AUX_DESCRIPTOR_COLS"
   [ -n "$LAMBDA_AUX" ]         && ARGS="$ARGS --lambda_aux $LAMBDA_AUX"
+  [ -n "$HPG_VARIANT" ]        && ARGS="$ARGS --hpg_variant $HPG_VARIANT"
 fi
 
 # Filename/jobname suffix
@@ -205,6 +208,7 @@ SUFFIX="_${MODEL}"
 [ -n "$AUX_TASK" ]         && SUFFIX="${SUFFIX}_${AUX_TASK}"
 [ -n "$LAMBDA_AUX" ]       && SUFFIX="${SUFFIX}_la${LAMBDA_AUX}"
 [ -n "$SPLIT_TYPE" ]       && SUFFIX="${SUFFIX}_${SPLIT_TYPE}"
+[ -n "$HPG_VARIANT" ]      && SUFFIX="${SUFFIX}_${HPG_VARIANT}"
 [ -n "$IDENTITY_MODE" ]    && SUFFIX="${SUFFIX}_${IDENTITY_MODE}"
 [ -n "$EMBED_DIM" ]        && SUFFIX="${SUFFIX}_ed${EMBED_DIM}"
 # Sanitize target name for PBS job name compatibility (alphanumeric, dash, underscore only)

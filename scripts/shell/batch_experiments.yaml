@@ -990,6 +990,20 @@ experiments:
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
 
+  # -- HPG Phase 1 variants (random split) --
+  # HPG_frac         : fraction-weighted pooling over fragment nodes
+  # HPG_frac_polytype: fraction-weighted pooling + polytype concatenated after polymer embedding
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: HPG_frac
+    walltime: "3:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: HPG_frac_polytype
+    walltime: "3:00:00"
+    targets: *eaip_targets
+
   # # -- Identity Baseline --
   # - <<: *eaip_base
   #   model: identity_baseline
@@ -1509,6 +1523,20 @@ experiments:
   #   split_type: a_held_out
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
+
+  # -- HPG Phase 1 variants (a_held_out) --
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: HPG_frac
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: HPG_frac_polytype
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
 
   # -- Identity Baseline --
   # - <<: *eaip_base

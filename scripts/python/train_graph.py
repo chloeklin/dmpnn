@@ -307,10 +307,12 @@ if args.model_name == "HPG":
 
     hpg_featurizer = HPGMolGraphFeaturizer()
     is_copolymer = (args.polymer_type == "copolymer")
+    hpg_variant = getattr(args, "hpg_variant", "HPG_baseline")
 
     logger.info(f"\n=== HPG Training ===")
     logger.info(f"Dataset          : {args.dataset_name}")
     logger.info(f"Polymer type     : {args.polymer_type}")
+    logger.info(f"HPG variant      : {hpg_variant}")
     logger.info(f"Target columns   : {target_columns}")
     logger.info(f"incl_desc        : {args.incl_desc}")
     logger.info(f"incl_poly_type   : {getattr(args, 'incl_poly_type', False)}")
@@ -335,38 +337,57 @@ if args.model_name == "HPG":
     else:
         smis_homo = df_input[smiles_column].astype(str).tolist()
 
-    # ── Descriptors ──
-    # HPG variants:
-    #   HPG              : no X_d
-    #   HPG + incl_desc  : X_d = [fracA, fracB] + config descriptors (e.g. Mn)
-    #   HPG + incl_desc + incl_poly_type : above + poly_type one-hot
-    combined_descriptor_data_hpg = None
-    hpg_desc_parts = []
-    if args.incl_desc:
-        # Include fracA/fracB as scalar features for copolymers
-        if is_copolymer and "fracA" in df_input.columns and "fracB" in df_input.columns:
-            frac_data = df_input[["fracA", "fracB"]].values.astype(np.float32)
-            hpg_desc_parts.append(frac_data)
-            logger.info("HPG + incl_desc: including fracA, fracB as scalar descriptors")
-        # Include config-defined descriptors (e.g. Mn for block)
-        if descriptor_columns:
-            hpg_desc_parts.append(df_input[descriptor_columns].values.astype(np.float32))
-            logger.info(f"HPG + incl_desc: including {len(descriptor_columns)} config descriptors: {descriptor_columns}")
-    if hpg_desc_parts:
-        combined_descriptor_data_hpg = np.hstack(hpg_desc_parts)
+    # ── Descriptors / fractions / polytype ──
+    # Wiring depends on hpg_variant:
+    #   HPG_baseline     : legacy behavior — fracs and polytype go into X_d
+    #                      via incl_desc / incl_poly_type flags.
+    #   HPG_frac         : fracs → graph (frag_fracs), X_d = None.
+    #   HPG_frac_polytype: fracs → graph (frag_fracs), X_d = polytype one-hot.
+    use_frac_pooling = hpg_variant in ("HPG_frac", "HPG_frac_polytype")
 
-    # ── poly_type one-hot ──
-    if getattr(args, 'incl_poly_type', False) and 'poly_type' in df_input.columns:
-        _POLY_CATS = sorted(df_input['poly_type'].dropna().astype(str).unique().tolist())
-        _poly_oh = (
-            pd.get_dummies(df_input['poly_type'].astype(str))
-            .reindex(columns=_POLY_CATS, fill_value=0)
-            .values.astype(np.float32)
-        )
-        if combined_descriptor_data_hpg is not None:
-            combined_descriptor_data_hpg = np.hstack([combined_descriptor_data_hpg, _poly_oh])
-        else:
-            combined_descriptor_data_hpg = _poly_oh
+    combined_descriptor_data_hpg = None
+    polytype_oh = None  # computed once, reused below
+
+    if use_frac_pooling:
+        # ── Phase 1 variants: fracs in graph, polytype (if any) in X_d ──
+        logger.info(f"HPG variant={hpg_variant}: fractions used in pooling (not X_d)")
+        if hpg_variant == "HPG_frac_polytype":
+            if 'poly_type' not in df_input.columns:
+                raise ValueError("HPG_frac_polytype requires 'poly_type' column")
+            _POLY_CATS = sorted(df_input['poly_type'].dropna().astype(str).unique().tolist())
+            polytype_oh = (
+                pd.get_dummies(df_input['poly_type'].astype(str))
+                .reindex(columns=_POLY_CATS, fill_value=0)
+                .values.astype(np.float32)
+            )
+            combined_descriptor_data_hpg = polytype_oh
+            logger.info(f"HPG_frac_polytype: X_d = polytype one-hot ({polytype_oh.shape[1]} dims)")
+    else:
+        # ── HPG_baseline: legacy descriptor wiring ──
+        hpg_desc_parts = []
+        if args.incl_desc:
+            if is_copolymer and "fracA" in df_input.columns and "fracB" in df_input.columns:
+                frac_data = df_input[["fracA", "fracB"]].values.astype(np.float32)
+                hpg_desc_parts.append(frac_data)
+                logger.info("HPG + incl_desc: including fracA, fracB as scalar descriptors")
+            if descriptor_columns:
+                hpg_desc_parts.append(df_input[descriptor_columns].values.astype(np.float32))
+                logger.info(f"HPG + incl_desc: including {len(descriptor_columns)} config descriptors: {descriptor_columns}")
+        if hpg_desc_parts:
+            combined_descriptor_data_hpg = np.hstack(hpg_desc_parts)
+
+        # ── poly_type one-hot (legacy path) ──
+        if getattr(args, 'incl_poly_type', False) and 'poly_type' in df_input.columns:
+            _POLY_CATS = sorted(df_input['poly_type'].dropna().astype(str).unique().tolist())
+            polytype_oh = (
+                pd.get_dummies(df_input['poly_type'].astype(str))
+                .reindex(columns=_POLY_CATS, fill_value=0)
+                .values.astype(np.float32)
+            )
+            if combined_descriptor_data_hpg is not None:
+                combined_descriptor_data_hpg = np.hstack([combined_descriptor_data_hpg, polytype_oh])
+            else:
+                combined_descriptor_data_hpg = polytype_oh
 
     # ── Featurize all samples into HPGMolGraph objects ──
     hpg_graphs = []
@@ -379,8 +400,15 @@ if args.model_name == "HPG":
                 # Directed edge: fragment 0 → fragment 1 with degree 1.0
                 connections = [(0, 1, 1.0)]
                 mg = hpg_featurizer(frag_smiles, connections)
+                # Attach per-fragment fractions for HPG_frac / HPG_frac_polytype
+                if use_frac_pooling:
+                    ffracs = np.array([fracA_arr[idx], fracB_arr[idx]], dtype=np.float32)
+                    mg = mg._replace(frag_fracs=ffracs)
             else:
                 mg = hpg_featurizer([smis_homo[idx]])
+                # Homopolymer with frac pooling: single fragment, fraction = 1.0
+                if use_frac_pooling:
+                    mg = mg._replace(frag_fracs=np.array([1.0], dtype=np.float32))
             hpg_graphs.append(mg)
         except Exception as e:
             logger.warning(f"HPG featurizer failed for sample {idx}: {e}")
@@ -505,6 +533,7 @@ if args.model_name == "HPG":
                 task_type="regression" if args.task_type == "reg" else "classification",
                 metrics=metric_list or [],
                 criterion=None,
+                hpg_variant=hpg_variant,
             )
 
             # ── Output transform for regression (unscale predictions) ──

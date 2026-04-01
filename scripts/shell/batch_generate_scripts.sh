@@ -255,6 +255,11 @@ try:
         if split_type:
             args.append(f'split_type={split_type}')
         
+        # Add hpg_variant if specified (HPG_baseline | HPG_frac | HPG_frac_polytype)
+        hpg_variant = exp.get('hpg_variant')
+        if hpg_variant:
+            args.append(f'hpg_variant={hpg_variant}')
+        
         # Identity baseline specific args
         identity_mode = exp.get('identity_mode')
         if identity_mode:
