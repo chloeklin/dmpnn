@@ -1457,31 +1457,31 @@ experiments:
   # ═══════════════════════════════════════════════════════════════════
 
   # -- DMPNN + self_attn (a_held_out) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: self_attn
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: self_attn
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- GIN + self_attn (a_held_out) --
-  - <<: *eaip_base
-    model: GIN
-    copolymer_mode: self_attn
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GIN
+  #   copolymer_mode: self_attn
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- GAT + self_attn (a_held_out) --
-  - <<: *eaip_base
-    model: GAT
-    copolymer_mode: self_attn
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: GAT
+  #   copolymer_mode: self_attn
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
 
   # -- wDMPNN --
   # - <<: *eaip_base
@@ -1490,7 +1490,7 @@ experiments:
   #   walltime: "00:30:00"
   #   targets: *eaip_targets
 
-  # -- HPG (a_held_out) --
+  # -- HPG (a_held_out) — legacy incl_desc entries --
   # - <<: *eaip_base
   #   model: HPG
   #   split_type: a_held_out
@@ -1509,6 +1509,40 @@ experiments:
   #   split_type: a_held_out
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
+
+  # ═══════════════════════════════════════════════════════════════════
+  # HPG PHASE 1 VARIANTS (a_held_out)
+  #
+  # baseline     : original sum pooling over all nodes, no X_d
+  # frac         : Σ f_i·h_i fraction-weighted pooling over fragment
+  #                nodes only, no X_d
+  # frac_polytype: fraction-weighted pooling + polytype one-hot as X_d
+  # ═══════════════════════════════════════════════════════════════════
+
+  # -- HPG_baseline (a_held_out) --
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: baseline
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
+
+  # -- HPG_frac (a_held_out) --
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: frac
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
+
+  # -- HPG_frac_polytype (a_held_out) --
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: frac_polytype
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
 
   # -- Identity Baseline --
   # - <<: *eaip_base
