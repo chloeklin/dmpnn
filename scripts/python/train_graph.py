@@ -298,18 +298,20 @@ if args.pretrain_monomer:
 # For homopolymers, a single fragment with a self-loop.
 # This branch handles BOTH cases and exits via SystemExit.
 if args.model_name == "HPG":
-    from chemprop.featurizers.molgraph.hpg import HPGMolGraphFeaturizer
+    from chemprop.featurizers.molgraph.hpg import HPGMolGraphFeaturizer, HPGMolGraphFeaturizerEdgeTyped
     from chemprop.data.hpg import HPGDatapoint, HPGDataset, hpg_collate_fn, BatchHPGMolGraph
     from chemprop.models.hpg import HPGMPNN
     from torch.utils.data import DataLoader
     import lightning.pytorch as pl
     from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
-    hpg_featurizer = HPGMolGraphFeaturizer()
     is_copolymer = (args.polymer_type == "copolymer")
 
     hpg_variant = getattr(args, 'hpg_variant', 'baseline')
-    use_frac_pooling = hpg_variant in ('frac', 'frac_polytype')
+    use_frac_pooling = hpg_variant in ('frac', 'frac_polytype', 'frac_edgeTyped')
+    # Select featurizer: edgeTyped variant uses 4-dim typed edge features (d_e=4)
+    hpg_d_e = 4 if hpg_variant == 'frac_edgeTyped' else 1
+    hpg_featurizer = HPGMolGraphFeaturizerEdgeTyped() if hpg_variant == 'frac_edgeTyped' else HPGMolGraphFeaturizer()
 
     logger.info(f"\n=== HPG Training ===")
     logger.info(f"Dataset          : {args.dataset_name}")
@@ -373,9 +375,9 @@ if args.model_name == "HPG":
             else:
                 combined_descriptor_data_hpg = _poly_oh
 
-    elif hpg_variant == 'frac':
+    elif hpg_variant in ('frac', 'frac_edgeTyped'):
         # ---- Fractions enter through pooling, NO X_d at all ----
-        logger.info("HPG_frac: fractions used for pooling; no X_d")
+        logger.info(f"HPG_{hpg_variant}: fractions used for pooling; no X_d")
 
     elif hpg_variant == 'frac_polytype':
         # ---- Fractions through pooling; polytype one-hot as X_d ----
@@ -519,6 +521,7 @@ if args.model_name == "HPG":
             pooling_type = "frac_weighted" if use_frac_pooling else "sum"
             mpnn = HPGMPNN(
                 d_v=hpg_featurizer.d_v,
+                d_e=hpg_d_e,
                 d_h=getattr(args, "hpg_hidden_dim", 128),
                 d_ffn=getattr(args, "hpg_ffn_dim", 64),
                 depth=getattr(args, "hpg_depth", 6),
