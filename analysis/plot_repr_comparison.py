@@ -168,7 +168,7 @@ def plot_absolute_rmse(data: pd.DataFrame) -> None:
 # ──────────────────────────────────────────────────────────────────────
 
 def plot_delta_rmse(deltas: pd.DataFrame) -> None:
-    """Boxplot + strip of ΔRMSE vs mixture."""
+    """Boxplot + strip of ΔRMSE vs mixture, with conceptual section labels."""
     g = sns.catplot(
         data=deltas, x="method", y="delta_rmse", hue="model", col="target",
         kind="box", palette=MODEL_PALETTE, height=4.5, aspect=1.2,
@@ -184,6 +184,36 @@ def plot_delta_rmse(deltas: pd.DataFrame) -> None:
             size=4, alpha=0.7, ax=ax, legend=False,
         )
         ax.axhline(0, ls="--", lw=1, color="grey", zorder=0)
+
+        # ── Section labels above x-axis ────────────────────────────────
+        # DELTA_ORDER = ["frac_attn", "mix_pair", "mix_pair_attn", "self_attn"]
+        # Tick positions are 0, 1, 2, 3 (catplot integer x-axis)
+        # Sections: frac_attn(0), mix_pair(1), mix_pair_attn(2), self_attn(3)
+        SECTION_LABELS = [
+            (0, 0,   "Better\nMixing",        "#AED6F1"),   # single tick
+            (1, 1,   "Naive\nInteraction",     "#A9DFBF"),
+            (2, 2,   "Learned\nInteraction",   "#FAD7A0"),
+            (3, 3,   "Full\nAttention",        "#F1948A"),
+        ]
+        ylim = ax.get_ylim()
+        yrange = ylim[1] - ylim[0]
+        label_y = ylim[1] + yrange * 0.02   # just above top of plot
+
+        for x_lo, x_hi, sect_label, sect_color in SECTION_LABELS:
+            cx = (x_lo + x_hi) / 2
+            # light background span
+            ax.axvspan(x_lo - 0.45, x_hi + 0.45,
+                       ymin=0, ymax=1,
+                       color=sect_color, alpha=0.12, zorder=0, lw=0)
+            # label text above the plot area (clip_on=False so it's visible)
+            ax.text(cx, label_y, sect_label,
+                    ha="center", va="bottom", fontsize=8.5,
+                    fontweight="bold", color="#2C3E50",
+                    clip_on=False)
+
+        # Expand ylim slightly so section labels don't overlap data
+        ax.set_ylim(ylim[0], ylim[1] + yrange * 0.18)
+
     g.set_titles("{col_var} = {col_name}")
     g.set_axis_labels("Representation", "ΔRMSE vs mixture (eV)")
     g.figure.suptitle("ΔRMSE vs mixture (negative = better)", y=1.02, fontsize=14)

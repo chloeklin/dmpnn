@@ -62,19 +62,22 @@ for model_name in ['DMPNN', 'GIN', 'GAT']:
             all_data.append(df)
             print(f"Loaded {model_name} - {variant_labels[variant_key]}: {len(df)} rows")
 
-# Load tabular (desc only)
+# Load tabular (desc only) — preserve individual model names (Linear, RF, etc.)
 tabular_file = results_dir / "tabular" / "htpmd_descriptors.csv"
 if tabular_file.exists():
     df_tab = pd.read_csv(tabular_file)
     # Compute RMSE from MSE (tabular results only have MSE)
     if 'mse' in df_tab.columns and 'rmse' not in df_tab.columns:
         df_tab['rmse'] = np.sqrt(df_tab['mse'])
-    df_tab['model'] = 'Tabular'
+    # Preserve original sub-model name (Linear, RF, XGB…) before grouping
+    df_tab = df_tab.rename(columns={'model': 'tab_model'})
+    df_tab['model'] = 'Tabular'          # group identifier used for filtering
     df_tab['variant'] = 'desc'
     df_tab['variant_label'] = 'Desc'
-    df_tab['model_variant'] = 'Tabular_Desc'
+    df_tab['model_variant'] = df_tab['tab_model'].apply(lambda m: f'Tabular_{m}')
     all_data.append(df_tab)
-    print(f"Loaded Tabular - Desc: {len(df_tab)} rows")
+    tab_models_found = sorted(df_tab['tab_model'].unique())
+    print(f"Loaded Tabular sub-models: {tab_models_found}  ({len(df_tab)} rows total)")
 
 # Combine all data
 combined = pd.concat(all_data, ignore_index=True)
@@ -93,8 +96,12 @@ model_base_colors = {
     'DMPNN': '#1F77B4',  # Blue
     'GIN': '#2CA02C',     # Green
     'GAT': '#D62728',     # Red
-    'Tabular': '#FF7F0E'  # Orange
+    'Tabular': '#FF7F0E'  # Orange (group fallback)
 }
+
+# Distinct shades for individual tabular sub-models (light → dark orange/brown)
+_TAB_SHADES = ['#FFBB78', '#FF7F0E', '#D45500', '#8B3A00', '#5C2500']
+tabular_model_colors = {}  # filled below once we know the sub-models
 
 # Variant styles (intensity/shade variations)
 variant_styles = {
@@ -112,7 +119,6 @@ for model in ['DMPNN', 'GIN', 'GAT']:
     for variant_key in variants.keys():
         key = f"{model}_{variant_labels[variant_key]}"
         color_map[key] = base_color
-color_map['Tabular_Desc'] = model_base_colors['Tabular']
 
 # ============================================================
 # PLOT 1: Graph models with all fusion variants (no tabular)
@@ -187,34 +193,40 @@ for metric in metrics:
     print(f"Saved: {output_file}")
 
 # ============================================================
-# PLOT 2: Graph variants + Tabular (as separate group on x-axis)
+# PLOT 2: Graph variants + Tabular (individual sub-models as separate bars)
 # All targets in one figure with subplots
 # ============================================================
 graph_models = ['DMPNN', 'GIN', 'GAT']
-# x-axis groups: graph variants first, then Tabular as its own group
-x_group_labels = [variant_labels[v] for v in variant_order] + ['Tabular']
 n_graph_groups = len(variant_order)
 
-# Tabular sub-models to show (from the tabular CSV 'model' column)
-tabular_sub_models = []
+# Resolve tabular sub-models and assign colours
 tab_data_check = combined[combined['model'] == 'Tabular']
-if not tab_data_check.empty and 'model' in tab_data_check.columns:
-    # Tabular CSV has a 'model' column with Linear/RF/XGB etc.
-    # but we loaded it with model='Tabular', so check the original file
-    tabular_sub_models = sorted(tab_data_check['model'].unique().tolist())
+if not tab_data_check.empty and 'tab_model' in tab_data_check.columns:
+    tabular_sub_models = sorted(tab_data_check['tab_model'].unique().tolist())
+else:
+    tabular_sub_models = []
+for i, tm in enumerate(tabular_sub_models):
+    tabular_model_colors[tm] = _TAB_SHADES[i % len(_TAB_SHADES)]
+
+n_tab_models = len(tabular_sub_models)
+# x-axis: graph variant groups first, then one label per tabular sub-model
+x_group_labels = ([variant_labels[v] for v in variant_order]
+                  + (tabular_sub_models if tabular_sub_models else ['Tabular']))
 
 for metric in metrics:
     if metric not in combined.columns:
         print(f"Skipping {metric} - not in data")
         continue
     
-    fig, axes = plt.subplots(1, len(targets), figsize=(22, 5))
+    fig, axes = plt.subplots(1, len(targets), figsize=(26, 6))
     
     for target_idx, target in enumerate(targets):
         ax = axes[target_idx]
         
         n_models = len(graph_models)
-        bar_width = 0.25
+        bar_width = 0.25          # width for each graph model bar
+        tab_bar_width = 0.4       # wider bars for tabular sub-models
+        tab_spacing = 0.55        # centre-to-centre spacing between tabular bars
         target_data = combined[combined['target'] == target]
         
         # --- Graph variant groups (positions 0..n_graph_groups-1) ---
@@ -248,42 +260,60 @@ for metric in metrics:
                        linewidth=0.8,
                        label=model if target_idx == 0 else '')
         
-        # --- Tabular group (separate position to the right) ---
-        tabular_x = n_graph_groups + 0.5  # gap before Tabular group
+        # --- Tabular group (one wide bar per sub-model, well-spaced) ---
+        # Start far enough right so the group doesn't crowd the last graph group
+        tabular_x_start = n_graph_groups + 0.8
         tab_target = target_data[target_data['model'] == 'Tabular']
-        if not tab_target.empty and metric in tab_target.columns:
-            tab_mean = tab_target[metric].mean()
-            tab_std = tab_target[metric].std()
-            # Centre a single bar at the Tabular position
-            ax.bar(tabular_x + bar_width, tab_mean, bar_width * n_models,
-                   yerr=tab_std,
-                   color=model_base_colors['Tabular'],
-                   alpha=0.8,
-                   capsize=3,
-                   edgecolor='black',
-                   linewidth=0.8,
+        tabular_tick_positions = []
+        if not tab_target.empty and metric in tab_target.columns and 'tab_model' in tab_target.columns:
+            for tab_idx, tab_model_name in enumerate(tabular_sub_models):
+                tab_sub = tab_target[tab_target['tab_model'] == tab_model_name]
+                x_pos = tabular_x_start + tab_idx * tab_spacing
+                tabular_tick_positions.append(x_pos)
+                if tab_sub.empty:
+                    continue
+                tab_mean = tab_sub[metric].mean()
+                tab_std = tab_sub[metric].std() if len(tab_sub) > 1 else 0
+                ax.bar(x_pos, tab_mean, tab_bar_width,
+                       yerr=tab_std,
+                       color=tabular_model_colors.get(tab_model_name, model_base_colors['Tabular']),
+                       alpha=0.85,
+                       capsize=3,
+                       edgecolor='black',
+                       linewidth=0.8,
+                       label=tab_model_name if target_idx == 0 else '')
+        elif not tab_target.empty and metric in tab_target.columns:
+            # Fallback: no tab_model column → single averaged bar
+            x_pos = tabular_x_start
+            tabular_tick_positions.append(x_pos)
+            ax.bar(x_pos, tab_target[metric].mean(), tab_bar_width,
+                   color=model_base_colors['Tabular'], alpha=0.85, capsize=3,
+                   edgecolor='black', linewidth=0.8,
                    label='Tabular' if target_idx == 0 else '')
-        
+
         # x-tick positions and labels
         graph_tick_positions = x_base + bar_width * (n_models - 1) / 2
-        tabular_tick_pos = tabular_x + bar_width
-        all_ticks = list(graph_tick_positions) + [tabular_tick_pos]
+        all_ticks = list(graph_tick_positions) + tabular_tick_positions
         
         ax.set_ylabel(metric.upper(), fontsize=11, fontweight='bold')
         ax.set_title(target, fontsize=12, fontweight='bold')
         ax.set_xticks(all_ticks)
-        ax.set_xticklabels(x_group_labels, fontsize=9, rotation=25, ha='right')
+        ax.set_xticklabels(x_group_labels, fontsize=8, rotation=45, ha='right')
         ax.grid(axis='y', alpha=0.3, linestyle='--')
         
-        # Add a vertical dashed line to separate graph from tabular
-        sep_x = n_graph_groups + 0.1
+        # Vertical dashed separator between graph and tabular sections
+        sep_x = n_graph_groups + 0.35
         ax.axvline(x=sep_x, color='gray', linestyle=':', linewidth=1, alpha=0.6)
     
     from matplotlib.patches import Patch
     legend_patches = [Patch(facecolor=model_base_colors[m], edgecolor='black', linewidth=0.8, label=m) for m in graph_models]
-    legend_patches.append(Patch(facecolor=model_base_colors['Tabular'], edgecolor='black', linewidth=0.8, label='Tabular'))
-    fig.legend(handles=legend_patches, loc='upper center', bbox_to_anchor=(0.5, -0.02), ncol=4, frameon=True, fontsize=10)
-    fig.suptitle(f'HTPMD: Graph Fusion Variants + Tabular - {metric.upper()}', fontsize=14, fontweight='bold', y=1.02)
+    for tm in tabular_sub_models:
+        legend_patches.append(Patch(facecolor=tabular_model_colors.get(tm, model_base_colors['Tabular']),
+                                     edgecolor='black', linewidth=0.8, label=tm))
+    ncols = len(graph_models) + max(len(tabular_sub_models), 1)
+    fig.legend(handles=legend_patches, loc='upper center', bbox_to_anchor=(0.5, -0.02),
+               ncol=ncols, frameon=True, fontsize=10)
+    fig.suptitle(f'HTPMD: Graph Fusion Variants + Tabular Models - {metric.upper()}', fontsize=14, fontweight='bold', y=1.02)
     plt.tight_layout()
     
     output_file = output_dir / f'htpmd_{metric}_graph_fusion_with_tabular_combined.png'
@@ -328,21 +358,31 @@ for target in targets:
                         'n_splits': len(variant_data)
                     })
         
-        # Tabular
+        # Tabular — one row per sub-model
         tabular_data = target_data[target_data['model'] == 'Tabular']
         if not tabular_data.empty:
-            mean_val = tabular_data[metric].mean()
-            std_val = tabular_data[metric].std()
-            
-            consolidated_rows.append({
-                'target': target,
-                'model': 'Tabular',
-                'variant': 'Desc',
-                'metric': metric,
-                'mean': mean_val,
-                'std': std_val,
-                'n_splits': len(tabular_data)
-            })
+            if 'tab_model' in tabular_data.columns:
+                for tm in sorted(tabular_data['tab_model'].unique()):
+                    tm_data = tabular_data[tabular_data['tab_model'] == tm]
+                    consolidated_rows.append({
+                        'target': target,
+                        'model': f'Tabular_{tm}',
+                        'variant': 'Desc',
+                        'metric': metric,
+                        'mean': tm_data[metric].mean(),
+                        'std': tm_data[metric].std(),
+                        'n_splits': len(tm_data)
+                    })
+            else:
+                consolidated_rows.append({
+                    'target': target,
+                    'model': 'Tabular',
+                    'variant': 'Desc',
+                    'metric': metric,
+                    'mean': tabular_data[metric].mean(),
+                    'std': tabular_data[metric].std(),
+                    'n_splits': len(tabular_data)
+                })
 
 # Save consolidated results
 consolidated_df = pd.DataFrame(consolidated_rows)

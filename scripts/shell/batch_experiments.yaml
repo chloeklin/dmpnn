@@ -1513,33 +1513,43 @@ experiments:
   # ═══════════════════════════════════════════════════════════════════
   # HPG PHASE 1 VARIANTS (a_held_out)
   #
-  # baseline     : original sum pooling over all nodes, no X_d
-  # frac         : Σ f_i·h_i fraction-weighted pooling over fragment
-  #                nodes only, no X_d
-  # frac_polytype: fraction-weighted pooling + polytype one-hot as X_d
+  # baseline      : original sum pooling over all nodes, no X_d
+  # frac          : Σ f_i·h_i fraction-weighted pooling over fragment
+  #                 nodes only, no X_d
+  # frac_polytype : fraction-weighted pooling + polytype one-hot as X_d
+  # frac_edgeTyped: frac pooling + 4-dim typed edge features
+  #                 [type_onehot(3), scalar(1)]; d_e=4, no X_d
   # ═══════════════════════════════════════════════════════════════════
 
   # -- HPG_baseline (a_held_out) --
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: baseline
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: baseline
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
   # -- HPG_frac (a_held_out) --
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: frac
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: frac
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
   # -- HPG_frac_polytype (a_held_out) --
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: frac_polytype
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+
+  # -- HPG_frac_edgeTyped (a_held_out) --
   - <<: *eaip_base
     model: HPG
-    hpg_variant: frac_polytype
-    incl_poly_type: true
+    hpg_variant: frac_edgeTyped
     split_type: a_held_out
     walltime: "3:00:00"
     targets: *eaip_targets
