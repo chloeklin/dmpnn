@@ -251,3 +251,179 @@ class HPGMolGraphFeaturizer:
         for old, new in self.wildcard_replacements.items():
             smi = smi.replace(old, new)
         return smi
+
+
+# ---------------------------------------------------------------------------
+#  Edge-typed variant helpers
+# ---------------------------------------------------------------------------
+
+# Fixed 4-dim edge feature layout: [type_onehot(3), scalar(1)]
+# Edge type one-hot order: atom_bond, atom_to_fragment, fragment_to_fragment
+HPG_EDGE_FDIM_TYPED = 4
+
+_ETYPE_ATOM_BOND          = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+_ETYPE_ATOM_TO_FRAGMENT   = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+_ETYPE_FRAG_TO_FRAG       = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+
+
+def encode_hpg_edge(edge_type: str, scalar: float) -> np.ndarray:
+    """Encode a single HPG edge as a 4-dim vector [type_onehot(3), scalar(1)].
+
+    Parameters
+    ----------
+    edge_type : str
+        One of ``'atom_bond'``, ``'atom_to_fragment'``, ``'fragment_to_fragment'``.
+    scalar : float
+        Scalar value: bond order for atom–atom edges, 1.0 for atom→fragment,
+        degree for fragment–fragment edges.
+
+    Returns
+    -------
+    np.ndarray of shape (4,), dtype float32.
+    """
+    if edge_type == 'atom_bond':
+        onehot = _ETYPE_ATOM_BOND
+    elif edge_type == 'atom_to_fragment':
+        onehot = _ETYPE_ATOM_TO_FRAGMENT
+    elif edge_type == 'fragment_to_fragment':
+        onehot = _ETYPE_FRAG_TO_FRAG
+    else:
+        raise ValueError(
+            f"encode_hpg_edge: unknown edge_type={edge_type!r}. "
+            f"Expected 'atom_bond', 'atom_to_fragment', or 'fragment_to_fragment'."
+        )
+    return np.concatenate([onehot, np.array([scalar], dtype=np.float32)])
+
+
+@dataclass
+class HPGMolGraphFeaturizerEdgeTyped(HPGMolGraphFeaturizer):
+    """HPGMolGraphFeaturizer variant that uses 4-dim typed edge features.
+
+    Identical to :class:`HPGMolGraphFeaturizer` in all respects except that
+    each edge is encoded as ``[type_onehot(3), scalar(1)]`` (d_e=4) instead
+    of a plain 1-D scalar (d_e=1).
+
+    Edge types and scalar values:
+      - ``atom_bond``           : one-hot [1,0,0] + bond order (1/1.5/2/3)
+      - ``atom_to_fragment``    : one-hot [0,1,0] + 1.0
+      - ``fragment_to_fragment``: one-hot [0,0,1] + degree scalar
+
+    Use this featurizer with ``HPGMPNN(d_e=4, ...)``.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.edge_dim = HPG_EDGE_FDIM_TYPED  # 4
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """(node_feature_dim, edge_feature_dim)"""
+        return self.d_v, HPG_EDGE_FDIM_TYPED
+
+    def __call__(
+        self,
+        fragment_smiles: list[str],
+        connections: list[tuple[int, int, float]] | None = None,
+        frag_fracs: np.ndarray | None = None,
+    ) -> HPGMolGraph:
+        """Featurize a polymer into an HPGMolGraph with 4-dim typed edge features."""
+        n_frags = len(fragment_smiles)
+
+        # --- 1. Build fragment-fragment edges ---
+        if connections is None:
+            if n_frags == 1:
+                connections = [(0, 0, 1.0)]
+            else:
+                connections = [(i, i + 1, 1.0) for i in range(n_frags - 1)]
+
+        ff_src, ff_dst, ff_efeat = [], [], []
+        for src_f, dst_f, deg in connections:
+            if deg == "?" or deg is None:
+                deg = 1.0
+            ff_src.append(src_f)
+            ff_dst.append(dst_f)
+            # fragment_to_fragment: one-hot [0,0,1] + degree scalar
+            ff_efeat.append(encode_hpg_edge('fragment_to_fragment', float(deg)))
+
+        # --- 2. Parse each fragment ---
+        frag_node_feats = np.ones((n_frags, self.d_v), dtype=np.float32)
+
+        all_atom_feats: list[np.ndarray] = []
+        aa_src, aa_dst, aa_efeat = [], [], []  # atom-atom
+        af_src, af_dst, af_efeat = [], [], []  # atom→fragment
+        atom_offset = n_frags
+
+        for frag_idx, smi in enumerate(fragment_smiles):
+            clean_smi = self._clean_smiles(smi)
+            mol = Chem.MolFromSmiles(clean_smi)
+            if mol is None:
+                raise ValueError(f"RDKit cannot parse fragment SMILES: {smi!r}")
+
+            real_local_indices = [
+                a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() != 0
+            ]
+            old_to_global = {
+                old: atom_offset + new
+                for new, old in enumerate(real_local_indices)
+            }
+            n_real = len(real_local_indices)
+
+            for old_idx in real_local_indices:
+                all_atom_feats.append(_hpg_atom_features(mol.GetAtomWithIdx(old_idx)))
+
+            for bond in mol.GetBonds():
+                u_old = bond.GetBeginAtomIdx()
+                v_old = bond.GetEndAtomIdx()
+                if u_old not in old_to_global or v_old not in old_to_global:
+                    continue
+                u = old_to_global[u_old]
+                v = old_to_global[v_old]
+                bo = _BOND_ORDER.get(bond.GetBondType(), 1.0)
+                # atom_bond: one-hot [1,0,0] + bond order
+                ef = encode_hpg_edge('atom_bond', bo)
+                aa_src.extend([u, v])
+                aa_dst.extend([v, u])
+                aa_efeat.extend([ef, ef])
+
+            for old_idx in real_local_indices:
+                af_src.append(old_to_global[old_idx])
+                af_dst.append(frag_idx)
+                # atom_to_fragment: one-hot [0,1,0] + 1.0
+                af_efeat.append(encode_hpg_edge('atom_to_fragment', 1.0))
+
+            atom_offset += n_real
+
+        # --- 3. Assemble HPGMolGraph ---
+        n_atoms_total = atom_offset - n_frags
+
+        if n_atoms_total > 0:
+            atom_feats = np.array(all_atom_feats, dtype=np.float32)
+        else:
+            atom_feats = np.empty((0, self.d_v), dtype=np.float32)
+
+        V = np.concatenate([frag_node_feats, atom_feats], axis=0)
+
+        all_src  = ff_src  + aa_src  + af_src
+        all_dst  = ff_dst  + aa_dst  + af_dst
+        all_ef   = ff_efeat + aa_efeat + af_efeat
+
+        n_edges = len(all_src)
+        if n_edges > 0:
+            edge_index = np.array([all_src, all_dst], dtype=np.int64)
+            E = np.stack(all_ef, axis=0).astype(np.float32)  # [n_edges, 4]
+        else:
+            edge_index = np.empty((2, 0), dtype=np.int64)
+            E = np.empty((0, HPG_EDGE_FDIM_TYPED), dtype=np.float32)
+
+        assert E.shape[1] == HPG_EDGE_FDIM_TYPED, (
+            f"HPGMolGraphFeaturizerEdgeTyped: expected E.shape[1]={HPG_EDGE_FDIM_TYPED}, got {E.shape[1]}"
+        )
+
+        return HPGMolGraph(
+            V=V,
+            E=E,
+            edge_index=edge_index,
+            n_fragments=n_frags,
+            n_atoms=n_atoms_total,
+            frag_fracs=frag_fracs,
+        )

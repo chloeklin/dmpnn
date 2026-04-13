@@ -12,7 +12,7 @@ Architecture (matching the original HPG-GAT paper):
 
 Variants (selected via ``pooling_type``):
   - ``"sum"``          : sum over ALL nodes           (HPG_baseline)
-  - ``"frac_weighted"`` : Σ f_i · h_i over fragments  (HPG_frac / HPG_frac_polytype)
+  - ``"frac_weighted"`` : Σ f_i · h_i over fragments  (HPG_frac / HPG_frac_polytype / HPG_frac_edgeTyped)
 """
 
 from __future__ import annotations
@@ -45,6 +45,9 @@ class HPGMPNN(pl.LightningModule):
     ----------
     d_v : int
         Input node feature dimension (must match featurizer output).
+    d_e : int
+        Edge feature dimension. 1 for all scalar-edge variants (default);
+        4 for ``HPG_frac_edgeTyped`` which uses typed 4-dim edge features.
     d_h : int
         Hidden dimension for GAT layers.
     d_ffn : int
@@ -81,6 +84,7 @@ class HPGMPNN(pl.LightningModule):
     def __init__(
         self,
         d_v: int = 49,
+        d_e: int = 1,
         d_h: int = 128,
         d_ffn: int = 64,
         depth: int = 6,
@@ -108,7 +112,7 @@ class HPGMPNN(pl.LightningModule):
 
         # Message passing
         self.message_passing = HPGMessagePassing(
-            d_v=d_v, d_h=d_h, d_e=1, depth=depth,
+            d_v=d_v, d_h=d_h, d_e=d_e, depth=depth,
             num_heads=num_heads, dropout=dropout_mp,
         )
 
