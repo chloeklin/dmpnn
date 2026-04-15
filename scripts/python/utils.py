@@ -82,12 +82,15 @@ def create_base_argument_parser(description="Train a graph model"):
                         help='Append one-hot encoded poly_type column as global descriptor '
                              '(copolymer datasets only; auto-upgrades mix→mix_meta, interact→interact_meta)')
     parser.add_argument('--hpg_variant', type=str, default='baseline',
-                        choices=['baseline', 'frac', 'frac_polytype', 'frac_edgeTyped'],
+                        choices=['baseline', 'frac', 'frac_polytype', 'frac_edgeTyped', 'frac_archAware'],
                         help='HPG model variant (only used when model=HPG): '
                              '"baseline" = original sum pooling, '
                              '"frac" = fraction-weighted pooling over fragments, '
                              '"frac_polytype" = frac pooling + polytype concat after embedding, '
-                             '"frac_edgeTyped" = frac pooling + 4-dim typed edge features [type_onehot(3), scalar(1)]')
+                             '"frac_edgeTyped" = frac pooling + 4-dim typed edge features [type_onehot(3), scalar(1)], '
+                             '"frac_archAware" = frac pooling + lightweight polymer-level interaction '
+                             '(h_tilde_i = h_i + W(m - f_i*h_i), m=sum_j f_j h_j); '
+                             'uses standard d_e=1 edges \u2014 no edge typing')
 
     # Split arguments
     parser.add_argument('--split_type', type=str, default='random',

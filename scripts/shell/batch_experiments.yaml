@@ -1546,10 +1546,22 @@ experiments:
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
 
-  # -- HPG_frac_edgeTyped (a_held_out) --
+  # -- HPG_frac_edgeTyped (a_held_out) -- [Phase 1D: DONE, performed worse than HPG_frac]
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: frac_edgeTyped
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+
+  # -- HPG_frac_archAware (a_held_out) -- [Phase 1E]
+  # Lightweight polymer-level interaction before fraction-weighted pooling.
+  # Built on HPG_frac (standard d_e=1 edges, no edge typing intentionally).
+  # Math: m = sum_j f_j h_j;  h_tilde_i = h_i + W(m - f_i h_i);  h_poly = sum_i f_i h_tilde_i
+  # W is zero-initialized so training starts identical to HPG_frac.
   - <<: *eaip_base
     model: HPG
-    hpg_variant: frac_edgeTyped
+    hpg_variant: frac_archAware
     split_type: a_held_out
     walltime: "3:00:00"
     targets: *eaip_targets
