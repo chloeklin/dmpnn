@@ -1554,14 +1554,27 @@ experiments:
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
 
-  # -- HPG_frac_archAware (a_held_out) -- [Phase 1E]
+  # -- HPG_frac_archAware (a_held_out) -- [Phase 1E: DONE]
   # Lightweight polymer-level interaction before fraction-weighted pooling.
   # Built on HPG_frac (standard d_e=1 edges, no edge typing intentionally).
   # Math: m = sum_j f_j h_j;  h_tilde_i = h_i + W(m - f_i h_i);  h_poly = sum_i f_i h_tilde_i
   # W is zero-initialized so training starts identical to HPG_frac.
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: frac_archAware
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+
+  # -- HPG_relMsg (a_held_out) -- [Phase 2A]
+  # Relation-message-aware GAT: edge features enter message CONTENT (not only attention).
+  # Message: m_ij = alpha_ij * W_msg([h_src, e_ij])
+  # Pooling: fraction-weighted (identical to HPG_frac for fair comparison).
+  # Featurizer: standard d_e=1 (same as HPG_frac — no edge typing).
+  # Single shared W_msg; per-relation routing is Phase 2B.
   - <<: *eaip_base
     model: HPG
-    hpg_variant: frac_archAware
+    hpg_variant: relMsg
     split_type: a_held_out
     walltime: "3:00:00"
     targets: *eaip_targets

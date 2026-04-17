@@ -648,6 +648,132 @@ def test_archAware_backward_compat():
     print(f"  VALID_POOLING_TYPES: {VALID_POOLING_TYPES}")
 
 
+# ──────────────────────────────────────────────────────────────────
+# Phase 2A — HPG_relMsg tests
+# ──────────────────────────────────────────────────────────────────
+
+def test_relMsg_forward():
+    """HPG_relMsg forward pass produces correct output shape [B, n_tasks]."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+               frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    mg2 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+               frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
+    bmg = BatchHPGMolGraph([mg1, mg2])
+    torch.manual_seed(0)
+    model = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, mp_type="rel_msg", pooling_type="frac_weighted",
+    )
+    with torch.no_grad():
+        out = model(bmg)
+    assert out.shape == (2, 1), f"Expected (2,1), got {out.shape}"
+    print(f"  HPG_relMsg output: {out.shape}")
+
+
+def test_relMsg_differs_from_frac():
+    """HPG_relMsg gives different predictions than HPG_frac (different MP architecture)."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+               frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    bmg = BatchHPGMolGraph([mg1])
+    torch.manual_seed(42)
+    model_frac = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, mp_type="gat", pooling_type="frac_weighted",
+    )
+    torch.manual_seed(42)
+    model_rel = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, mp_type="rel_msg", pooling_type="frac_weighted",
+    )
+    model_frac.eval()
+    model_rel.eval()
+    with torch.no_grad():
+        pred_frac = model_frac(bmg)
+        pred_rel  = model_rel(bmg)
+    assert not torch.allclose(pred_frac, pred_rel, atol=1e-4), (
+        "HPG_relMsg and HPG_frac should differ (different MP architecture)"
+    )
+    print(f"  frac={pred_frac.item():.6f}, relMsg={pred_rel.item():.6f} — differ: confirmed")
+
+
+def test_relMsg_edge_content_sensitivity():
+    """Perturbing edge features changes HPG_relMsg output.
+
+    Verifies that edge features enter message CONTENT in relMsg:
+    a large edge perturbation flows through W_msg and changes predictions.
+    """
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+              frag_fracs=np.array([0.5, 0.5], dtype=np.float32))
+    bmg_orig = BatchHPGMolGraph([mg])
+    bmg_pert = BatchHPGMolGraph([mg])
+    bmg_pert.E = bmg_orig.E.clone()
+    bmg_pert.E[:] = 100.0  # extreme perturbation to edge scalars
+    torch.manual_seed(7)
+    model = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, mp_type="rel_msg", pooling_type="frac_weighted",
+    )
+    model.eval()
+    with torch.no_grad():
+        delta = (model(bmg_pert) - model(bmg_orig)).abs().item()
+    assert delta > 0, "relMsg output must change when edge features are perturbed"
+    print(f"  |Δ| with extreme edge perturbation: {delta:.4f} — edge enters message content: confirmed")
+
+
+def test_relMsg_batching_isolation():
+    """Same polymer gives identical prediction in singleton vs. batch of two."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+              frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    bmg_single = BatchHPGMolGraph([mg])
+    bmg_double = BatchHPGMolGraph([mg, mg])
+    torch.manual_seed(0)
+    model = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, mp_type="rel_msg", pooling_type="frac_weighted",
+    )
+    model.eval()
+    with torch.no_grad():
+        pred_single = model(bmg_single)
+        pred_double = model(bmg_double)
+    assert torch.allclose(pred_single[0], pred_double[0], atol=1e-5), (
+        "Batching isolation failed: same polymer gives different prediction in batch"
+    )
+    assert torch.allclose(pred_double[0], pred_double[1], atol=1e-5), (
+        "Two identical polymers in batch give different predictions"
+    )
+    print(f"  Batching isolation: single={pred_single[0].item():.4f}, "
+          f"batch[0]={pred_double[0].item():.4f}, batch[1]={pred_double[1].item():.4f} — confirmed")
+
+
+def test_relMsg_backward_compat():
+    """relMsg does not affect Phase 1 variants; mp_type defaults to 'gat'."""
+    feat = HPGMolGraphFeaturizer()
+    model_default = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                            n_tasks=1, d_xd=0, pooling_type="sum")
+    assert model_default.hparams["mp_type"] == "gat", "Default mp_type should be 'gat'"
+    model_frac = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                         n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+    assert model_frac.hparams["mp_type"] == "gat"
+    model_arch = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                         n_tasks=1, d_xd=0, pooling_type="frac_arch_aware")
+    assert model_arch.hparams["mp_type"] == "gat"
+    try:
+        HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                n_tasks=1, d_xd=0, mp_type="invalid")
+        raise AssertionError("Should have raised ValueError for invalid mp_type")
+    except ValueError:
+        pass
+    print("  mp_type defaults to 'gat', Phase 1 variants unaffected, invalid mp_type raises: confirmed")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  HPG-GAT Smoke Tests")
@@ -686,6 +812,12 @@ if __name__ == "__main__":
         ("27. Non-zero W → diverges from frac", test_archAware_diverges_after_nonzero_W),
         ("28. Batching isolation", test_archAware_batching_isolation),
         ("29. Backward compat (arch_interact=None)", test_archAware_backward_compat),
+        # relMsg (Phase 2A) tests
+        ("30. HPG_relMsg forward", test_relMsg_forward),
+        ("31. relMsg differs from HPG_frac", test_relMsg_differs_from_frac),
+        ("32. Edge content sensitivity", test_relMsg_edge_content_sensitivity),
+        ("33. Batching isolation", test_relMsg_batching_isolation),
+        ("34. Backward compat (mp_type defaults to 'gat')", test_relMsg_backward_compat),
     ]
 
     for name, fn in tests:

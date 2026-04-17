@@ -10,9 +10,10 @@ Architecture (matching the original HPG-GAT paper):
   4. Optional concatenation of scalar features (X_d, e.g. polytype)
   5. FFN → prediction
 
-Variants (selected via ``pooling_type``):
+Variants (selected via ``pooling_type`` and ``mp_type``):
+  pooling_type:
   - ``"sum"``             : sum over ALL nodes             (HPG_baseline)
-  - ``"frac_weighted"``   : Σ f_i · h_i over fragments    (HPG_frac / HPG_frac_polytype / HPG_frac_edgeTyped)
+  - ``"frac_weighted"``   : Σ f_i · h_i over fragments    (HPG_frac / HPG_frac_polytype / HPG_frac_edgeTyped / HPG_relMsg)
   - ``"frac_arch_aware"`` : context-conditioned monomer    (HPG_frac_archAware)
        update before pooling:
          m        = Σ_j f_j h_j
@@ -20,6 +21,11 @@ Variants (selected via ``pooling_type``):
          h_poly   = Σ_i f_i h̃_i
        W is initialised to zero so the variant starts identically to
        HPG_frac and only diverges once gradients learn the interaction.
+
+  mp_type:
+  - ``"gat"``     : standard HPGGATLayer (default — all Phase 1 variants)
+  - ``"rel_msg"`` : HPGRelMsgGATLayer — edge features enter message CONTENT
+                    m_ij = alpha_ij * W_msg([h_src, e_ij])  (HPG_relMsg)
 """
 
 from __future__ import annotations
@@ -33,7 +39,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn, optim
 
 from chemprop.data.hpg import BatchHPGMolGraph
-from chemprop.nn.hpg import HPGMessagePassing
+from chemprop.nn.hpg import HPGMessagePassing, HPGRelMsgMessagePassing
 from chemprop.nn.metrics import ChempropMetric
 from chemprop.schedulers import build_NoamLike_LRSched
 from chemprop.utils.registry import Factory
@@ -71,6 +77,11 @@ class HPGMPNN(pl.LightningModule):
         Number of output targets.
     d_xd : int
         Dimension of extra scalar features (X_d). 0 if none.
+    mp_type : str
+        Message-passing mechanism:
+        - ``"gat"``     : standard HPGGATLayer (default, all Phase 1 variants).
+        - ``"rel_msg"`` : HPGRelMsgGATLayer; edge features enter message content
+          as ``m_ij = alpha_ij * W_msg([h_src, e_ij])``.
     pooling_type : str
         Polymer readout strategy:
         - ``"sum"``: sum over all nodes (original HPG_baseline).
@@ -107,6 +118,7 @@ class HPGMPNN(pl.LightningModule):
         dropout_ffn: float = 0.2,
         n_tasks: int = 1,
         d_xd: int = 0,
+        mp_type: str = "gat",
         pooling_type: str = "sum",
         task_type: str = "regression",
         metrics: Iterable[ChempropMetric] | None = None,
@@ -121,11 +133,17 @@ class HPGMPNN(pl.LightningModule):
                 f"Invalid pooling_type={pooling_type!r}. "
                 f"Choose from {VALID_POOLING_TYPES}"
             )
+        _VALID_MP_TYPES = ("gat", "rel_msg")
+        if mp_type not in _VALID_MP_TYPES:
+            raise ValueError(
+                f"Invalid mp_type={mp_type!r}. Choose from {_VALID_MP_TYPES}"
+            )
         super().__init__()
         self.save_hyperparameters()
 
-        # Message passing
-        self.message_passing = HPGMessagePassing(
+        # Message passing — swap layer stack based on mp_type
+        _mp_cls = HPGRelMsgMessagePassing if mp_type == "rel_msg" else HPGMessagePassing
+        self.message_passing = _mp_cls(
             d_v=d_v, d_h=d_h, d_e=d_e, depth=depth,
             num_heads=num_heads, dropout=dropout_mp,
         )
