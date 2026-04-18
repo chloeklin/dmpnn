@@ -15,6 +15,7 @@ Variants (selected via ``pooling_type`` and ``mp_type``):
   - ``"sum"``             : sum over ALL nodes             (HPG_baseline)
   - ``"frac_weighted"``   : Σ f_i · h_i over fragments    (HPG_frac / HPG_frac_polytype / HPG_frac_edgeTyped / HPG_relMsg)
   - ``"frac_arch_aware"`` : context-conditioned monomer    (HPG_frac_archAware)
+  - ``"frac_graph"``       : fragment-level adjacency MP then fraction-weighted pool (HPG_fragGraph)
        update before pooling:
          m        = Σ_j f_j h_j
          h̃_i    = h_i + W(m - f_i h_i)
@@ -39,7 +40,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn, optim
 
 from chemprop.data.hpg import BatchHPGMolGraph
-from chemprop.nn.hpg import HPGMessagePassing, HPGRelMsgMessagePassing
+from chemprop.nn.hpg import HPGFragGraphLayer, HPGMessagePassing, HPGRelMsgMessagePassing
 from chemprop.nn.metrics import ChempropMetric
 from chemprop.schedulers import build_NoamLike_LRSched
 from chemprop.utils.registry import Factory
@@ -48,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 
 # Valid pooling types for HPG polymer readout.
-VALID_POOLING_TYPES = ("sum", "frac_weighted", "frac_arch_aware")
+VALID_POOLING_TYPES = ("sum", "frac_weighted", "frac_arch_aware", "frac_graph")
 
 
 class HPGMPNN(pl.LightningModule):
@@ -94,6 +95,12 @@ class HPGMPNN(pl.LightningModule):
           Math:  m = Σ_j f_j h_j
                  h̃_i = h_i + W(m − f_i h_i)
                  h_poly = Σ_i f_i h̃_i
+        - ``"frac_graph"``: one lightweight fragment-level graph MP step
+          then fraction-weighted pooling (HPG_fragGraph, Phase 2B).
+          Uses fragment-fragment edges already in bmg.edge_index.
+          Math:  m_i = Σ_{j in N_frag(i)} W(u_j)  (W zero-init)
+                 z_i = u_i + m_i
+                 h_poly = Σ_i f_i z_i
     task_type : str
         ``"regression"`` or ``"classification"``.
     metrics : Iterable[ChempropMetric] | None
@@ -157,6 +164,15 @@ class HPGMPNN(pl.LightningModule):
             nn.init.zeros_(self.arch_interact.weight)
         else:
             self.arch_interact = None
+
+        # Fragment-level graph layer (Phase 2B: HPG_fragGraph).
+        # Only allocated for frac_graph; W is zero-initialized so the model
+        # starts identically to HPG_frac and learns adjacency signal only
+        # if it is informative for prediction.
+        if pooling_type == "frac_graph":
+            self.frag_graph_layer = HPGFragGraphLayer(d_h=d_h)
+        else:
+            self.frag_graph_layer = None
 
         # Graph readout: project pooled embedding down
         self.linear_pool = nn.Linear(d_h, d_ffn)
@@ -265,6 +281,34 @@ class HPGMPNN(pl.LightningModule):
         H_graph.scatter_add_(0, idx, weighted)
         return H_graph
 
+    def _pool_frag_graph(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
+        """Fragment-graph update then fraction-weighted pooling (HPG_fragGraph).
+
+        The HPG encoder (lower-level) is unchanged.  One lightweight
+        fragment-level message-passing step runs AFTER the encoder and
+        BEFORE fraction-weighted pooling.
+
+        Math (per polymer, index i over its fragment nodes):
+
+            m_i     = sum_{j in N_frag(i)} W(u_j)   # neighbour messages
+            z_i     = u_i + m_i                       # residual update
+            h_poly  = sum_i  f_i * z_i                # fraction-weighted pool
+
+        W (``self.frag_graph_layer.W``) is zero-initialized, so the variant
+        starts identically to HPG_frac and diverges only as W learns.
+
+        Parameters
+        ----------
+        H   : Tensor [N, d_h]       all-node embeddings from HPG encoder
+        bmg : BatchHPGMolGraph      must have frag_fracs set
+
+        Returns
+        -------
+        Tensor [B, d_h]
+        """
+        Z = self.frag_graph_layer(H, bmg)  # [N, d_h] — fragment nodes updated
+        return self._pool_frac_weighted(Z, bmg)  # identical pooling as HPG_frac
+
     def _pool_frac_arch_aware(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
         """Context-conditioned fraction-weighted pooling (HPG_frac_archAware).
 
@@ -335,6 +379,8 @@ class HPGMPNN(pl.LightningModule):
             H_graph = self._pool_frac_weighted(H, bmg)
         elif pt == "frac_arch_aware":
             H_graph = self._pool_frac_arch_aware(H, bmg)
+        elif pt == "frac_graph":
+            H_graph = self._pool_frag_graph(H, bmg)
         else:
             H_graph = self._pool_sum(H, bmg)
 

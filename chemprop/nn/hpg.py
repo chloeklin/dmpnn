@@ -395,3 +395,93 @@ class HPGRelMsgMessagePassing(nn.Module):
         for layer in self.layers:
             h = self.dropout(layer(h, bmg.edge_index, bmg.E))
         return h
+
+
+# ---------------------------------------------------------------------------
+#  Phase 2B: HPG_fragGraph — lightweight fragment-level graph layer
+# ---------------------------------------------------------------------------
+
+class HPGFragGraphLayer(nn.Module):
+    """Lightweight fragment-level message-passing layer for HPG_fragGraph.
+
+    HPG_fragGraph tests whether explicit fragment adjacency improves polymer
+    property prediction by introducing one lightweight polymer-structure layer
+    on top of the existing HPG fragment embeddings, while keeping
+    fraction-weighted pooling unchanged.
+
+    Fragment-fragment edges are already stored in BatchHPGMolGraph.edge_index
+    (from the featurizer's ``ff_src / ff_dst`` block).  They are identified
+    at runtime as edges where both endpoints are fragment nodes:
+        is_ff = bmg.frag_mask[src] & bmg.frag_mask[dst]
+    No changes to the featurizer or data classes are required.
+
+    Message passing (minimal residual, adjacency-only):
+
+        m_i = sum_{j in N_frag(i)} W(u_j)
+        z_i = u_i + m_i
+
+    where:
+    - u_i / z_i are the input / output embeddings for fragment node i
+    - W  = nn.Linear(d_h, d_h, bias=False), **zero-initialized**
+    - N_frag(i) = fragment-level neighbours of fragment i
+
+    Zero-initialization ensures the model starts identically to HPG_frac
+    (W=0 → messages are zero → z_i = u_i) and only learns fragment
+    adjacency signal if it is informative.
+
+    Batching: edge_index uses globally-shifted node indices, so
+    scatter_add automatically operates within each polymer.
+    Atom nodes are left unchanged (their positions receive zero aggregation
+    because ff_dst only contains fragment indices).
+
+    Parameters
+    ----------
+    d_h : int
+        Hidden dimension (must match the HPG encoder output dimension).
+    """
+
+    def __init__(self, d_h: int):
+        super().__init__()
+        self.W = nn.Linear(d_h, d_h, bias=False)
+        nn.init.zeros_(self.W.weight)  # start identical to HPG_frac
+
+    def forward(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
+        """Apply one fragment-level message-passing step.
+
+        Parameters
+        ----------
+        H : Tensor [N, d_h]
+            Node embeddings for all nodes (fragments + atoms).
+        bmg : BatchHPGMolGraph
+            Must have ``frag_mask`` set.
+
+        Returns
+        -------
+        Tensor [N, d_h]
+            Updated embeddings: fragment positions updated via W + residual;
+            atom positions unchanged (zero aggregation).
+        """
+        src, dst = bmg.edge_index  # each [E]
+
+        # --- Identify fragment-fragment edges ---
+        is_ff = bmg.frag_mask[src] & bmg.frag_mask[dst]  # [E] bool
+
+        if not is_ff.any():
+            return H  # no fragment edges — pass through unchanged
+
+        ff_src = src[is_ff]  # [E_ff]
+        ff_dst = dst[is_ff]  # [E_ff]
+
+        # --- Message: m_ij = W(H[src_j]) ---
+        msgs = self.W(H[ff_src])  # [E_ff, d_h]
+
+        # --- Aggregate: scatter-sum into destination nodes ---
+        aggregated = torch.zeros_like(H)  # [N, d_h]
+        aggregated.scatter_add_(
+            0,
+            ff_dst.unsqueeze(-1).expand_as(msgs),
+            msgs,
+        )
+
+        # --- Residual update: z = H + aggregated ---
+        return H + aggregated

@@ -83,7 +83,7 @@ def create_base_argument_parser(description="Train a graph model"):
                              '(copolymer datasets only; auto-upgrades mix→mix_meta, interact→interact_meta)')
     parser.add_argument('--hpg_variant', type=str, default='baseline',
                         choices=['baseline', 'frac', 'frac_polytype', 'frac_edgeTyped',
-                                 'frac_archAware', 'relMsg'],
+                                 'frac_archAware', 'relMsg', 'fragGraph'],
                         help='HPG model variant (only used when model=HPG): '
                              '"baseline" = original sum pooling, '
                              '"frac" = fraction-weighted pooling over fragments, '
@@ -94,7 +94,11 @@ def create_base_argument_parser(description="Train a graph model"):
                              'uses standard d_e=1 edges \u2014 no edge typing; '
                              '"relMsg" = frac pooling + relation-message-aware GAT (Phase 2A): '
                              'edge features enter message CONTENT as m_ij = alpha_ij * W_msg([h_src, e_ij]); '
-                             'same d_e=1 featurizer as HPG_frac \u2014 clean Phase 2 ablation')
+                             'same d_e=1 featurizer as HPG_frac \u2014 clean Phase 2 ablation; '
+                             '"fragGraph" = frac pooling + lightweight fragment-level graph MP (Phase 2B): '
+                             'one W-linear residual step over fragment-fragment edges '
+                             '(m_i = sum_{j in N_frag(i)} W(u_j), z_i = u_i + m_i); '
+                             'W zero-initialized so model starts identical to HPG_frac')
 
     # Split arguments
     parser.add_argument('--split_type', type=str, default='random',

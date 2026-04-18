@@ -1579,6 +1579,20 @@ experiments:
     walltime: "3:00:00"
     targets: *eaip_targets
 
+  # -- HPG_fragGraph (a_held_out) -- [Phase 2B]
+  # Explicit fragment-level adjacency: one lightweight W-linear message-passing
+  # step over fragment-fragment edges after the standard HPG encoder.
+  # Message:  m_i = sum_{j in N_frag(i)} W(u_j),  z_i = u_i + m_i
+  # Pooling:  fraction-weighted (identical to HPG_frac — fair comparison).
+  # Featurizer: standard d_e=1 (same as HPG_frac).
+  # W zero-initialized so model starts identical to HPG_frac at epoch 0.
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: fragGraph
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
+
   # -- Identity Baseline --
   # - <<: *eaip_base
   #   model: identity_baseline

@@ -774,6 +774,164 @@ def test_relMsg_backward_compat():
     print("  mp_type defaults to 'gat', Phase 1 variants unaffected, invalid mp_type raises: confirmed")
 
 
+# ──────────────────────────────────────────────────────────────────
+# Phase 2B — HPG_fragGraph tests
+# ──────────────────────────────────────────────────────────────────
+
+def test_fragGraph_forward():
+    """HPG_fragGraph produces correct output shape."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    mg2  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
+    bmg  = BatchHPGMolGraph([mg1, mg2])
+
+    model = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_graph",
+    )
+    with torch.no_grad():
+        preds = model(bmg)
+    assert preds.shape == (2, 1), f"Expected (2,1), got {preds.shape}"
+    print(f"  HPG_fragGraph output: {preds.shape}")
+
+
+def test_fragGraph_zero_init_matches_frac():
+    """At init (W=0) frac_graph must produce identical output to frac_weighted.
+
+    When W=0: m_i = sum W(u_j) = 0, so z_i = u_i.
+    Fraction-weighted pooling is then identical to HPG_frac.
+    """
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    ffs  = [
+        np.array([0.6, 0.4], dtype=np.float32),
+        np.array([0.3, 0.7], dtype=np.float32),
+    ]
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=ff) for ff in ffs]
+    bmg = BatchHPGMolGraph(graphs)
+
+    # Build both models, copy shared weights so only frag_graph_layer.W (=0) differs.
+    torch.manual_seed(42)
+    model_frac = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_weighted",
+    )
+    model_fg = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_graph",
+    )
+    # Copy all shared parameters; frag_graph_layer.W stays at its zero init
+    shared_keys = set(model_frac.state_dict()) & set(model_fg.state_dict())
+    with torch.no_grad():
+        for k in shared_keys:
+            model_fg.state_dict()[k].copy_(model_frac.state_dict()[k])
+    # Verify W is zero at init
+    assert torch.all(model_fg.frag_graph_layer.W.weight == 0), (
+        "frag_graph_layer.W.weight should be zero at init"
+    )
+
+    model_frac.eval()
+    model_fg.eval()
+    with torch.no_grad():
+        preds_frac = model_frac(bmg)
+        preds_fg   = model_fg(bmg)
+
+    assert torch.allclose(preds_frac, preds_fg, atol=1e-5), (
+        f"With W=0, frac_graph should equal frac_weighted.\n"
+        f"  frac: {preds_frac.tolist()}\n  fragGraph: {preds_fg.tolist()}"
+    )
+    print(f"  W=0 -> frac_graph == frac_weighted: confirmed")
+
+
+def test_fragGraph_diverges_after_nonzero_W():
+    """With non-zero W, frac_graph output differs from frac_weighted."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.6, 0.4], dtype=np.float32))]
+    bmg = BatchHPGMolGraph(graphs)
+
+    torch.manual_seed(0)
+    model_frac = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_weighted",
+    )
+    torch.manual_seed(0)
+    model_fg = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_graph",
+    )
+    # Set W to identity so messages carry full neighbour embedding
+    nn.init.eye_(model_fg.frag_graph_layer.W.weight)
+
+    with torch.no_grad():
+        preds_frac = model_frac(bmg)
+        preds_fg   = model_fg(bmg)
+    assert not torch.allclose(preds_frac, preds_fg, atol=1e-4), (
+        "Non-zero W should make frac_graph differ from frac_weighted"
+    )
+    print(f"  Non-zero W -> diverges from frac_weighted: confirmed")
+
+
+def test_fragGraph_batching_isolation():
+    """Same polymer gives identical prediction in singleton vs. batch of two.
+
+    Also verifies that fragment message passing is within-polymer only:
+    if adjacency crossed polymer boundaries the two identical polymers in a
+    batch would still give the same result, but different from singleton.
+    """
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+              frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    bmg_single = BatchHPGMolGraph([mg])
+    bmg_double = BatchHPGMolGraph([mg, mg])
+
+    torch.manual_seed(0)
+    model = HPGMPNN(
+        d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+        n_tasks=1, d_xd=0, pooling_type="frac_graph",
+    )
+    # Activate W so messages are non-zero
+    nn.init.eye_(model.frag_graph_layer.W.weight)
+    model.eval()
+    with torch.no_grad():
+        pred_single = model(bmg_single)
+        pred_double = model(bmg_double)
+    assert torch.allclose(pred_single[0], pred_double[0], atol=1e-5), (
+        "Batching isolation failed: singleton and batch[0] differ"
+    )
+    assert torch.allclose(pred_double[0], pred_double[1], atol=1e-5), (
+        "Two identical polymers in batch give different predictions"
+    )
+    print(f"  Batching isolation: single={pred_single[0].item():.4f}, "
+          f"batch[0]={pred_double[0].item():.4f}, batch[1]={pred_double[1].item():.4f} — confirmed")
+
+
+def test_fragGraph_backward_compat():
+    """fragGraph uses mp_type='gat' (default); all prior variants unaffected."""
+    feat = HPGMolGraphFeaturizer()
+    # fragGraph allocates frag_graph_layer; other variants must have it None
+    model_fg = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                       n_tasks=1, d_xd=0, pooling_type="frac_graph")
+    assert model_fg.frag_graph_layer is not None
+    assert model_fg.arch_interact is None
+    assert model_fg.hparams["mp_type"] == "gat", "fragGraph must use standard gat mp_type"
+
+    # Prior variants must NOT have frag_graph_layer
+    for pt in ("sum", "frac_weighted", "frac_arch_aware"):
+        m = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type=pt)
+        assert m.frag_graph_layer is None, (
+            f"pooling_type='{pt}' should not have frag_graph_layer"
+        )
+    print("  fragGraph backward compat: frag_graph_layer isolated, prior variants unaffected")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  HPG-GAT Smoke Tests")
@@ -818,6 +976,12 @@ if __name__ == "__main__":
         ("32. Edge content sensitivity", test_relMsg_edge_content_sensitivity),
         ("33. Batching isolation", test_relMsg_batching_isolation),
         ("34. Backward compat (mp_type defaults to 'gat')", test_relMsg_backward_compat),
+        # fragGraph (Phase 2B) tests
+        ("35. HPG_fragGraph forward", test_fragGraph_forward),
+        ("36. W=0 -> matches frac_weighted", test_fragGraph_zero_init_matches_frac),
+        ("37. Non-zero W -> diverges from frac", test_fragGraph_diverges_after_nonzero_W),
+        ("38. Batching isolation", test_fragGraph_batching_isolation),
+        ("39. Backward compat (frag_graph_layer isolated)", test_fragGraph_backward_compat),
     ]
 
     for name, fn in tests:
