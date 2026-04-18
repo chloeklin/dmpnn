@@ -40,7 +40,13 @@ import torch.nn.functional as F
 from torch import Tensor, nn, optim
 
 from chemprop.data.hpg import BatchHPGMolGraph
-from chemprop.nn.hpg import HPGFragGraphLayer, HPGMessagePassing, HPGRelMsgMessagePassing
+from chemprop.nn.hpg import (
+    HPGFragGraphLayer,
+    HPGMessagePassing,
+    HPGPairInteractAttnLayer,
+    HPGPairInteractLayer,
+    HPGRelMsgMessagePassing,
+)
 from chemprop.nn.metrics import ChempropMetric
 from chemprop.schedulers import build_NoamLike_LRSched
 from chemprop.utils.registry import Factory
@@ -49,7 +55,15 @@ logger = logging.getLogger(__name__)
 
 
 # Valid pooling types for HPG polymer readout.
-VALID_POOLING_TYPES = ("sum", "frac_weighted", "frac_arch_aware", "frac_graph")
+VALID_POOLING_TYPES = (
+    "sum",
+    "frac_weighted",
+    "frac_arch_aware",
+    "frac_graph",
+    "attn_pool",         # Phase 3A: fraction-aware learned attention pooling
+    "pair_interact",     # Phase 3B: fixed pairwise monomer interaction
+    "pair_interact_attn",  # Phase 3C: attention-weighted pairwise interaction
+)
 
 
 class HPGMPNN(pl.LightningModule):
@@ -174,6 +188,31 @@ class HPGMPNN(pl.LightningModule):
         else:
             self.frag_graph_layer = None
 
+        # Phase 3A — HPG_attnPool: fraction-aware attention scorer.
+        # scorer(h_i) = s_i;  alpha_i ∝ f_i * exp(s_i)  (per-polymer softmax).
+        # Zero-init: at start s_i=0 → alpha_i = f_i → identical to HPG_frac.
+        if pooling_type == "attn_pool":
+            self.attn_scorer = nn.Linear(d_h, 1)
+            nn.init.zeros_(self.attn_scorer.weight)
+            nn.init.zeros_(self.attn_scorer.bias)
+        else:
+            self.attn_scorer = None
+
+        # Phase 3B — HPG_pairInteract: fixed pairwise interaction MLP.
+        # h_int = Σ_{i<j} f_i f_j phi(pair_feat); output layer zero-init.
+        if pooling_type == "pair_interact":
+            self.pair_interact_layer = HPGPairInteractLayer(d_h=d_h)
+        else:
+            self.pair_interact_layer = None
+
+        # Phase 3C — HPG_pairInteractAttn: attention-weighted pair interactions.
+        # beta_ij = softmax(score(pair_feat) + log(f_i f_j)); h_int = Σ beta_ij v_ij.
+        # Both phi and score output layers zero-init.
+        if pooling_type == "pair_interact_attn":
+            self.pair_interact_attn_layer = HPGPairInteractAttnLayer(d_h=d_h)
+        else:
+            self.pair_interact_attn_layer = None
+
         # Graph readout: project pooled embedding down
         self.linear_pool = nn.Linear(d_h, d_ffn)
 
@@ -281,6 +320,45 @@ class HPGMPNN(pl.LightningModule):
         H_graph.scatter_add_(0, idx, weighted)
         return H_graph
 
+    @staticmethod
+    def _build_pairs(
+        frag_batch: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor] | None:
+        """Build all within-polymer unordered fragment pairs (i < j).
+
+        Used by Phase 3B (pair_interact) and 3C (pair_interact_attn).
+        Polymers with only one fragment contribute no pairs and are
+        handled correctly (their h_int stays zero).
+
+        Parameters
+        ----------
+        frag_batch : Tensor [F_total]
+            Polymer index for each fragment node.
+
+        Returns
+        -------
+        (idx_i, idx_j, poly_idx) or None if no pairs exist.
+            idx_i, idx_j : Tensor [P]   fragment-local pair indices (i < j)
+            poly_idx     : Tensor [P]   polymer index for each pair
+        """
+        F_total = frag_batch.shape[0]
+        if F_total < 2:
+            return None
+
+        # [F, F] mask: same polymer AND upper triangular (i < j)
+        same_poly = frag_batch.unsqueeze(0) == frag_batch.unsqueeze(1)  # [F, F]
+        upper_tri = torch.ones(
+            F_total, F_total, dtype=torch.bool, device=frag_batch.device
+        ).triu(diagonal=1)
+        pair_mask = same_poly & upper_tri  # [F, F]
+
+        if not pair_mask.any():
+            return None  # all polymers are singletons
+
+        idx_i, idx_j = pair_mask.nonzero(as_tuple=True)  # each [P]
+        poly_idx = frag_batch[idx_i]                      # [P]
+        return idx_i, idx_j, poly_idx
+
     def _pool_frag_graph(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
         """Fragment-graph update then fraction-weighted pooling (HPG_fragGraph).
 
@@ -360,6 +438,212 @@ class HPGMPNN(pl.LightningModule):
         H_graph.scatter_add_(0, idx, weighted_tilde)
         return H_graph
 
+    def _pool_attn_pool(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
+        """Fraction-aware attention pooling (HPG_attnPool, Phase 3A).
+
+        Tests whether adaptive importance weighting on top of fraction priors
+        improves polymer property prediction beyond HPG_frac.
+
+        Math (per polymer, index i over its fragment nodes):
+
+            s_i      = scorer(h_i)                       # learned scalar
+            alpha_i  = softmax( s_i + log(f_i + eps) )  # per-polymer
+                     ∝ f_i · exp(s_i)
+            h_poly   = Σ_i  alpha_i · h_i
+
+        At init (scorer = 0):  s_i = 0  →  alpha_i = f_i  (identical to HPG_frac)
+
+        Parameters
+        ----------
+        H   : Tensor [N, d_h]  node embeddings (all nodes)
+        bmg : BatchHPGMolGraph  must have frag_fracs set
+
+        Returns
+        -------
+        Tensor [B, d_h]
+        """
+        frag_mask, frag_batch, fracs = self._frag_fracs_checked(bmg, "attn_pool")
+        H_frag = H[frag_mask]                             # [F_total, d_h]
+        B = int(bmg.batch.max().item()) + 1 if bmg.batch.numel() else 1
+
+        # Step 1: log-space unnormalized weights:  s_i + log(f_i + eps)
+        s     = self.attn_scorer(H_frag).squeeze(-1)     # [F_total]
+        log_w = s + torch.log(fracs.clamp(min=1e-8))     # [F_total]
+
+        # Step 2: per-polymer max subtraction for numerical stability
+        per_poly_max = torch.full(
+            (B,), float("-inf"), dtype=log_w.dtype, device=log_w.device
+        )
+        per_poly_max.scatter_reduce_(
+            0, frag_batch, log_w, reduce="amax", include_self=True
+        )
+        log_w_stable = log_w - per_poly_max[frag_batch]  # [F_total]
+
+        # Step 3: softmax attention weights (sum to 1 per polymer)
+        exp_w = torch.exp(log_w_stable)                  # [F_total]
+        Z = torch.zeros(B, dtype=exp_w.dtype, device=exp_w.device)
+        Z.scatter_add_(0, frag_batch, exp_w)
+        alpha = exp_w / Z[frag_batch].clamp(min=1e-8)    # [F_total]
+
+        # Step 4: weighted sum over fragment embeddings
+        idx = frag_batch.unsqueeze(-1).expand_as(H_frag)
+        H_graph = torch.zeros(
+            B, H_frag.size(1), dtype=H_frag.dtype, device=H_frag.device
+        )
+        H_graph.scatter_add_(0, idx, H_frag * alpha.unsqueeze(-1))
+        return H_graph
+
+    def _pool_pair_interact(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
+        """Fraction-weighted pairwise interaction pooling (HPG_pairInteract, Phase 3B).
+
+        Tests whether polymer properties depend on explicit non-additive
+        pairwise monomer interactions beyond additive fraction-weighted pooling.
+
+        Math (per polymer, index i,j over pairs with i < j in same polymer):
+
+            h_mix      = Σ_i  f_i · h_i                          # HPG_frac baseline
+            pair_feat  = [h_i+h_j,  h_i⊙h_j,  |h_i−h_j|]      # 3·d_h, symmetric
+            phi_ij     = MLP_pair(pair_feat)                      # d_h
+            h_int      = Σ_{i<j}  f_i · f_j · phi_ij
+            h_poly     = h_mix + h_int
+
+        At init (MLP output layer = 0):  phi_ij = 0  →  h_int = 0  →  h_poly = h_mix
+
+        Parameters
+        ----------
+        H   : Tensor [N, d_h]  node embeddings (all nodes)
+        bmg : BatchHPGMolGraph  must have frag_fracs set
+
+        Returns
+        -------
+        Tensor [B, d_h]
+        """
+        frag_mask, frag_batch, fracs = self._frag_fracs_checked(bmg, "pair_interact")
+        H_frag = H[frag_mask]                             # [F_total, d_h]
+        B = int(bmg.batch.max().item()) + 1 if bmg.batch.numel() else 1
+
+        # ── Additive mixture (identical to HPG_frac) ──
+        weighted = H_frag * fracs.unsqueeze(-1)           # [F_total, d_h]
+        idx      = frag_batch.unsqueeze(-1).expand_as(H_frag)
+        h_mix    = torch.zeros(
+            B, H_frag.size(1), dtype=H_frag.dtype, device=H_frag.device
+        )
+        h_mix.scatter_add_(0, idx, weighted)
+
+        # ── Pairwise interaction term ──
+        pairs = self._build_pairs(frag_batch)
+        if pairs is None:
+            return h_mix  # all singletons — fall back to HPG_frac
+        idx_i, idx_j, poly_idx = pairs
+
+        h_i = H_frag[idx_i]                               # [P, d_h]
+        h_j = H_frag[idx_j]                               # [P, d_h]
+        f_i = fracs[idx_i]                                # [P]
+        f_j = fracs[idx_j]                                # [P]
+
+        pair_feat = torch.cat(
+            [h_i + h_j, h_i * h_j, (h_i - h_j).abs()], dim=1
+        )                                                  # [P, 3·d_h]
+        phi_ij = self.pair_interact_layer(pair_feat)      # [P, d_h]
+        w_ij   = (f_i * f_j).unsqueeze(-1)                # [P, 1]
+
+        h_int = torch.zeros(
+            B, H_frag.size(1), dtype=H_frag.dtype, device=H_frag.device
+        )
+        h_int.scatter_add_(
+            0,
+            poly_idx.unsqueeze(-1).expand_as(phi_ij),
+            w_ij * phi_ij,
+        )
+        return h_mix + h_int
+
+    def _pool_pair_interact_attn(
+        self, H: Tensor, bmg: BatchHPGMolGraph
+    ) -> Tensor:
+        """Attention-weighted pairwise interaction pooling (HPG_pairInteractAttn, Phase 3C).
+
+        Tests whether the relevance of pairwise monomer interactions must
+        itself be learned, rather than assuming all pairs contribute
+        proportional to their fraction product (Phase 3B).
+
+        Math (per polymer, index i,j over pairs with i < j in same polymer):
+
+            h_mix      = Σ_i  f_i · h_i
+            pair_feat  = [h_i+h_j,  h_i⊙h_j,  |h_i−h_j|]      # 3·d_h
+            v_ij       = phi(pair_feat)                           # d_h
+            t_ij       = score_pair(pair_feat)                    # scalar
+            beta_ij    = softmax( t_ij + log(f_i·f_j + eps) )   # per-polymer over pairs
+            h_int      = Σ_{i<j}  beta_ij · v_ij
+            h_poly     = h_mix + h_int
+
+        At init (phi and score_pair output layers = 0):  v_ij = 0  →  h_poly = h_mix
+
+        Parameters
+        ----------
+        H   : Tensor [N, d_h]  node embeddings (all nodes)
+        bmg : BatchHPGMolGraph  must have frag_fracs set
+
+        Returns
+        -------
+        Tensor [B, d_h]
+        """
+        frag_mask, frag_batch, fracs = self._frag_fracs_checked(
+            bmg, "pair_interact_attn"
+        )
+        H_frag = H[frag_mask]                             # [F_total, d_h]
+        B = int(bmg.batch.max().item()) + 1 if bmg.batch.numel() else 1
+
+        # ── Additive mixture ──
+        weighted = H_frag * fracs.unsqueeze(-1)
+        idx      = frag_batch.unsqueeze(-1).expand_as(H_frag)
+        h_mix    = torch.zeros(
+            B, H_frag.size(1), dtype=H_frag.dtype, device=H_frag.device
+        )
+        h_mix.scatter_add_(0, idx, weighted)
+
+        # ── Pair-attention interaction ──
+        pairs = self._build_pairs(frag_batch)
+        if pairs is None:
+            return h_mix
+        idx_i, idx_j, poly_idx = pairs
+
+        h_i = H_frag[idx_i]
+        h_j = H_frag[idx_j]
+        f_i = fracs[idx_i]
+        f_j = fracs[idx_j]
+
+        pair_feat = torch.cat(
+            [h_i + h_j, h_i * h_j, (h_i - h_j).abs()], dim=1
+        )                                                  # [P, 3·d_h]
+        v_ij, t_ij = self.pair_interact_attn_layer(pair_feat)  # [P, d_h], [P]
+
+        # Per-polymer pair attention with fraction prior
+        log_pair_w = t_ij + torch.log((f_i * f_j).clamp(min=1e-8))  # [P]
+
+        # Numerically stable per-polymer softmax over pairs
+        per_poly_max = torch.full(
+            (B,), float("-inf"), dtype=log_pair_w.dtype, device=log_pair_w.device
+        )
+        per_poly_max.scatter_reduce_(
+            0, poly_idx, log_pair_w, reduce="amax", include_self=True
+        )
+        log_w_stable = log_pair_w - per_poly_max[poly_idx]
+
+        exp_w = torch.exp(log_w_stable)                  # [P]
+        Z = torch.zeros(B, dtype=exp_w.dtype, device=exp_w.device)
+        Z.scatter_add_(0, poly_idx, exp_w)
+        beta = exp_w / Z[poly_idx].clamp(min=1e-8)       # [P]
+
+        h_int = torch.zeros(
+            B, H_frag.size(1), dtype=H_frag.dtype, device=H_frag.device
+        )
+        h_int.scatter_add_(
+            0,
+            poly_idx.unsqueeze(-1).expand_as(v_ij),
+            beta.unsqueeze(-1) * v_ij,
+        )
+        return h_mix + h_int
+
     # ------------------------------------------------------------------
     #  Forward
     # ------------------------------------------------------------------
@@ -381,6 +665,12 @@ class HPGMPNN(pl.LightningModule):
             H_graph = self._pool_frac_arch_aware(H, bmg)
         elif pt == "frac_graph":
             H_graph = self._pool_frag_graph(H, bmg)
+        elif pt == "attn_pool":
+            H_graph = self._pool_attn_pool(H, bmg)
+        elif pt == "pair_interact":
+            H_graph = self._pool_pair_interact(H, bmg)
+        elif pt == "pair_interact_attn":
+            H_graph = self._pool_pair_interact_attn(H, bmg)
         else:
             H_graph = self._pool_sum(H, bmg)
 

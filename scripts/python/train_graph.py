@@ -308,7 +308,11 @@ if args.model_name == "HPG":
     is_copolymer = (args.polymer_type == "copolymer")
 
     hpg_variant = getattr(args, 'hpg_variant', 'baseline')
-    use_frac_pooling = hpg_variant in ('frac', 'frac_polytype', 'frac_edgeTyped', 'frac_archAware', 'relMsg', 'fragGraph')
+    use_frac_pooling = hpg_variant in (
+        'frac', 'frac_polytype', 'frac_edgeTyped', 'frac_archAware',
+        'relMsg', 'fragGraph',
+        'attnPool', 'pairInteract', 'pairInteractAttn',  # Phase 3
+    )
     # Select featurizer: edgeTyped uses 4-dim typed edges; all others use standard d_e=1
     # frac_archAware intentionally reuses the standard featurizer (no edge typing)
     hpg_d_e = 4 if hpg_variant == 'frac_edgeTyped' else 1
@@ -376,7 +380,10 @@ if args.model_name == "HPG":
             else:
                 combined_descriptor_data_hpg = _poly_oh
 
-    elif hpg_variant in ('frac', 'frac_edgeTyped', 'frac_archAware', 'relMsg', 'fragGraph'):
+    elif hpg_variant in (
+        'frac', 'frac_edgeTyped', 'frac_archAware', 'relMsg', 'fragGraph',
+        'attnPool', 'pairInteract', 'pairInteractAttn',  # Phase 3
+    ):
         # ---- Fractions enter through pooling, NO X_d at all ----
         logger.info(f"HPG_{hpg_variant}: fractions used for pooling; no X_d")
 
@@ -520,9 +527,12 @@ if args.model_name == "HPG":
             # For regression and binary, n_tasks = 1
             n_tasks_hpg = n_classes_arg if args.task_type == 'multi' else 1
             pooling_type = (
-                "frac_arch_aware" if hpg_variant == 'frac_archAware'
-                else "frac_graph"   if hpg_variant == 'fragGraph'
-                else "frac_weighted" if use_frac_pooling
+                "frac_arch_aware"    if hpg_variant == 'frac_archAware'
+                else "frac_graph"     if hpg_variant == 'fragGraph'
+                else "attn_pool"      if hpg_variant == 'attnPool'
+                else "pair_interact"  if hpg_variant == 'pairInteract'
+                else "pair_interact_attn" if hpg_variant == 'pairInteractAttn'
+                else "frac_weighted"  if use_frac_pooling
                 else "sum"
             )
             # mp_type selects message-passing mechanism; all Phase 1 variants

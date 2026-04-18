@@ -83,7 +83,8 @@ def create_base_argument_parser(description="Train a graph model"):
                              '(copolymer datasets only; auto-upgrades mix→mix_meta, interact→interact_meta)')
     parser.add_argument('--hpg_variant', type=str, default='baseline',
                         choices=['baseline', 'frac', 'frac_polytype', 'frac_edgeTyped',
-                                 'frac_archAware', 'relMsg', 'fragGraph'],
+                                 'frac_archAware', 'relMsg', 'fragGraph',
+                                 'attnPool', 'pairInteract', 'pairInteractAttn'],
                         help='HPG model variant (only used when model=HPG): '
                              '"baseline" = original sum pooling, '
                              '"frac" = fraction-weighted pooling over fragments, '
@@ -96,9 +97,15 @@ def create_base_argument_parser(description="Train a graph model"):
                              'edge features enter message CONTENT as m_ij = alpha_ij * W_msg([h_src, e_ij]); '
                              'same d_e=1 featurizer as HPG_frac \u2014 clean Phase 2 ablation; '
                              '"fragGraph" = frac pooling + lightweight fragment-level graph MP (Phase 2B): '
-                             'one W-linear residual step over fragment-fragment edges '
-                             '(m_i = sum_{j in N_frag(i)} W(u_j), z_i = u_i + m_i); '
-                             'W zero-initialized so model starts identical to HPG_frac')
+                             'one W-linear residual step over fragment-fragment edges; '
+                             '"attnPool" = fraction-aware learned attention pooling (Phase 3A): '
+                             'alpha_i = softmax(scorer(h_i) + log(f_i)); scorer zero-init => starts as HPG_frac; '
+                             '"pairInteract" = fixed pairwise interaction (Phase 3B): '
+                             'h_poly = h_mix + sum_{i<j} f_i f_j phi([h_i+h_j, h_i*h_j, |h_i-h_j|]); '
+                             'phi output zero-init; '
+                             '"pairInteractAttn" = attention-weighted pairwise interaction (Phase 3C): '
+                             'beta_ij = softmax(score(pair_feat) + log(f_i*f_j)); h_poly = h_mix + sum beta_ij v_ij; '
+                             'both phi and score output zero-init')
 
     # Split arguments
     parser.add_argument('--split_type', type=str, default='random',

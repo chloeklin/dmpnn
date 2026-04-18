@@ -932,6 +932,263 @@ def test_fragGraph_backward_compat():
     print("  fragGraph backward compat: frag_graph_layer isolated, prior variants unaffected")
 
 
+# ──────────────────────────────────────────────────────────────────
+# Phase 3A — HPG_attnPool tests
+# ──────────────────────────────────────────────────────────────────
+
+def test_attnPool_forward():
+    """HPG_attnPool produces correct output shape."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    mg2  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
+    bmg  = BatchHPGMolGraph([mg1, mg2])
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="attn_pool")
+    with torch.no_grad():
+        out = model(bmg)
+    assert out.shape == (2, 1), f"Expected (2,1), got {out.shape}"
+    print(f"  HPG_attnPool output: {out.shape}")
+
+
+def test_attnPool_zero_init_matches_frac():
+    """At init (scorer=0) attn_pool must produce identical output to frac_weighted."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.6, 0.4], dtype=np.float32)),
+              feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.3, 0.7], dtype=np.float32))]
+    bmg = BatchHPGMolGraph(graphs)
+
+    torch.manual_seed(0)
+    mf = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+    ma = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="attn_pool")
+    shared = set(mf.state_dict()) & set(ma.state_dict())
+    with torch.no_grad():
+        for k in shared:
+            ma.state_dict()[k].copy_(mf.state_dict()[k])
+    assert torch.all(ma.attn_scorer.weight == 0), "attn_scorer.weight should be zero at init"
+    assert torch.all(ma.attn_scorer.bias   == 0), "attn_scorer.bias should be zero at init"
+    mf.eval(); ma.eval()
+    with torch.no_grad():
+        pf, pa = mf(bmg), ma(bmg)
+    assert torch.allclose(pf, pa, atol=1e-5), (
+        f"W=0 → attn_pool should equal frac_weighted.\n  frac: {pf.tolist()}\n  attn: {pa.tolist()}"
+    )
+    print(f"  attnPool zero-init == frac_weighted: confirmed")
+
+
+def test_attnPool_diverges_nonzero():
+    """With non-zero scorer, attn_pool deviates from frac_weighted."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.6, 0.4], dtype=np.float32))]
+    bmg = BatchHPGMolGraph(graphs)
+    torch.manual_seed(0)
+    mf = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+    torch.manual_seed(0)
+    ma = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="attn_pool")
+    nn.init.ones_(ma.attn_scorer.weight)  # push scores away from 0
+    with torch.no_grad():
+        pf, pa = mf(bmg), ma(bmg)
+    assert not torch.allclose(pf, pa, atol=1e-4), "Non-zero scorer should differ from frac_weighted"
+    print(f"  Non-zero scorer → diverges from frac_weighted: confirmed")
+
+
+def test_attnPool_batching_isolation():
+    """Same polymer gives identical prediction singleton vs batch of two."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+              frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    bmg_s = BatchHPGMolGraph([mg])
+    bmg_d = BatchHPGMolGraph([mg, mg])
+    torch.manual_seed(0)
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="attn_pool")
+    nn.init.ones_(model.attn_scorer.weight)
+    model.eval()
+    with torch.no_grad():
+        ps, pd = model(bmg_s), model(bmg_d)
+    assert torch.allclose(ps[0], pd[0], atol=1e-5), "Batching isolation failed"
+    assert torch.allclose(pd[0], pd[1], atol=1e-5), "Identical polymers gave different results"
+    print(f"  attnPool batching isolation: confirmed")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 3B — HPG_pairInteract tests
+# ──────────────────────────────────────────────────────────────────
+
+def test_pairInteract_forward():
+    """HPG_pairInteract produces correct output shape."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    mg2  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
+    bmg  = BatchHPGMolGraph([mg1, mg2])
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact")
+    with torch.no_grad():
+        out = model(bmg)
+    assert out.shape == (2, 1), f"Expected (2,1), got {out.shape}"
+    print(f"  HPG_pairInteract output: {out.shape}")
+
+
+def test_pairInteract_zero_init_matches_frac():
+    """At init (MLP output layer=0) pair_interact must equal frac_weighted."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.6, 0.4], dtype=np.float32)),
+              feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.3, 0.7], dtype=np.float32))]
+    bmg = BatchHPGMolGraph(graphs)
+    torch.manual_seed(0)
+    mf = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+    mp = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="pair_interact")
+    shared = set(mf.state_dict()) & set(mp.state_dict())
+    with torch.no_grad():
+        for k in shared:
+            mp.state_dict()[k].copy_(mf.state_dict()[k])
+    assert torch.all(mp.pair_interact_layer.mlp[-1].weight == 0), "output layer should be zero"
+    mf.eval(); mp.eval()
+    with torch.no_grad():
+        pf, pp = mf(bmg), mp(bmg)
+    assert torch.allclose(pf, pp, atol=1e-5), (
+        f"W=0 → pair_interact should equal frac_weighted.\n  {pf.tolist()} vs {pp.tolist()}"
+    )
+    print(f"  pairInteract zero-init == frac_weighted: confirmed")
+
+
+def test_pairInteract_diverges_nonzero():
+    """With non-zero MLP, pair_interact deviates from frac_weighted."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.6, 0.4], dtype=np.float32))]
+    bmg = BatchHPGMolGraph(graphs)
+    torch.manual_seed(0)
+    mf = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+    torch.manual_seed(0)
+    mp = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="pair_interact")
+    nn.init.eye_(mp.pair_interact_layer.mlp[-1].weight)
+    with torch.no_grad():
+        pf, pp = mf(bmg), mp(bmg)
+    assert not torch.allclose(pf, pp, atol=1e-4), "Non-zero MLP should differ from frac_weighted"
+    print(f"  pairInteract non-zero → diverges from frac_weighted: confirmed")
+
+
+def test_pairInteract_batching_isolation():
+    """Pairwise interaction does not cross polymer boundaries."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+              frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    bmg_s = BatchHPGMolGraph([mg])
+    bmg_d = BatchHPGMolGraph([mg, mg])
+    torch.manual_seed(0)
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact")
+    nn.init.eye_(model.pair_interact_layer.mlp[-1].weight)
+    model.eval()
+    with torch.no_grad():
+        ps, pd = model(bmg_s), model(bmg_d)
+    assert torch.allclose(ps[0], pd[0], atol=1e-5), "Batching isolation failed"
+    assert torch.allclose(pd[0], pd[1], atol=1e-5), "Identical polymers gave different results"
+    print(f"  pairInteract batching isolation: confirmed")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 3C — HPG_pairInteractAttn tests
+# ──────────────────────────────────────────────────────────────────
+
+def test_pairInteractAttn_forward():
+    """HPG_pairInteractAttn produces correct output shape."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    mg2  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
+    bmg  = BatchHPGMolGraph([mg1, mg2])
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact_attn")
+    with torch.no_grad():
+        out = model(bmg)
+    assert out.shape == (2, 1), f"Expected (2,1), got {out.shape}"
+    print(f"  HPG_pairInteractAttn output: {out.shape}")
+
+
+def test_pairInteractAttn_zero_init_matches_frac():
+    """At init pair_interact_attn must equal frac_weighted (phi output layer = 0)."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.6, 0.4], dtype=np.float32)),
+              feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.3, 0.7], dtype=np.float32))]
+    bmg = BatchHPGMolGraph(graphs)
+    torch.manual_seed(0)
+    mf  = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                  n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+    mpa = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                  n_tasks=1, d_xd=0, pooling_type="pair_interact_attn")
+    shared = set(mf.state_dict()) & set(mpa.state_dict())
+    with torch.no_grad():
+        for k in shared:
+            mpa.state_dict()[k].copy_(mf.state_dict()[k])
+    assert torch.all(mpa.pair_interact_attn_layer.phi[-1].weight   == 0)
+    assert torch.all(mpa.pair_interact_attn_layer.score.weight == 0)
+    mf.eval(); mpa.eval()
+    with torch.no_grad():
+        pf, ppa = mf(bmg), mpa(bmg)
+    assert torch.allclose(pf, ppa, atol=1e-5), (
+        f"pairInteractAttn zero-init should equal frac_weighted.\n  {pf.tolist()} vs {ppa.tolist()}"
+    )
+    print(f"  pairInteractAttn zero-init == frac_weighted: confirmed")
+
+
+def test_pairInteractAttn_separate_from_pairInteract():
+    """pairInteractAttn and pairInteract are independent model branches."""
+    feat = HPGMolGraphFeaturizer()
+    m_pi  = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact")
+    m_pia = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact_attn")
+    # Verify module isolation
+    assert m_pi.pair_interact_layer       is not None
+    assert m_pi.pair_interact_attn_layer  is None
+    assert m_pia.pair_interact_attn_layer is not None
+    assert m_pia.pair_interact_layer      is None
+    print("  pairInteractAttn/pairInteract are separate module branches: confirmed")
+
+
+def test_phase3_backward_compat():
+    """All prior pooling types still instantiate cleanly with no Phase 3 modules."""
+    feat = HPGMolGraphFeaturizer()
+    for pt in ("sum", "frac_weighted", "frac_arch_aware", "frac_graph"):
+        m = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type=pt)
+        assert m.attn_scorer            is None, f"{pt} should have attn_scorer=None"
+        assert m.pair_interact_layer    is None, f"{pt} should have pair_interact_layer=None"
+        assert m.pair_interact_attn_layer is None, f"{pt} should have pair_interact_attn_layer=None"
+    print("  Phase 3 backward compat: prior variants unaffected")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  HPG-GAT Smoke Tests")
@@ -982,6 +1239,22 @@ if __name__ == "__main__":
         ("37. Non-zero W -> diverges from frac", test_fragGraph_diverges_after_nonzero_W),
         ("38. Batching isolation", test_fragGraph_batching_isolation),
         ("39. Backward compat (frag_graph_layer isolated)", test_fragGraph_backward_compat),
+        # attnPool (Phase 3A) tests
+        ("40. HPG_attnPool forward", test_attnPool_forward),
+        ("41. scorer=0 -> matches frac_weighted", test_attnPool_zero_init_matches_frac),
+        ("42. Non-zero scorer -> diverges from frac", test_attnPool_diverges_nonzero),
+        ("43. Batching isolation", test_attnPool_batching_isolation),
+        # pairInteract (Phase 3B) tests
+        ("44. HPG_pairInteract forward", test_pairInteract_forward),
+        ("45. MLP output=0 -> matches frac_weighted", test_pairInteract_zero_init_matches_frac),
+        ("46. Non-zero MLP -> diverges from frac", test_pairInteract_diverges_nonzero),
+        ("47. Batching isolation (within-polymer only)", test_pairInteract_batching_isolation),
+        # pairInteractAttn (Phase 3C) tests
+        ("48. HPG_pairInteractAttn forward", test_pairInteractAttn_forward),
+        ("49. phi=0 -> matches frac_weighted", test_pairInteractAttn_zero_init_matches_frac),
+        ("50. Separate branch from pairInteract", test_pairInteractAttn_separate_from_pairInteract),
+        # Phase 3 shared
+        ("51. Phase 3 backward compat (prior variants unaffected)", test_phase3_backward_compat),
     ]
 
     for name, fn in tests:

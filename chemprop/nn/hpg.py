@@ -485,3 +485,109 @@ class HPGFragGraphLayer(nn.Module):
 
         # --- Residual update: z = H + aggregated ---
         return H + aggregated
+
+
+# ---------------------------------------------------------------------------
+#  Phase 3B: HPG_pairInteract — fixed pairwise interaction layer
+# ---------------------------------------------------------------------------
+
+class HPGPairInteractLayer(nn.Module):
+    """Pairwise monomer interaction MLP for HPG_pairInteract (Phase 3B).
+
+    HPG_pairInteract tests whether polymer properties depend on explicit
+    non-additive pairwise monomer interactions beyond additive fraction-
+    weighted pooling.
+
+    Pair feature (symmetric, no bias in construction):
+        pair_feat(i,j) = [h_i + h_j,  h_i ⊙ h_j,  |h_i − h_j|]   # 3·d_h
+
+    MLP mapping:
+        phi(h_i, h_j) = MLP_pair(pair_feat(i,j))   # d_h output
+
+    The output layer of MLP_pair is **zero-initialized** so the interaction
+    term h_int = Σ_{i<j} f_i f_j phi_ij starts at zero, keeping the model
+    identical to HPG_frac at initialization.
+
+    Parameters
+    ----------
+    d_h : int
+        Hidden dimension (must match HPG encoder output).
+    """
+
+    def __init__(self, d_h: int):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(3 * d_h, d_h),
+            nn.ReLU(),
+            nn.Linear(d_h, d_h),
+        )
+        # Zero-init output layer → phi = 0 at start → h_int = 0 → h_poly = h_mix
+        nn.init.zeros_(self.mlp[-1].weight)
+        nn.init.zeros_(self.mlp[-1].bias)
+
+    def forward(self, pair_feat: Tensor) -> Tensor:
+        """Compute pair representation from pre-built pair features.
+
+        Parameters
+        ----------
+        pair_feat : Tensor [P, 3·d_h]
+
+        Returns
+        -------
+        Tensor [P, d_h]
+        """
+        return self.mlp(pair_feat)
+
+
+# ---------------------------------------------------------------------------
+#  Phase 3C: HPG_pairInteractAttn — attention-weighted pairwise interaction
+# ---------------------------------------------------------------------------
+
+class HPGPairInteractAttnLayer(nn.Module):
+    """Attention-weighted pairwise interaction layer for HPG_pairInteractAttn (Phase 3C).
+
+    HPG_pairInteractAttn tests whether the relevance of pairwise monomer
+    interactions must itself be learned, rather than assuming all pairs
+    contribute proportional to their fraction product (Phase 3B).
+
+    This module holds two heads over the same pair feature:
+        phi     : pair representation    pair_feat → d_h  (MLP, 2-layer)
+        score   : pair importance scalar pair_feat → 1    (Linear)
+
+    Both output layers are **zero-initialized**:
+        score  = 0 → beta_ij uniform over fraction product → beta starts near f_i f_j
+        phi    = 0 → v_ij = 0 → h_int = 0 → h_poly = h_mix  (identical to HPG_frac)
+
+    Parameters
+    ----------
+    d_h : int
+        Hidden dimension (must match HPG encoder output).
+    """
+
+    def __init__(self, d_h: int):
+        super().__init__()
+        self.phi = nn.Sequential(
+            nn.Linear(3 * d_h, d_h),
+            nn.ReLU(),
+            nn.Linear(d_h, d_h),
+        )
+        self.score = nn.Linear(3 * d_h, 1)
+        # Zero-init both output layers for conservative start (h_int = 0 at init)
+        nn.init.zeros_(self.phi[-1].weight)
+        nn.init.zeros_(self.phi[-1].bias)
+        nn.init.zeros_(self.score.weight)
+        nn.init.zeros_(self.score.bias)
+
+    def forward(self, pair_feat: Tensor) -> tuple[Tensor, Tensor]:
+        """Compute pair representation and scalar score.
+
+        Parameters
+        ----------
+        pair_feat : Tensor [P, 3·d_h]
+
+        Returns
+        -------
+        v_ij : Tensor [P, d_h]   pair representation
+        t_ij : Tensor [P]        scalar importance score (un-normalized)
+        """
+        return self.phi(pair_feat), self.score(pair_feat).squeeze(-1)

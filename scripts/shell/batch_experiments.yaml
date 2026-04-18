@@ -1566,29 +1566,80 @@ experiments:
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
 
-  # -- HPG_relMsg (a_held_out) -- [Phase 2A]
+  # -- HPG_relMsg (a_held_out) -- [Phase 2A: DONE]
   # Relation-message-aware GAT: edge features enter message CONTENT (not only attention).
   # Message: m_ij = alpha_ij * W_msg([h_src, e_ij])
   # Pooling: fraction-weighted (identical to HPG_frac for fair comparison).
   # Featurizer: standard d_e=1 (same as HPG_frac — no edge typing).
   # Single shared W_msg; per-relation routing is Phase 2B.
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: relMsg
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: relMsg
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
-  # -- HPG_fragGraph (a_held_out) -- [Phase 2B]
+  # -- HPG_fragGraph (a_held_out) -- [Phase 2B: DONE]
   # Explicit fragment-level adjacency: one lightweight W-linear message-passing
   # step over fragment-fragment edges after the standard HPG encoder.
   # Message:  m_i = sum_{j in N_frag(i)} W(u_j),  z_i = u_i + m_i
   # Pooling:  fraction-weighted (identical to HPG_frac — fair comparison).
   # Featurizer: standard d_e=1 (same as HPG_frac).
   # W zero-initialized so model starts identical to HPG_frac at epoch 0.
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: fragGraph
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+
+  # ═══════════════════════════════════════════════════════════════════
+  # HPG PHASE 3 VARIANTS (a_held_out)
+  #
+  # Readout / polymer-aggregation ablations only.
+  # Graph construction, edge features, and message passing are
+  # identical to HPG_frac in all three variants.
+  # All Phase 3 modules are zero-initialized so training starts
+  # identical to HPG_frac and only diverges if the new readout
+  # signal is informative.
+  #
+  # 3A attnPool        : fraction-aware adaptive attention pooling
+  #                      alpha_i = softmax(scorer(h_i) + log(f_i))
+  # 3B pairInteract    : explicit pairwise interaction term
+  #                      h_poly = h_mix + sum_{i<j} f_i f_j phi([h_i+h_j, h_i*h_j, |h_i-h_j|])
+  # 3C pairInteractAttn: learned pairwise importance
+  #                      beta_ij = softmax(score(pair_feat) + log(f_i*f_j))
+  #                      h_poly  = h_mix + sum_{i<j} beta_ij v_ij
+  # ═══════════════════════════════════════════════════════════════════
+
+  # -- HPG_attnPool (a_held_out) -- [Phase 3A]
+  # Tests whether monomer importance should be learned adaptively on top of
+  # fraction-based pooling.  scorer zero-init → starts as HPG_frac.
   - <<: *eaip_base
     model: HPG
-    hpg_variant: fragGraph
+    hpg_variant: attnPool
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
+
+  # -- HPG_pairInteract (a_held_out) -- [Phase 3B]
+  # Tests whether polymer properties depend on explicit non-additive pairwise
+  # monomer interactions beyond additive mixture pooling.
+  # MLP output layer zero-init → h_int = 0 at start → starts as HPG_frac.
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: pairInteract
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
+
+  # -- HPG_pairInteractAttn (a_held_out) -- [Phase 3C]
+  # Tests whether the relevance of pairwise monomer interactions must itself
+  # be learned, rather than assuming all pairs contribute equally (Phase 3B).
+  # Both phi and score output layers zero-init → starts as HPG_frac.
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: pairInteractAttn
     split_type: a_held_out
     walltime: "3:00:00"
     targets: *eaip_targets
