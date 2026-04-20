@@ -60,20 +60,26 @@ MODEL_ORDER = [
     "HPG_frac_archAware",
     "HPG_relMsg",
     "HPG_fragGraph",
+    "HPG_attnPool",      # Phase 3A
+    "HPG_pairInteract",  # Phase 3B
+    "HPG_pairInteractAttn",  # Phase 3C
 ]
 
 # Regex patterns matched against the file stem (first match wins).
 # Keys are regex strings; values are canonical model names.
 VARIANT_MAP: dict[str, str] = {
-    r"hpg_frac_archAware":  "HPG_frac_archAware",
-    r"hpg_frac_edgeTyped":  "HPG_frac_edgeTyped",
-    r"hpg_frac_polytype":   "HPG_frac_polytype",
-    r"hpg_relMsg":          "HPG_relMsg",
-    r"hpg_fragGraph":       "HPG_fragGraph",
-    r"hpg_frac(?=__)":      "HPG_frac",
-    r"HPG_baseline":        "HPG_baseline",
+    r"hpg_frac_archAware":      "HPG_frac_archAware",
+    r"hpg_frac_edgeTyped":      "HPG_frac_edgeTyped",
+    r"hpg_frac_polytype":       "HPG_frac_polytype",
+    r"hpg_relMsg":              "HPG_relMsg",
+    r"hpg_fragGraph":           "HPG_fragGraph",
+    r"hpg_pairInteractAttn":    "HPG_pairInteractAttn",  # Phase 3C (before pairInteract)
+    r"hpg_pairInteract(?=[^A]|$)": "HPG_pairInteract",  # Phase 3B
+    r"hpg_attnPool":            "HPG_attnPool",          # Phase 3A
+    r"hpg_frac(?=__)":          "HPG_frac",
+    r"HPG_baseline":            "HPG_baseline",
     # fallback patterns for unlabelled baseline files
-    r"ea_ip__a_held_out":   "HPG_baseline",
+    r"ea_ip__a_held_out":       "HPG_baseline",
 }
 
 # Map raw target strings from the 'target' column to short display labels
