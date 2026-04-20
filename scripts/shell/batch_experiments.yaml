@@ -1612,34 +1612,57 @@ experiments:
   #                      h_poly  = h_mix + sum_{i<j} beta_ij v_ij
   # ═══════════════════════════════════════════════════════════════════
 
-  # -- HPG_attnPool (a_held_out) -- [Phase 3A]
+  # -- HPG_attnPool (a_held_out) -- [Phase 3A: DONE]
   # Tests whether monomer importance should be learned adaptively on top of
   # fraction-based pooling.  scorer zero-init → starts as HPG_frac.
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: attnPool
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: attnPool
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
-  # -- HPG_pairInteract (a_held_out) -- [Phase 3B]
+  # -- HPG_pairInteract (a_held_out) -- [Phase 3B: DONE]
   # Tests whether polymer properties depend on explicit non-additive pairwise
   # monomer interactions beyond additive mixture pooling.
   # MLP output layer zero-init → h_int = 0 at start → starts as HPG_frac.
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: pairInteract
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: pairInteract
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
-  # -- HPG_pairInteractAttn (a_held_out) -- [Phase 3C]
+  # -- HPG_pairInteractAttn (a_held_out) -- [Phase 3C: DONE]
   # Tests whether the relevance of pairwise monomer interactions must itself
   # be learned, rather than assuming all pairs contribute equally (Phase 3B).
   # Both phi and score output layers zero-init → starts as HPG_frac.
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: pairInteractAttn
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
+
+  # ═══════════════════════════════════════════════════════════════════
+  # HPG PHASE 4 VARIANT (a_held_out)
+  #
+  # Gated pairwise interaction: the model learns a per-polymer scalar
+  # gate λ ∈ [0,1] controlling how much pairwise interaction signal
+  # is mixed in.  Graph construction and message passing unchanged.
+  #
+  # 4  pairInteractGate : h_poly = h_mix + λ · h_int
+  #    λ = sigmoid(Linear(h_mix))
+  #    pair MLP output zero-init + gate bias = -3 (λ ≈ 0.05)
+  #    ⇒ starts identical to HPG_frac.
+  # ═══════════════════════════════════════════════════════════════════
+
+  # -- HPG_pairInteractGate (a_held_out) -- [Phase 4]
+  # Tests whether an adaptive gate on pairwise interactions can retain
+  # HPG_pairInteract's IP improvement while avoiding EA degradation.
   - <<: *eaip_base
     model: HPG
-    hpg_variant: pairInteractAttn
+    hpg_variant: pairInteractGate
     split_type: a_held_out
     walltime: "3:00:00"
     targets: *eaip_targets

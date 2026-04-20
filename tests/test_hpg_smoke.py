@@ -1189,6 +1189,184 @@ def test_phase3_backward_compat():
     print("  Phase 3 backward compat: prior variants unaffected")
 
 
+# ──────────────────────────────────────────────────────────────────
+# Phase 4 — HPG_pairInteractGate tests
+# ──────────────────────────────────────────────────────────────────
+
+def test_pairInteractGate_forward():
+    """HPG_pairInteractGate produces correct output shape."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    mg2  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
+    bmg  = BatchHPGMolGraph([mg1, mg2])
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact_gate")
+    with torch.no_grad():
+        out = model(bmg)
+    assert out.shape == (2, 1), f"Expected (2,1), got {out.shape}"
+    print(f"  HPG_pairInteractGate output: {out.shape}")
+
+
+def test_pairInteractGate_zero_init_matches_frac():
+    """At init (MLP=0, gate bias=-3) output is very close to HPG_frac.
+
+    Because sigmoid(-3) ≈ 0.047 (not exactly 0), and MLP output=0 (h_int=0),
+    the gated result is:  h_mix + 0.047 * 0 = h_mix.
+    So the output should be exactly equal to frac_weighted.
+    """
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.6, 0.4], dtype=np.float32)),
+              feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.3, 0.7], dtype=np.float32))]
+    bmg = BatchHPGMolGraph(graphs)
+
+    torch.manual_seed(0)
+    mf = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+    mg = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="pair_interact_gate")
+    shared = set(mf.state_dict()) & set(mg.state_dict())
+    with torch.no_grad():
+        for k in shared:
+            mg.state_dict()[k].copy_(mf.state_dict()[k])
+    # Verify zero-init of pair MLP output layer
+    assert torch.all(mg.pair_interact_gate_layer.pair_mlp[-1].weight == 0)
+    assert torch.all(mg.pair_interact_gate_layer.pair_mlp[-1].bias   == 0)
+    mf.eval(); mg.eval()
+    with torch.no_grad():
+        pf, pg = mf(bmg), mg(bmg)
+    assert torch.allclose(pf, pg, atol=1e-5), (
+        f"h_int=0 → gated should equal frac_weighted.\n  frac: {pf.tolist()}\n  gate: {pg.tolist()}"
+    )
+    print(f"  pairInteractGate zero-init == frac_weighted: confirmed")
+
+
+def test_pairInteractGate_diverges_nonzero():
+    """With non-zero pair MLP, gated output deviates from frac_weighted."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    graphs = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                   frag_fracs=np.array([0.6, 0.4], dtype=np.float32))]
+    bmg = BatchHPGMolGraph(graphs)
+    torch.manual_seed(0)
+    mf = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+    mg = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                 n_tasks=1, d_xd=0, pooling_type="pair_interact_gate")
+    shared = set(mf.state_dict()) & set(mg.state_dict())
+    with torch.no_grad():
+        for k in shared:
+            mg.state_dict()[k].copy_(mf.state_dict()[k])
+        # Perturb pair MLP to make h_int non-zero
+        mg.pair_interact_gate_layer.pair_mlp[-1].weight.fill_(0.1)
+        # Set gate bias to 0 so lambda ≈ 0.5
+        mg.pair_interact_gate_layer.gate.bias.fill_(0.0)
+    mf.eval(); mg.eval()
+    with torch.no_grad():
+        pf, pg = mf(bmg), mg(bmg)
+    assert not torch.allclose(pf, pg, atol=1e-3), (
+        "Non-zero pair MLP + open gate → should diverge from frac_weighted"
+    )
+    print(f"  pairInteractGate non-zero → diverges from frac_weighted: confirmed")
+
+
+def test_pairInteractGate_batching_isolation():
+    """Pair interactions and gate are polymer-local."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    g1 = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+              frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    g2 = feat(["[*]CCC[*]", "[*]OCCO[*]"], connections=[(0, 1, 1.0)],
+              frag_fracs=np.array([0.5, 0.5], dtype=np.float32))
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact_gate")
+    model.eval()
+    with torch.no_grad():
+        out_single = model(BatchHPGMolGraph([g1]))       # [1, 1]
+        out_batch  = model(BatchHPGMolGraph([g1, g2]))    # [2, 1]
+    assert torch.allclose(out_single, out_batch[:1], atol=1e-4), (
+        f"Polymer 0 should be identical alone vs in batch.\n"
+        f"  single: {out_single.tolist()}\n  batch[0]: {out_batch[0].tolist()}"
+    )
+    print(f"  pairInteractGate batching isolation: confirmed")
+
+
+def test_pairInteractGate_lambda_shape():
+    """Gate lambda has shape [B, 1] and is in [0, 1]."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    mg2  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
+    bmg  = BatchHPGMolGraph([mg1, mg2])
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact_gate")
+    model.eval()
+    with torch.no_grad():
+        _ = model(bmg)
+    lam = model._diag_lambda
+    assert lam.shape == (2, 1), f"Expected lambda shape (2,1), got {lam.shape}"
+    assert (lam >= 0).all() and (lam <= 1).all(), f"Lambda must be in [0,1], got {lam}"
+    print(f"  pairInteractGate lambda shape={lam.shape}, range=[{lam.min():.4f}, {lam.max():.4f}]")
+
+
+def test_pairInteractGate_diagnostics():
+    """Eval mode produces all four diagnostic tensors."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    mg1  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.6, 0.4], dtype=np.float32))
+    mg2  = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                frag_fracs=np.array([0.3, 0.7], dtype=np.float32))
+    bmg  = BatchHPGMolGraph([mg1, mg2])
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="pair_interact_gate")
+    model.eval()
+    with torch.no_grad():
+        _ = model(bmg)
+    assert hasattr(model, '_diag_lambda'), "Missing _diag_lambda"
+    assert hasattr(model, '_diag_norm_mix'), "Missing _diag_norm_mix"
+    assert hasattr(model, '_diag_norm_int'), "Missing _diag_norm_int"
+    assert hasattr(model, '_diag_ratio'), "Missing _diag_ratio"
+    assert model._diag_lambda.shape == (2, 1)
+    assert model._diag_norm_mix.shape == (2,)
+    assert model._diag_norm_int.shape == (2,)
+    assert model._diag_ratio.shape == (2,)
+    print(f"  diagnostics present: lambda={model._diag_lambda.tolist()}, "
+          f"ratio={model._diag_ratio.tolist()}")
+
+
+def test_pairInteractGate_module_isolation():
+    """pairInteractGate has its own layer; Phase 3 modules are None."""
+    feat = HPGMolGraphFeaturizer()
+    m = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                n_tasks=1, d_xd=0, pooling_type="pair_interact_gate")
+    assert m.pair_interact_gate_layer is not None
+    assert m.pair_interact_layer      is None
+    assert m.pair_interact_attn_layer is None
+    assert m.attn_scorer              is None
+    print("  pairInteractGate module isolation: confirmed")
+
+
+def test_phase4_backward_compat():
+    """All prior pooling types still work; Phase 4 module is None on them."""
+    feat = HPGMolGraphFeaturizer()
+    for pt in ("sum", "frac_weighted", "frac_arch_aware", "frac_graph",
+               "attn_pool", "pair_interact", "pair_interact_attn"):
+        m = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type=pt)
+        assert m.pair_interact_gate_layer is None, (
+            f"{pt} should have pair_interact_gate_layer=None"
+        )
+    print("  Phase 4 backward compat: all prior variants unaffected")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  HPG-GAT Smoke Tests")
@@ -1255,6 +1433,15 @@ if __name__ == "__main__":
         ("50. Separate branch from pairInteract", test_pairInteractAttn_separate_from_pairInteract),
         # Phase 3 shared
         ("51. Phase 3 backward compat (prior variants unaffected)", test_phase3_backward_compat),
+        # pairInteractGate (Phase 4) tests
+        ("52. HPG_pairInteractGate forward", test_pairInteractGate_forward),
+        ("53. MLP=0 + gate bias=-3 -> matches frac_weighted", test_pairInteractGate_zero_init_matches_frac),
+        ("54. Non-zero MLP + open gate -> diverges", test_pairInteractGate_diverges_nonzero),
+        ("55. Batching isolation", test_pairInteractGate_batching_isolation),
+        ("56. Lambda shape and range", test_pairInteractGate_lambda_shape),
+        ("57. Diagnostics in eval mode", test_pairInteractGate_diagnostics),
+        ("58. Module isolation", test_pairInteractGate_module_isolation),
+        ("59. Phase 4 backward compat", test_phase4_backward_compat),
     ]
 
     for name, fn in tests:

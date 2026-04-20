@@ -312,6 +312,7 @@ if args.model_name == "HPG":
         'frac', 'frac_polytype', 'frac_edgeTyped', 'frac_archAware',
         'relMsg', 'fragGraph',
         'attnPool', 'pairInteract', 'pairInteractAttn',  # Phase 3
+        'pairInteractGate',  # Phase 4
     )
     # Select featurizer: edgeTyped uses 4-dim typed edges; all others use standard d_e=1
     # frac_archAware intentionally reuses the standard featurizer (no edge typing)
@@ -383,6 +384,7 @@ if args.model_name == "HPG":
     elif hpg_variant in (
         'frac', 'frac_edgeTyped', 'frac_archAware', 'relMsg', 'fragGraph',
         'attnPool', 'pairInteract', 'pairInteractAttn',  # Phase 3
+        'pairInteractGate',  # Phase 4
     ):
         # ---- Fractions enter through pooling, NO X_d at all ----
         logger.info(f"HPG_{hpg_variant}: fractions used for pooling; no X_d")
@@ -532,6 +534,7 @@ if args.model_name == "HPG":
                 else "attn_pool"      if hpg_variant == 'attnPool'
                 else "pair_interact"  if hpg_variant == 'pairInteract'
                 else "pair_interact_attn" if hpg_variant == 'pairInteractAttn'
+                else "pair_interact_gate" if hpg_variant == 'pairInteractGate'
                 else "frac_weighted"  if use_frac_pooling
                 else "sum"
             )

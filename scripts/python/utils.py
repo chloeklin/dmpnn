@@ -84,7 +84,8 @@ def create_base_argument_parser(description="Train a graph model"):
     parser.add_argument('--hpg_variant', type=str, default='baseline',
                         choices=['baseline', 'frac', 'frac_polytype', 'frac_edgeTyped',
                                  'frac_archAware', 'relMsg', 'fragGraph',
-                                 'attnPool', 'pairInteract', 'pairInteractAttn'],
+                                 'attnPool', 'pairInteract', 'pairInteractAttn',
+                                 'pairInteractGate'],
                         help='HPG model variant (only used when model=HPG): '
                              '"baseline" = original sum pooling, '
                              '"frac" = fraction-weighted pooling over fragments, '
@@ -105,7 +106,10 @@ def create_base_argument_parser(description="Train a graph model"):
                              'phi output zero-init; '
                              '"pairInteractAttn" = attention-weighted pairwise interaction (Phase 3C): '
                              'beta_ij = softmax(score(pair_feat) + log(f_i*f_j)); h_poly = h_mix + sum beta_ij v_ij; '
-                             'both phi and score output zero-init')
+                             'both phi and score output zero-init; '
+                             '"pairInteractGate" = gated pairwise interaction (Phase 4): '
+                             'h_poly = h_mix + lambda * h_int where lambda = sigmoid(Linear(h_mix)); '
+                             'pair MLP output zero-init + gate bias=-3 => starts as HPG_frac')
 
     # Split arguments
     parser.add_argument('--split_type', type=str, default='random',

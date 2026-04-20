@@ -44,6 +44,7 @@ from chemprop.nn.hpg import (
     HPGFragGraphLayer,
     HPGMessagePassing,
     HPGPairInteractAttnLayer,
+    HPGPairInteractGateLayer,
     HPGPairInteractLayer,
     HPGRelMsgMessagePassing,
 )
@@ -60,9 +61,10 @@ VALID_POOLING_TYPES = (
     "frac_weighted",
     "frac_arch_aware",
     "frac_graph",
-    "attn_pool",         # Phase 3A: fraction-aware learned attention pooling
-    "pair_interact",     # Phase 3B: fixed pairwise monomer interaction
-    "pair_interact_attn",  # Phase 3C: attention-weighted pairwise interaction
+    "attn_pool",             # Phase 3A: fraction-aware learned attention pooling
+    "pair_interact",         # Phase 3B: fixed pairwise monomer interaction
+    "pair_interact_attn",    # Phase 3C: attention-weighted pairwise interaction
+    "pair_interact_gate",    # Phase 4:  gated pairwise interaction
 )
 
 
@@ -212,6 +214,15 @@ class HPGMPNN(pl.LightningModule):
             self.pair_interact_attn_layer = HPGPairInteractAttnLayer(d_h=d_h)
         else:
             self.pair_interact_attn_layer = None
+
+        # Phase 4 — HPG_pairInteractGate: gated pairwise interaction.
+        # h_poly = h_mix + λ · h_int, where λ = sigmoid(Linear(h_mix)).
+        # pair MLP output layer zero-init (h_int=0); gate bias=-3 (λ≈0.05).
+        # Combined → model starts ≈ HPG_frac.
+        if pooling_type == "pair_interact_gate":
+            self.pair_interact_gate_layer = HPGPairInteractGateLayer(d_h=d_h)
+        else:
+            self.pair_interact_gate_layer = None
 
         # Graph readout: project pooled embedding down
         self.linear_pool = nn.Linear(d_h, d_ffn)
@@ -644,6 +655,101 @@ class HPGMPNN(pl.LightningModule):
         )
         return h_mix + h_int
 
+    def _pool_pair_interact_gate(
+        self, H: Tensor, bmg: BatchHPGMolGraph
+    ) -> Tensor:
+        """Gated pairwise interaction pooling (HPG_pairInteractGate, Phase 4).
+
+        HPG_pairInteractGate decomposes the polymer representation into:
+          - an additive composition term  (h_mix, identical to HPG_frac)
+          - a pairwise interaction correction  (h_int, same MLP as Phase 3B)
+        and learns a scalar gate λ ∈ [0, 1] to control how much interaction
+        signal is used for each polymer.
+
+        Math (per polymer, index i,j over pairs with i < j in same polymer):
+
+            h_mix      = Σ_i  f_i · h_i                          # HPG_frac baseline
+            pair_feat  = [h_i+h_j,  h_i⊙h_j,  |h_i−h_j|]      # 3·d_h, symmetric
+            phi_ij     = MLP_pair(pair_feat)                      # d_h
+            h_int      = Σ_{i<j}  f_i · f_j · phi_ij
+            λ          = sigmoid(Linear(h_mix))                   # [B, 1]
+            h_poly     = h_mix + λ · h_int
+
+        At init:  MLP output layer = 0 → h_int = 0,
+                  gate bias = -3    → λ ≈ 0.047.
+        Combined → h_poly ≈ h_mix  (identical to HPG_frac).
+
+        Diagnostics (stored on ``self`` in eval mode for later analysis):
+            self._diag_lambda   : Tensor [B, 1]   gate values
+            self._diag_norm_mix : Tensor [B]       ‖h_mix‖₂ per polymer
+            self._diag_norm_int : Tensor [B]       ‖h_int‖₂ per polymer
+            self._diag_ratio    : Tensor [B]       ‖h_int‖/(‖h_mix‖+ε)
+
+        Parameters
+        ----------
+        H   : Tensor [N, d_h]  node embeddings (all nodes)
+        bmg : BatchHPGMolGraph  must have frag_fracs set
+
+        Returns
+        -------
+        Tensor [B, d_h]
+        """
+        frag_mask, frag_batch, fracs = self._frag_fracs_checked(
+            bmg, "pair_interact_gate"
+        )
+        H_frag = H[frag_mask]                             # [F_total, d_h]
+        B = int(bmg.batch.max().item()) + 1 if bmg.batch.numel() else 1
+
+        # ── Additive mixture (identical to HPG_frac) ──
+        weighted = H_frag * fracs.unsqueeze(-1)           # [F_total, d_h]
+        idx      = frag_batch.unsqueeze(-1).expand_as(H_frag)
+        h_mix    = torch.zeros(
+            B, H_frag.size(1), dtype=H_frag.dtype, device=H_frag.device
+        )
+        h_mix.scatter_add_(0, idx, weighted)
+
+        # ── Pairwise interaction term ──
+        pairs = self._build_pairs(frag_batch)
+        if pairs is None:
+            # All singletons — no pairs, h_int = 0, fall back to h_mix
+            h_int = torch.zeros_like(h_mix)
+        else:
+            idx_i, idx_j, poly_idx = pairs
+
+            h_i = H_frag[idx_i]                           # [P, d_h]
+            h_j = H_frag[idx_j]                           # [P, d_h]
+            f_i = fracs[idx_i]                             # [P]
+            f_j = fracs[idx_j]                             # [P]
+
+            pair_feat = torch.cat(
+                [h_i + h_j, h_i * h_j, (h_i - h_j).abs()], dim=1
+            )                                              # [P, 3·d_h]
+            phi_ij = self.pair_interact_gate_layer.forward_pair(pair_feat)  # [P, d_h]
+            w_ij   = (f_i * f_j).unsqueeze(-1)             # [P, 1]
+
+            h_int = torch.zeros(
+                B, H_frag.size(1), dtype=H_frag.dtype, device=H_frag.device
+            )
+            h_int.scatter_add_(
+                0,
+                poly_idx.unsqueeze(-1).expand_as(phi_ij),
+                w_ij * phi_ij,
+            )
+
+        # ── Gate ──
+        lam = self.pair_interact_gate_layer.forward_gate(h_mix)  # [B, 1]
+
+        # ── Diagnostics (eval mode only, no grad overhead during training) ──
+        if not self.training:
+            with torch.no_grad():
+                self._diag_lambda   = lam.detach()
+                self._diag_norm_mix = h_mix.detach().norm(dim=1)
+                self._diag_norm_int = h_int.detach().norm(dim=1)
+                eps = 1e-8
+                self._diag_ratio    = self._diag_norm_int / (self._diag_norm_mix + eps)
+
+        return h_mix + lam * h_int
+
     # ------------------------------------------------------------------
     #  Forward
     # ------------------------------------------------------------------
@@ -671,6 +777,8 @@ class HPGMPNN(pl.LightningModule):
             H_graph = self._pool_pair_interact(H, bmg)
         elif pt == "pair_interact_attn":
             H_graph = self._pool_pair_interact_attn(H, bmg)
+        elif pt == "pair_interact_gate":
+            H_graph = self._pool_pair_interact_gate(H, bmg)
         else:
             H_graph = self._pool_sum(H, bmg)
 

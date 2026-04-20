@@ -591,3 +591,77 @@ class HPGPairInteractAttnLayer(nn.Module):
         t_ij : Tensor [P]        scalar importance score (un-normalized)
         """
         return self.phi(pair_feat), self.score(pair_feat).squeeze(-1)
+
+
+# ---------------------------------------------------------------------------
+#  Phase 4: HPG_pairInteractGate — gated pairwise interaction
+# ---------------------------------------------------------------------------
+
+class HPGPairInteractGateLayer(nn.Module):
+    """Gated pairwise interaction layer for HPG_pairInteractGate (Phase 4).
+
+    HPG_pairInteractGate decomposes the polymer representation into:
+      - an additive composition term  (h_mix, identical to HPG_frac)
+      - a pairwise interaction correction  (h_int, same MLP as Phase 3B)
+    and learns a scalar gate λ ∈ [0, 1] to control how much interaction
+    signal is used for each polymer:
+
+        h_poly = h_mix + λ · h_int
+
+    The pair MLP output layer is zero-initialized (h_int = 0 at start),
+    and the gate bias is set to a negative value so λ ≈ 0 at start.
+    Combined, the model starts identical to HPG_frac.
+
+    Parameters
+    ----------
+    d_h : int
+        Hidden dimension (must match HPG encoder output).
+    gate_init_bias : float
+        Initial bias for the gate linear layer. A negative value ensures
+        λ = sigmoid(bias) ≈ 0 at initialization.  Default: -3.0
+        (sigmoid(-3) ≈ 0.047).
+    """
+
+    def __init__(self, d_h: int, gate_init_bias: float = -3.0):
+        super().__init__()
+        # Pair interaction MLP (same architecture as Phase 3B)
+        self.pair_mlp = nn.Sequential(
+            nn.Linear(3 * d_h, d_h),
+            nn.ReLU(),
+            nn.Linear(d_h, d_h),
+        )
+        # Zero-init output layer → phi = 0 at start → h_int = 0
+        nn.init.zeros_(self.pair_mlp[-1].weight)
+        nn.init.zeros_(self.pair_mlp[-1].bias)
+
+        # Scalar gate:  λ = sigmoid(Linear(h_mix))
+        # Input: h_mix [B, d_h],  output: λ [B, 1]
+        self.gate = nn.Linear(d_h, 1)
+        nn.init.zeros_(self.gate.weight)
+        nn.init.constant_(self.gate.bias, gate_init_bias)
+
+    def forward_pair(self, pair_feat: Tensor) -> Tensor:
+        """Compute pair representation from pre-built pair features.
+
+        Parameters
+        ----------
+        pair_feat : Tensor [P, 3·d_h]
+
+        Returns
+        -------
+        Tensor [P, d_h]
+        """
+        return self.pair_mlp(pair_feat)
+
+    def forward_gate(self, h_mix: Tensor) -> Tensor:
+        """Compute scalar gate λ ∈ [0, 1] per polymer.
+
+        Parameters
+        ----------
+        h_mix : Tensor [B, d_h]
+
+        Returns
+        -------
+        Tensor [B, 1]   — sigmoid-gated scalar
+        """
+        return torch.sigmoid(self.gate(h_mix))
