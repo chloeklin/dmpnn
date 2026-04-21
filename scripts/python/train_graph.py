@@ -598,6 +598,40 @@ if args.model_name == "HPG":
             results_all.append(test_metrics)
             logger.info(f"[{target}] split {i}: {test_metrics}")
 
+            # ── Gate diagnostics (pairInteractGate only) ──
+            # Collect per-polymer lambda, ratio, norm_mix, norm_int, y_true, y_pred
+            # by running a second eval-mode pass over the test set.
+            if hpg_variant == 'pairInteractGate':
+                import torch as _torch
+                diag_rows = []
+                mpnn.eval()
+                with _torch.no_grad():
+                    for _batch in test_loader:
+                        _bmg, _Xd, _targets, *_ = _batch
+                        _preds = mpnn(_bmg, _Xd)
+                        if mpnn._output_transform is not None:
+                            _preds = mpnn._output_transform(_preds)
+                        _B = _preds.shape[0]
+                        for _b in range(_B):
+                            diag_rows.append({
+                                "split":    i,
+                                "target":   target,
+                                "y_true":   _targets[_b, 0].item(),
+                                "y_pred":   _preds[_b, 0].item(),
+                                "lambda":   mpnn._diag_lambda[_b, 0].item(),
+                                "norm_mix": mpnn._diag_norm_mix[_b].item(),
+                                "norm_int": mpnn._diag_norm_int[_b].item(),
+                                "ratio":    mpnn._diag_ratio[_b].item(),
+                            })
+                _diag_df = pd.DataFrame(diag_rows)
+                _safe_tgt = target.replace("/", "_").replace(" ", "_").replace("(", "").replace(")", "")
+                _diag_path = (
+                    results_dir
+                    / f"ea_ip__hpg_pairInteractGate__a_held_out__target_{_safe_tgt}__split{i}_gate_diagnostics.csv"
+                )
+                _diag_df.to_csv(_diag_path, index=False)
+                logger.info(f"[{target}] split {i}: gate diagnostics → {_diag_path}")
+
         # Aggregate results for this target
         results_df = pd.DataFrame(results_all)
         numeric_cols = [col for col in results_df.columns if col != "split"]
