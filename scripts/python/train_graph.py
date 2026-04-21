@@ -598,39 +598,45 @@ if args.model_name == "HPG":
             results_all.append(test_metrics)
             logger.info(f"[{target}] split {i}: {test_metrics}")
 
-            # ── Gate diagnostics (pairInteractGate only) ──
-            # Collect per-polymer lambda, ratio, norm_mix, norm_int, y_true, y_pred
-            # by running a second eval-mode pass over the test set.
+            # ── Diagnostics (pairInteractGate only) ──
+            # Collect per-polymer gate/interaction-norm values for later plotting.
             if hpg_variant == 'pairInteractGate':
-                import torch as _torch
-                diag_rows = []
+                device = next(mpnn.parameters()).device
                 mpnn.eval()
-                with _torch.no_grad():
-                    for _batch in test_loader:
-                        _bmg, _Xd, _targets, *_ = _batch
-                        _preds = mpnn(_bmg, _Xd)
+                diag_rows = []
+                with torch.no_grad():
+                    for batch in test_loader:
+                        bmg_b, X_d_b, targets_b, *_ = batch
+                        bmg_b = bmg_b.to(device) if hasattr(bmg_b, 'to') else bmg_b
+                        if X_d_b is not None:
+                            X_d_b = X_d_b.to(device)
+                        preds_b = mpnn(bmg_b, X_d_b)          # [B_b, 1]
+                        lam_b   = mpnn._diag_lambda.cpu()      # [B_b, 1]
+                        nmix_b  = mpnn._diag_norm_mix.cpu()    # [B_b]
+                        nint_b  = mpnn._diag_norm_int.cpu()    # [B_b]
+                        ratio_b = mpnn._diag_ratio.cpu()       # [B_b]
+                        y_true_b = targets_b.cpu()             # [B_b, 1]
+                        y_pred_b = preds_b.cpu()               # [B_b, 1]
                         if mpnn._output_transform is not None:
-                            _preds = mpnn._output_transform(_preds)
-                        _B = _preds.shape[0]
-                        for _b in range(_B):
+                            y_pred_b = mpnn._output_transform(y_pred_b)
+                        B_b = lam_b.shape[0]
+                        for k in range(B_b):
                             diag_rows.append({
-                                "split":    i,
+                                "fold":     i,
                                 "target":   target,
-                                "y_true":   _targets[_b, 0].item(),
-                                "y_pred":   _preds[_b, 0].item(),
-                                "lambda":   mpnn._diag_lambda[_b, 0].item(),
-                                "norm_mix": mpnn._diag_norm_mix[_b].item(),
-                                "norm_int": mpnn._diag_norm_int[_b].item(),
-                                "ratio":    mpnn._diag_ratio[_b].item(),
+                                "y_true":   float(y_true_b[k, 0]),
+                                "y_pred":   float(y_pred_b[k, 0]),
+                                "lambda":   float(lam_b[k, 0]),
+                                "norm_mix": float(nmix_b[k]),
+                                "norm_int": float(nint_b[k]),
+                                "ratio":    float(ratio_b[k]),
                             })
-                _diag_df = pd.DataFrame(diag_rows)
-                _safe_tgt = target.replace("/", "_").replace(" ", "_").replace("(", "").replace(")", "")
-                _diag_path = (
-                    results_dir
-                    / f"ea_ip__hpg_pairInteractGate__a_held_out__target_{_safe_tgt}__split{i}_gate_diagnostics.csv"
-                )
-                _diag_df.to_csv(_diag_path, index=False)
-                logger.info(f"[{target}] split {i}: gate diagnostics → {_diag_path}")
+                if diag_rows:
+                    import re as _re
+                    _safe_tgt = _re.sub(r'[^\w\-]+', '_', target)
+                    _diag_path = Path(results_dir) / f"ea_ip__hpg_pairInteractGate__a_held_out__target_{_safe_tgt}__fold{i}__diagnostics.csv"
+                    pd.DataFrame(diag_rows).to_csv(_diag_path, index=False)
+                    logger.info(f"[{target}] split {i}: diagnostics saved → {_diag_path}")
 
         # Aggregate results for this target
         results_df = pd.DataFrame(results_all)
