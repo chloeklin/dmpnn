@@ -1677,12 +1677,12 @@ experiments:
   # -- HPG_pairInteractGate (a_held_out) -- [Phase 4]
   # Tests whether an adaptive gate on pairwise interactions can retain
   # HPG_pairInteract's IP improvement while avoiding EA degradation.
-  # - <<: *eaip_base
-  #   model: HPG
-  #   hpg_variant: pairInteractGate
-  #   split_type: a_held_out
-  #   walltime: "3:00:00"
-  #   targets: *eaip_targets
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: pairInteractGate
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
 
   # -- Identity Baseline --
   # - <<: *eaip_base

@@ -2359,6 +2359,10 @@ def load_and_preprocess_data(args, setup_info):
     if getattr(args, 'incl_poly_type', False) and 'poly_type' in ds_ignore:
         ds_ignore = [col for col in ds_ignore if col != 'poly_type']
         logger.info(f"--incl_poly_type enabled: keeping 'poly_type' column (removed from ignore list)")
+    # Don't drop poly_type for archGraph variant (needed for arch-weight computation)
+    if getattr(args, 'hpg_variant', '') == 'archGraph' and 'poly_type' in ds_ignore:
+        ds_ignore = [col for col in ds_ignore if col != 'poly_type']
+        logger.info(f"hpg_variant=archGraph: keeping 'poly_type' column (removed from ignore list)")
     
     logger.info(f"Dataset ignore config for '{args.dataset_name}': {ds_ignore}")
     if ds_ignore:
