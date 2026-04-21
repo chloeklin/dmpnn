@@ -637,7 +637,8 @@ if args.model_name == "HPG":
                 with torch.no_grad():
                     for batch in test_loader:
                         bmg_b, X_d_b, targets_b, *_ = batch
-                        bmg_b = bmg_b.to(device) if hasattr(bmg_b, 'to') else bmg_b
+                        if hasattr(bmg_b, 'to'):
+                            bmg_b.to(device)   # mutates in-place; returns None
                         if X_d_b is not None:
                             X_d_b = X_d_b.to(device)
                         preds_b = mpnn(bmg_b, X_d_b)          # [B_b, 1]

@@ -1603,12 +1603,12 @@ experiments:
   # m_B = w_AB*W_AB(h_A) + w_BB*W_BB(h_B);  z_B = h_B + m_B
   # h_poly = f_A*z_A + f_B*z_B
   # Zero-init ensures training starts identical to HPG_frac.
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: archGraph
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: archGraph
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
   # ═══════════════════════════════════════════════════════════════════
   # HPG PHASE 3 VARIANTS (a_held_out)
