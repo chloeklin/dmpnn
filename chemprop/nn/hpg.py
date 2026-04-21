@@ -488,6 +488,64 @@ class HPGFragGraphLayer(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+#  Phase 2B rerun: HPG_frac_archGraph — architecture-aware fragment update
+# ---------------------------------------------------------------------------
+
+class HPGArchGraphLayer(nn.Module):
+    """Architecture-aware binary-fragment update for HPG_frac_archGraph.
+
+    For a binary copolymer with fragment embeddings h_A, h_B and per-polymer
+    architecture weights [w_AA, w_AB, w_BA, w_BB]:
+
+        m_A = w_AA · W_AA(h_A)  +  w_BA · W_BA(h_B)
+        m_B = w_AB · W_AB(h_A)  +  w_BB · W_BB(h_B)
+        z_A = h_A + m_A
+        z_B = h_B + m_B
+
+    Architecture weights are determined at featurization time from the
+    ``poly_type`` column of the dataset:
+
+        alternating : [w_AA=0,   w_AB=1,   w_BA=1,   w_BB=0  ]
+        block       : [w_AA=1,   w_AB=γ,   w_BA=γ,   w_BB=1  ]  (γ=0.1)
+        random      : [w_AA=f_A, w_AB=f_B, w_BA=f_A, w_BB=f_B]
+
+    All four weight matrices are zero-initialized so the model starts
+    identically to HPG_frac (m_A = m_B = 0 → z = h) and only learns
+    architecture-aware interactions if they are informative.
+
+    Parameters
+    ----------
+    d_h : int
+        Hidden dimension (must match HPG encoder output).
+    """
+
+    def __init__(self, d_h: int):
+        super().__init__()
+        self.W_AA = nn.Linear(d_h, d_h, bias=False)
+        self.W_AB = nn.Linear(d_h, d_h, bias=False)
+        self.W_BA = nn.Linear(d_h, d_h, bias=False)
+        self.W_BB = nn.Linear(d_h, d_h, bias=False)
+        for lin in (self.W_AA, self.W_AB, self.W_BA, self.W_BB):
+            nn.init.zeros_(lin.weight)  # start identical to HPG_frac
+
+    def forward(
+        self,
+        h_A: Tensor,           # [B, d_h]
+        h_B: Tensor,           # [B, d_h]
+        arch_weights: Tensor,  # [B, 4]  = [w_AA, w_AB, w_BA, w_BB]
+    ) -> tuple[Tensor, Tensor]:
+        """Return updated (z_A, z_B), each [B, d_h]."""
+        w_AA = arch_weights[:, 0:1]   # [B, 1]
+        w_AB = arch_weights[:, 1:2]
+        w_BA = arch_weights[:, 2:3]
+        w_BB = arch_weights[:, 3:4]
+
+        m_A = w_AA * self.W_AA(h_A) + w_BA * self.W_BA(h_B)
+        m_B = w_AB * self.W_AB(h_A) + w_BB * self.W_BB(h_B)
+        return h_A + m_A, h_B + m_B
+
+
+# ---------------------------------------------------------------------------
 #  Phase 3B: HPG_pairInteract — fixed pairwise interaction layer
 # ---------------------------------------------------------------------------
 

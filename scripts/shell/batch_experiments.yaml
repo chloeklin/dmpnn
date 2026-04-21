@@ -1593,6 +1593,23 @@ experiments:
   #   walltime: "3:00:00"
   #   targets: *eaip_targets
 
+  # -- HPG_frac_archGraph (a_held_out) -- [Phase 2B rerun]
+  # Architecture-aware fragment update: 4 directed linear layers W_AA/AB/BA/BB
+  # (all zero-init) gated by poly_type-derived weights [w_AA, w_AB, w_BA, w_BB].
+  #   alternating: [0,  1,  1,  0  ]  (only cross-monomer messages)
+  #   block:       [1,  0.1,0.1,1  ]  (self dominant, weak cross)
+  #   random:      [fA, fB, fA, fB ]  (composition-proportional)
+  # m_A = w_AA*W_AA(h_A) + w_BA*W_BA(h_B);  z_A = h_A + m_A
+  # m_B = w_AB*W_AB(h_A) + w_BB*W_BB(h_B);  z_B = h_B + m_B
+  # h_poly = f_A*z_A + f_B*z_B
+  # Zero-init ensures training starts identical to HPG_frac.
+  - <<: *eaip_base
+    model: HPG
+    hpg_variant: archGraph
+    split_type: a_held_out
+    walltime: "3:00:00"
+    targets: *eaip_targets
+
   # ═══════════════════════════════════════════════════════════════════
   # HPG PHASE 3 VARIANTS (a_held_out)
   #
@@ -1660,12 +1677,12 @@ experiments:
   # -- HPG_pairInteractGate (a_held_out) -- [Phase 4]
   # Tests whether an adaptive gate on pairwise interactions can retain
   # HPG_pairInteract's IP improvement while avoiding EA degradation.
-  - <<: *eaip_base
-    model: HPG
-    hpg_variant: pairInteractGate
-    split_type: a_held_out
-    walltime: "3:00:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: HPG
+  #   hpg_variant: pairInteractGate
+  #   split_type: a_held_out
+  #   walltime: "3:00:00"
+  #   targets: *eaip_targets
 
   # -- Identity Baseline --
   # - <<: *eaip_base

@@ -83,7 +83,7 @@ def create_base_argument_parser(description="Train a graph model"):
                              '(copolymer datasets only; auto-upgrades mix→mix_meta, interact→interact_meta)')
     parser.add_argument('--hpg_variant', type=str, default='baseline',
                         choices=['baseline', 'frac', 'frac_polytype', 'frac_edgeTyped',
-                                 'frac_archAware', 'relMsg', 'fragGraph',
+                                 'frac_archAware', 'relMsg', 'fragGraph', 'archGraph',
                                  'attnPool', 'pairInteract', 'pairInteractAttn',
                                  'pairInteractGate'],
                         help='HPG model variant (only used when model=HPG): '
@@ -99,6 +99,11 @@ def create_base_argument_parser(description="Train a graph model"):
                              'same d_e=1 featurizer as HPG_frac \u2014 clean Phase 2 ablation; '
                              '"fragGraph" = frac pooling + lightweight fragment-level graph MP (Phase 2B): '
                              'one W-linear residual step over fragment-fragment edges; '
+                             '"archGraph" = architecture-aware fragment update (Phase 2B rerun): '
+                             'four zero-init W_AA/AB/BA/BB layers gated by poly_type weights '
+                             '[alternating: w_AA=0,w_AB=1,w_BA=1,w_BB=0; '
+                             'block: w_AA=1,w_AB=0.1,w_BA=0.1,w_BB=1; '
+                             'random: w_AA=f_A,w_AB=f_B,w_BA=f_A,w_BB=f_B]; '
                              '"attnPool" = fraction-aware learned attention pooling (Phase 3A): '
                              'alpha_i = softmax(scorer(h_i) + log(f_i)); scorer zero-init => starts as HPG_frac; '
                              '"pairInteract" = fixed pairwise interaction (Phase 3B): '

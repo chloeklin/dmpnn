@@ -41,6 +41,10 @@ class HPGMolGraph(NamedTuple):
     frag_fracs: np.ndarray | None = None
     """Optional monomer fractions [n_fragments].  Used for fraction-weighted pooling."""
 
+    arch_weights: np.ndarray | None = None
+    """Optional architecture weights [4] = [w_AA, w_AB, w_BA, w_BB].
+    Used by HPG_frac_archGraph to scale directed fragment-level messages."""
+
 
 @dataclass(repr=False, eq=False, slots=True)
 class BatchHPGMolGraph:
@@ -57,6 +61,8 @@ class BatchHPGMolGraph:
     """Boolean mask: True for fragment nodes, False for atom nodes."""
     frag_fracs: Tensor | None = field(init=False)
     """Per-fragment monomer fractions [num_frag_nodes_total] or None."""
+    arch_weights: Tensor | None = field(init=False)
+    """Per-polymer architecture weights [B, 4] or None."""
 
     __size: int = field(init=False)
 
@@ -70,6 +76,7 @@ class BatchHPGMolGraph:
             self.batch = torch.empty((0,), dtype=torch.long)
             self.frag_mask = torch.empty((0,), dtype=torch.bool)
             self.frag_fracs = None
+            self.arch_weights = None
             return
 
         Vs, Es, edge_indexes, batch_indexes, frag_masks = [], [], [], [], []
@@ -110,6 +117,19 @@ class BatchHPGMolGraph:
         else:
             self.frag_fracs = None
 
+        # Batch architecture weights (per-polymer, stack not concat)
+        if any(mg.arch_weights is not None for mg in mgs):
+            aw_list = []
+            for mg in mgs:
+                if mg.arch_weights is not None:
+                    aw_list.append(np.asarray(mg.arch_weights, dtype=np.float32))
+                else:
+                    # Default: identity (self-loop only, no cross-monomer messages)
+                    aw_list.append(np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32))
+            self.arch_weights = torch.from_numpy(np.stack(aw_list)).float()
+        else:
+            self.arch_weights = None
+
     def __len__(self) -> int:
         return self.__size
 
@@ -121,6 +141,8 @@ class BatchHPGMolGraph:
         self.frag_mask = self.frag_mask.to(device)
         if self.frag_fracs is not None:
             self.frag_fracs = self.frag_fracs.to(device)
+        if self.arch_weights is not None:
+            self.arch_weights = self.arch_weights.to(device)
 
 
 # ---------------------------------------------------------------------------

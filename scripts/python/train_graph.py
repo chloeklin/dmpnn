@@ -310,7 +310,7 @@ if args.model_name == "HPG":
     hpg_variant = getattr(args, 'hpg_variant', 'baseline')
     use_frac_pooling = hpg_variant in (
         'frac', 'frac_polytype', 'frac_edgeTyped', 'frac_archAware',
-        'relMsg', 'fragGraph',
+        'relMsg', 'fragGraph', 'archGraph',  # Phase 2
         'attnPool', 'pairInteract', 'pairInteractAttn',  # Phase 3
         'pairInteractGate',  # Phase 4
     )
@@ -382,7 +382,7 @@ if args.model_name == "HPG":
                 combined_descriptor_data_hpg = _poly_oh
 
     elif hpg_variant in (
-        'frac', 'frac_edgeTyped', 'frac_archAware', 'relMsg', 'fragGraph',
+        'frac', 'frac_edgeTyped', 'frac_archAware', 'relMsg', 'fragGraph', 'archGraph',
         'attnPool', 'pairInteract', 'pairInteractAttn',  # Phase 3
         'pairInteractGate',  # Phase 4
     ):
@@ -402,6 +402,33 @@ if args.model_name == "HPG":
         combined_descriptor_data_hpg = _poly_oh
         logger.info(f"HPG_frac_polytype: fractions for pooling; polytype one-hot ({_poly_oh.shape[1]}d) as X_d")
 
+    # ── Pre-compute architecture weights for archGraph variant ──
+    # [w_AA, w_AB, w_BA, w_BB] encoding of poly_type × fractions.
+    # Stored in HPGMolGraph.arch_weights and batched into bmg.arch_weights [B,4].
+    _GAMMA_BLOCK = 0.1   # block copolymer inter-monomer transition weight
+    _arch_weights_arr = None
+    if hpg_variant == 'archGraph' and is_copolymer:
+        if 'poly_type' not in df_input.columns:
+            raise ValueError("hpg_variant='archGraph' requires a 'poly_type' column in the dataset")
+        def _compute_arch_weights(poly_type: str, f_A: float, f_B: float) -> np.ndarray:
+            pt = str(poly_type).lower().strip()
+            if pt == 'alternating':
+                return np.array([0.0, 1.0, 1.0, 0.0], dtype=np.float32)
+            elif pt == 'block':
+                return np.array([1.0, _GAMMA_BLOCK, _GAMMA_BLOCK, 1.0], dtype=np.float32)
+            else:  # 'random' or unknown: composition-based Markov transitions
+                return np.array([f_A, f_B, f_A, f_B], dtype=np.float32)
+        _arch_weights_arr = [
+            _compute_arch_weights(
+                df_input['poly_type'].iloc[i], fracA_arr[i], fracB_arr[i]
+            )
+            for i in range(len(df_input))
+        ]
+        logger.info(
+            f"HPG_archGraph: arch_weights computed from poly_type column "
+            f"(alternating/block/random; gamma_block={_GAMMA_BLOCK})"
+        )
+
     # ── Featurize all samples into HPGMolGraph objects ──
     hpg_graphs = []
     skip_indices = []
@@ -415,6 +442,8 @@ if args.model_name == "HPG":
                 ff = (np.array([fracA_arr[idx], fracB_arr[idx]], dtype=np.float32)
                       if use_frac_pooling else None)
                 mg = hpg_featurizer(frag_smiles, connections, frag_fracs=ff)
+                if _arch_weights_arr is not None:
+                    mg = mg._replace(arch_weights=_arch_weights_arr[idx])
             else:
                 mg = hpg_featurizer([smis_homo[idx]])
             hpg_graphs.append(mg)
@@ -535,6 +564,7 @@ if args.model_name == "HPG":
                 else "pair_interact"  if hpg_variant == 'pairInteract'
                 else "pair_interact_attn" if hpg_variant == 'pairInteractAttn'
                 else "pair_interact_gate" if hpg_variant == 'pairInteractGate'
+                else "frac_arch_graph" if hpg_variant == 'archGraph'
                 else "frac_weighted"  if use_frac_pooling
                 else "sum"
             )

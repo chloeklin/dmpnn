@@ -60,6 +60,7 @@ MODEL_ORDER = [
     "HPG_frac_archAware",
     "HPG_relMsg",
     "HPG_fragGraph",
+    "HPG_frac_archGraph",   # Phase 2B rerun
     "HPG_attnPool",          # Phase 3A
     "HPG_pairInteract",      # Phase 3B
     "HPG_pairInteractAttn",  # Phase 3C
@@ -74,6 +75,7 @@ VARIANT_MAP: dict[str, str] = {
     r"hpg_frac_polytype":       "HPG_frac_polytype",
     r"hpg_relMsg":              "HPG_relMsg",
     r"hpg_fragGraph":           "HPG_fragGraph",
+    r"hpg_archGraph":           "HPG_frac_archGraph",   # Phase 2B rerun
     r"hpg_pairInteractAttn":    "HPG_pairInteractAttn",  # Phase 3C — must stay before pairInteract
     r"hpg_pairInteractGate":    "HPG_pairInteractGate",  # Phase 4  — must stay before pairInteract
     r"hpg_pairInteract(?=[^AG]|$)": "HPG_pairInteract",  # Phase 3B — excludes Attn & Gate

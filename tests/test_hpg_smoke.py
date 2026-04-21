@@ -1367,6 +1367,174 @@ def test_phase4_backward_compat():
     print("  Phase 4 backward compat: all prior variants unaffected")
 
 
+# ──────────────────────────────────────────────────────────────────
+# Phase 2B rerun — HPG_frac_archGraph tests
+# ──────────────────────────────────────────────────────────────────
+
+def _make_archGraph_graphs(feat, arch_type: str):
+    """Build two copolymer HPGMolGraphs with arch_weights set for arch_type."""
+    import numpy as np
+    GAMMA = 0.1
+    ffs = [
+        np.array([0.6, 0.4], dtype=np.float32),
+        np.array([0.3, 0.7], dtype=np.float32),
+    ]
+    graphs = []
+    for ff in ffs:
+        mg = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)], frag_fracs=ff)
+        if arch_type == "alternating":
+            aw = np.array([0.0, 1.0, 1.0, 0.0], dtype=np.float32)
+        elif arch_type == "block":
+            aw = np.array([1.0, GAMMA, GAMMA, 1.0], dtype=np.float32)
+        else:  # random
+            aw = np.array([ff[0], ff[1], ff[0], ff[1]], dtype=np.float32)
+        graphs.append(mg._replace(arch_weights=aw))
+    return graphs
+
+
+def test_archGraph_forward():
+    """HPG_frac_archGraph produces correct output shape for each arch type."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    for arch_type in ("alternating", "block", "random"):
+        graphs = _make_archGraph_graphs(feat, arch_type)
+        bmg = BatchHPGMolGraph(graphs)
+        assert bmg.arch_weights is not None, "arch_weights should be batched"
+        assert bmg.arch_weights.shape == (2, 4), f"Expected [2,4], got {bmg.arch_weights.shape}"
+        model = HPGMPNN(
+            d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+            n_tasks=1, d_xd=0, pooling_type="frac_arch_graph",
+        )
+        with torch.no_grad():
+            preds = model(bmg)
+        assert preds.shape == (2, 1), f"arch_type={arch_type}: expected (2,1), got {preds.shape}"
+        print(f"  arch_type={arch_type}: output shape {preds.shape} OK")
+
+
+def test_archGraph_zero_init_matches_frac():
+    """At init (all W=0), frac_arch_graph must equal frac_weighted for every arch type.
+
+    When W_AA=W_AB=W_BA=W_BB=0: m_A=0, m_B=0 → z_A=h_A, z_B=h_B
+    → h_poly = f_A·h_A + f_B·h_B  (identical to HPG_frac)
+    """
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    for arch_type in ("alternating", "block", "random"):
+        graphs_arch = _make_archGraph_graphs(feat, arch_type)
+        # Build frac_weighted graphs (same fracs, no arch_weights)
+        ffs = [np.array([0.6, 0.4], dtype=np.float32), np.array([0.3, 0.7], dtype=np.float32)]
+        graphs_frac = [feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)],
+                            frag_fracs=ff) for ff in ffs]
+
+        torch.manual_seed(42)
+        model_frac = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                             n_tasks=1, d_xd=0, pooling_type="frac_weighted")
+        model_arch = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                             n_tasks=1, d_xd=0, pooling_type="frac_arch_graph")
+
+        # Copy shared weights so only the zero-init W_** layers differ
+        shared = set(model_frac.state_dict()) & set(model_arch.state_dict())
+        with torch.no_grad():
+            for k in shared:
+                model_arch.state_dict()[k].copy_(model_frac.state_dict()[k])
+
+        # Verify all W matrices are zero at init
+        for attr in ("W_AA", "W_AB", "W_BA", "W_BB"):
+            w = getattr(model_arch.arch_graph_layer, attr).weight
+            assert torch.all(w == 0), f"{attr}.weight should be zero at init"
+
+        model_frac.eval(); model_arch.eval()
+        bmg_frac = BatchHPGMolGraph(graphs_frac)
+        bmg_arch = BatchHPGMolGraph(graphs_arch)
+        with torch.no_grad():
+            p_frac = model_frac(bmg_frac)
+            p_arch = model_arch(bmg_arch)
+
+        assert torch.allclose(p_frac, p_arch, atol=1e-5), (
+            f"arch_type={arch_type}: W=0 should give frac_weighted result.\n"
+            f"  frac: {p_frac.tolist()}\n  arch: {p_arch.tolist()}"
+        )
+        print(f"  arch_type={arch_type}: W=0 → matches frac_weighted: confirmed")
+
+
+def test_archGraph_arch_types_differ():
+    """Different arch types produce different update patterns after non-zero W."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    results = {}
+    for arch_type in ("alternating", "block", "random"):
+        graphs = _make_archGraph_graphs(feat, arch_type)
+        bmg = BatchHPGMolGraph(graphs)
+        torch.manual_seed(0)
+        model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                        n_tasks=1, d_xd=0, pooling_type="frac_arch_graph")
+        # Set non-zero W to exercise architecture-dependent paths
+        with torch.no_grad():
+            for attr in ("W_AA", "W_AB", "W_BA", "W_BB"):
+                nn.init.eye_(getattr(model.arch_graph_layer, attr).weight)
+        model.eval()
+        with torch.no_grad():
+            results[arch_type] = model(bmg)
+
+    assert not torch.allclose(results["alternating"], results["block"], atol=1e-5), (
+        "alternating and block should produce different outputs"
+    )
+    assert not torch.allclose(results["alternating"], results["random"], atol=1e-5), (
+        "alternating and random should produce different outputs"
+    )
+    print("  alternating / block / random → different predictions: confirmed")
+    for at, p in results.items():
+        print(f"    {at}: {p.tolist()}")
+
+
+def test_archGraph_batching_isolation():
+    """Identical polymers in the same batch must produce identical predictions."""
+    import numpy as np
+    feat = HPGMolGraphFeaturizer()
+    ff = np.array([0.6, 0.4], dtype=np.float32)
+    aw = np.array([0.0, 1.0, 1.0, 0.0], dtype=np.float32)  # alternating
+    mg = feat(["[*]CC[*]", "[*]OCC[*]"], connections=[(0, 1, 1.0)], frag_fracs=ff)
+    mg = mg._replace(arch_weights=aw)
+
+    torch.manual_seed(0)
+    model = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type="frac_arch_graph")
+    with torch.no_grad():
+        for attr in ("W_AA", "W_AB", "W_BA", "W_BB"):
+            nn.init.eye_(getattr(model.arch_graph_layer, attr).weight)
+    model.eval()
+
+    bmg_single = BatchHPGMolGraph([mg])
+    bmg_double = BatchHPGMolGraph([mg, mg])
+    with torch.no_grad():
+        p_single = model(bmg_single)
+        p_double = model(bmg_double)
+
+    assert torch.allclose(p_single[0], p_double[0], atol=1e-5), (
+        "Same polymer gives different prediction in batch vs single"
+    )
+    assert torch.allclose(p_double[0], p_double[1], atol=1e-5), (
+        "Two identical polymers in batch give different predictions"
+    )
+    print(f"  Batching isolation: confirmed "
+          f"(single={p_single[0].item():.4f}, "
+          f"batch[0]={p_double[0].item():.4f}, "
+          f"batch[1]={p_double[1].item():.4f})")
+
+
+def test_archGraph_backward_compat():
+    """arch_graph_layer is None for all non-archGraph variants."""
+    from chemprop.models.hpg import VALID_POOLING_TYPES
+    assert "frac_arch_graph" in VALID_POOLING_TYPES
+    feat = HPGMolGraphFeaturizer()
+    for pt in ("frac_weighted", "sum", "frac_arch_aware", "frac_graph"):
+        m = HPGMPNN(d_v=feat.d_v, d_h=64, d_ffn=32, depth=2, num_heads=4,
+                    n_tasks=1, d_xd=0, pooling_type=pt)
+        assert m.arch_graph_layer is None, f"arch_graph_layer should be None for {pt}"
+    print("  arch_graph_layer is None for all non-archGraph variants: confirmed")
+    print(f"  VALID_POOLING_TYPES: {VALID_POOLING_TYPES}")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  HPG-GAT Smoke Tests")
@@ -1442,6 +1610,12 @@ if __name__ == "__main__":
         ("57. Diagnostics in eval mode", test_pairInteractGate_diagnostics),
         ("58. Module isolation", test_pairInteractGate_module_isolation),
         ("59. Phase 4 backward compat", test_phase4_backward_compat),
+        # archGraph (Phase 2B rerun) tests
+        ("60. HPG_frac_archGraph forward", test_archGraph_forward),
+        ("61. W=0 -> matches frac_weighted (all arch types)", test_archGraph_zero_init_matches_frac),
+        ("62. Arch types produce distinct update patterns", test_archGraph_arch_types_differ),
+        ("63. Batching isolation", test_archGraph_batching_isolation),
+        ("64. Backward compat (arch_graph_layer isolated)", test_archGraph_backward_compat),
     ]
 
     for name, fn in tests:

@@ -41,6 +41,7 @@ from torch import Tensor, nn, optim
 
 from chemprop.data.hpg import BatchHPGMolGraph
 from chemprop.nn.hpg import (
+    HPGArchGraphLayer,
     HPGFragGraphLayer,
     HPGMessagePassing,
     HPGPairInteractAttnLayer,
@@ -61,6 +62,7 @@ VALID_POOLING_TYPES = (
     "frac_weighted",
     "frac_arch_aware",
     "frac_graph",
+    "frac_arch_graph",   # Phase 2B rerun: architecture-aware fragment update
     "attn_pool",             # Phase 3A: fraction-aware learned attention pooling
     "pair_interact",         # Phase 3B: fixed pairwise monomer interaction
     "pair_interact_attn",    # Phase 3C: attention-weighted pairwise interaction
@@ -189,6 +191,14 @@ class HPGMPNN(pl.LightningModule):
             self.frag_graph_layer = HPGFragGraphLayer(d_h=d_h)
         else:
             self.frag_graph_layer = None
+
+        # Architecture-aware fragment update (Phase 2B rerun: HPG_frac_archGraph).
+        # Four zero-init linear layers W_AA/AB/BA/BB; architecture weights
+        # [w_AA, w_AB, w_BA, w_BB] are stored in bmg.arch_weights at featurization.
+        if pooling_type == "frac_arch_graph":
+            self.arch_graph_layer = HPGArchGraphLayer(d_h=d_h)
+        else:
+            self.arch_graph_layer = None
 
         # Phase 3A — HPG_attnPool: fraction-aware attention scorer.
         # scorer(h_i) = s_i;  alpha_i ∝ f_i * exp(s_i)  (per-polymer softmax).
@@ -369,6 +379,41 @@ class HPGMPNN(pl.LightningModule):
         idx_i, idx_j = pair_mask.nonzero(as_tuple=True)  # each [P]
         poly_idx = frag_batch[idx_i]                      # [P]
         return idx_i, idx_j, poly_idx
+
+    def _pool_frac_arch_graph(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
+        """Architecture-aware binary-fragment update then fraction-weighted pool.
+
+        Requires ``bmg.arch_weights`` [B, 4] and ``bmg.frag_fracs``.
+        Fragments must be ordered A-first, B-second within each polymer
+        (guaranteed by the featurizer when called with ``frag_smiles=[A, B]``).
+
+        Homopolymers (or batches where ``bmg.arch_weights`` is None) fall
+        back to plain fraction-weighted pooling (identical to HPG_frac).
+
+        Math (per polymer):
+            m_A = w_AA·W_AA(h_A) + w_BA·W_BA(h_B)
+            m_B = w_AB·W_AB(h_A) + w_BB·W_BB(h_B)
+            z_A = h_A + m_A ;  z_B = h_B + m_B
+            h_poly = f_A·z_A + f_B·z_B
+        """
+        frag_mask, frag_batch, fracs = self._frag_fracs_checked(bmg, "frac_arch_graph")
+        H_frag = H[frag_mask]  # [F_total, d_h]
+        B = int(frag_batch.max().item()) + 1 if frag_batch.numel() else 1
+        counts = torch.bincount(frag_batch, minlength=B)  # [B]
+
+        if bmg.arch_weights is None or (counts == 1).all():
+            # No arch weights or pure homopolymer batch: fall back to HPG_frac
+            return self._pool_frac_weighted(H, bmg)
+
+        # Binary copolymer batch: fragments ordered A-first, B-second
+        # Layout: H_frag = [h_A(0), h_B(0), h_A(1), h_B(1), ...]
+        h_A = H_frag[0::2]   # [B, d_h]
+        h_B = H_frag[1::2]   # [B, d_h]
+        f_A = fracs[0::2]    # [B]
+        f_B = fracs[1::2]    # [B]
+
+        z_A, z_B = self.arch_graph_layer(h_A, h_B, bmg.arch_weights)
+        return f_A.unsqueeze(-1) * z_A + f_B.unsqueeze(-1) * z_B
 
     def _pool_frag_graph(self, H: Tensor, bmg: BatchHPGMolGraph) -> Tensor:
         """Fragment-graph update then fraction-weighted pooling (HPG_fragGraph).
@@ -769,6 +814,8 @@ class HPGMPNN(pl.LightningModule):
             H_graph = self._pool_frac_weighted(H, bmg)
         elif pt == "frac_arch_aware":
             H_graph = self._pool_frac_arch_aware(H, bmg)
+        elif pt == "frac_arch_graph":
+            H_graph = self._pool_frac_arch_graph(H, bmg)
         elif pt == "frac_graph":
             H_graph = self._pool_frag_graph(H, bmg)
         elif pt == "attn_pool":
