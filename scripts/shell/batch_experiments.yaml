@@ -1483,6 +1483,37 @@ experiments:
   #   walltime: "5:30:00"
   #   targets: *eaip_targets
 
+  # ═══════════════════════════════════════════════════════════════════
+  # HPG-2STAGE INTERACT VARIANTS (mix_pair × fusion, a_held_out)
+  #
+  # Stage 2A  HPG-2Stage-Frac:     DMPNN + mix + PT        (DONE — mix_meta CSVs exist)
+  # Stage 2B  HPG-2Stage-Interact-fixed:   mix_pair + sum_fusion + PT
+  # Stage 2B  HPG-2Stage-Interact-learned: mix_pair + scalar_residual_fusion + PT
+  #
+  # Sanity: Interact-fixed should help IP, be neutral/hurt EA
+  # relative to HPG-2Stage-Frac (mix_meta results).
+  # ═══════════════════════════════════════════════════════════════════
+
+  # -- HPG-2Stage-Interact-fixed (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: mix_pair
+    fusion_type: sum_fusion
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "7:30:00"
+    targets: *eaip_targets
+
+  # -- HPG-2Stage-Interact-learned (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: mix_pair
+    fusion_type: scalar_residual_fusion
+    incl_poly_type: true
+    split_type: a_held_out
+    walltime: "7:30:00"
+    targets: *eaip_targets
+
   # -- wDMPNN --
   # - <<: *eaip_base
   #   model: wDMPNN
