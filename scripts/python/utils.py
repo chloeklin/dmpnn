@@ -2391,6 +2391,10 @@ def load_and_preprocess_data(args, setup_info):
     if getattr(args, 'hpg_variant', '') == 'archGraph' and 'poly_type' in ds_ignore:
         ds_ignore = [col for col in ds_ignore if col != 'poly_type']
         logger.info(f"hpg_variant=archGraph: keeping 'poly_type' column (removed from ignore list)")
+    # Don't drop poly_type for Stage 2D modes (needed for ordinal architecture encoding)
+    if getattr(args, 'copolymer_mode', '').startswith('stage2d_') and 'poly_type' in ds_ignore:
+        ds_ignore = [col for col in ds_ignore if col != 'poly_type']
+        logger.info(f"stage2d mode: keeping 'poly_type' column (removed from ignore list)")
     
     logger.info(f"Dataset ignore config for '{args.dataset_name}': {ds_ignore}")
     if ds_ignore:
