@@ -11,6 +11,7 @@ from torch import Tensor, nn
 from chemprop.data import BatchMolGraph
 from chemprop.nn import Aggregation, ChempropMetric, MessagePassing, Predictor
 from chemprop.nn.transforms import ScaleTransform
+from chemprop.nn.stage2d import Stage2Aggregator, VALID_STAGE2_VARIANTS
 from chemprop.schedulers import build_NoamLike_LRSched
 
 logger = logging.getLogger(__name__)
@@ -289,6 +290,9 @@ class CopolymerMPNN(pl.LightningModule):
     * **scalar_residual_fusion**: ``h = h_mix + λ·h_int``  (λ learned, init 0.1)
     """
 
+    # Stage 2D mode prefix: "stage2d_{variant}" where variant is one of VALID_STAGE2_VARIANTS
+    _STAGE2D_PREFIX = "stage2d_"
+
     VALID_MODES = (
         "mean", "mean_meta",
         "mix", "mix_meta", "mix_frac", "mix_frac_meta",
@@ -300,7 +304,7 @@ class CopolymerMPNN(pl.LightningModule):
         "frac_attn_pair_attn", "frac_attn_pair_attn_meta",
         "self_attn", "self_attn_meta",
         "interact", "interact_meta",
-    )
+    ) + tuple(f"stage2d_{v}" for v in VALID_STAGE2_VARIANTS)
 
     def __init__(
         self,
@@ -346,6 +350,18 @@ class CopolymerMPNN(pl.LightningModule):
                 f"Valid modes: {self.VALID_MODES}"
             )
         self.copolymer_mode = copolymer_mode
+        self._is_stage2d = copolymer_mode.startswith(self._STAGE2D_PREFIX)
+
+        # ── Stage 2D aggregator ──
+        if self._is_stage2d:
+            _s2d_variant = copolymer_mode[len(self._STAGE2D_PREFIX):]
+            self.stage2_aggregator = Stage2Aggregator(
+                d=self.message_passing.output_dim,
+                variant=_s2d_variant,
+                n_targets=predictor.n_targets,
+            )
+        else:
+            self.stage2_aggregator = None
 
         # Build scorer MLP for attention-based modes
         if copolymer_mode.startswith("attention") or copolymer_mode.startswith("frac_attn"):
@@ -915,6 +931,33 @@ class CopolymerMPNN(pl.LightningModule):
         z_final = self._apply_mode(z_A, z_B, half, half, X_d)
         return {"z_A": z_A, "z_B": z_B, "z_final": z_final}
 
+    def _extract_arch_idx(self, X_d: Tensor | None) -> Tensor:
+        """Extract architecture index from X_d for Stage2D modes.
+
+        Convention: X_d[:, 0] is the ordinal-encoded architecture label
+        (0=alternating, 1=random, 2=block).
+        """
+        if X_d is None:
+            raise ValueError(
+                "Stage2D modes require X_d with architecture index in column 0. "
+                "Pass poly_type as ordinal-encoded X_d."
+            )
+        return X_d[:, 0].long()
+
+    def forward_stage2d(
+        self,
+        bmg_A: BatchMolGraph,
+        bmg_B: BatchMolGraph,
+        fracA: Tensor,
+        fracB: Tensor,
+        X_d: Tensor | None = None,
+    ) -> tuple[Tensor, dict]:
+        """Stage2D forward: encode monomers, aggregate with architecture, predict."""
+        h_A = self._encode_single(bmg_A)  # [B, d]
+        h_B = self._encode_single(bmg_B)  # [B, d]
+        arch = self._extract_arch_idx(X_d)
+        return self.stage2_aggregator(h_A, h_B, fracA, fracB, arch)
+
     def forward(
         self,
         bmg_A: BatchMolGraph,
@@ -923,6 +966,9 @@ class CopolymerMPNN(pl.LightningModule):
         fracB: Tensor,
         X_d: Tensor | None = None,
     ) -> Tensor:
+        if self._is_stage2d:
+            preds, _ = self.forward_stage2d(bmg_A, bmg_B, fracA, fracB, X_d)
+            return preds
         return self.predictor(self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d))
 
     def forward_multi_monomer(
@@ -945,14 +991,20 @@ class CopolymerMPNN(pl.LightningModule):
         return len(batch) == 11
 
     def _unpack_batch(self, batch):
-        """Unpack batch and return (Z, targets, weights, lt_mask, gt_mask, batch_size)."""
+        """Unpack batch and return (Z, targets, weights, lt_mask, gt_mask, batch_size).
+
+        For Stage2D modes, Z is None (predictions computed directly).
+        """
         if self._is_multi_monomer_batch(batch):
             bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d, targets, weights, lt_mask, gt_mask = batch
             Z = self.fingerprint_multi_monomer(bmg_A, bmg_B, fracs_A, fracs_B, counts_A, counts_B, X_d)
             batch_size = counts_A.size(0)
         else:
             bmg_A, bmg_B, fracA, fracB, X_d, targets, weights, lt_mask, gt_mask = batch
-            Z = self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d)
+            if self._is_stage2d:
+                Z = None  # Stage2D computes preds directly
+            else:
+                Z = self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d)
             batch_size = len(fracA)
         return Z, targets, weights, lt_mask, gt_mask, batch_size
 
@@ -970,12 +1022,30 @@ class CopolymerMPNN(pl.LightningModule):
 
     # ------------------------------------------------------------------ training
     def training_step(self, batch, batch_idx):
+        if self._is_stage2d:
+            return self._training_step_stage2d(batch)
+
         Z, targets, weights, lt_mask, gt_mask, batch_size = self._unpack_batch(batch)
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
 
         preds = self.predictor.train_step(Z)
+        l = self.criterion(preds, targets, mask, weights, lt_mask, gt_mask)
+
+        self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True,
+                 on_epoch=True, on_step=False, sync_dist=True)
+        return l
+
+    def _training_step_stage2d(self, batch):
+        """Training step for Stage2D modes."""
+        bmg_A, bmg_B, fracA, fracB, X_d, targets, weights, lt_mask, gt_mask = batch
+        batch_size = len(fracA)
+
+        mask = targets.isfinite()
+        targets = targets.nan_to_num(nan=0.0)
+
+        preds, aux = self.forward_stage2d(bmg_A, bmg_B, fracA, fracB, X_d)
         l = self.criterion(preds, targets, mask, weights, lt_mask, gt_mask)
 
         self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True,
@@ -993,6 +1063,9 @@ class CopolymerMPNN(pl.LightningModule):
             self.predictor.output_transform.train()
 
     def validation_step(self, batch, batch_idx: int = 0):
+        if self._is_stage2d:
+            return self._validation_step_stage2d(batch)
+
         preds, targets, weights, lt_mask, gt_mask, batch_size = self._unpack_batch_for_pred(batch)
 
         mask = targets.isfinite()
@@ -1014,6 +1087,35 @@ class CopolymerMPNN(pl.LightningModule):
         self.metrics[-1](preds_train, targets, mask, weights, lt_mask, gt_mask)
         self.log("val_loss", self.metrics[-1], batch_size=batch_size, prog_bar=True,
                  on_epoch=True, on_step=False)
+
+    def _validation_step_stage2d(self, batch):
+        """Validation step for Stage2D modes with alpha/emb_norm logging."""
+        bmg_A, bmg_B, fracA, fracB, X_d, targets, weights, lt_mask, gt_mask = batch
+        batch_size = len(fracA)
+
+        mask = targets.isfinite()
+        targets = targets.nan_to_num(nan=0.0)
+
+        preds, aux = self.forward_stage2d(bmg_A, bmg_B, fracA, fracB, X_d)
+        weights_ones = torch.ones_like(weights)
+
+        # Log metrics
+        for m in self.metrics[:-1]:
+            m.update(preds, targets, mask, weights_ones, lt_mask, gt_mask)
+            metric_alias = getattr(m, 'alias', None) or getattr(type(m), 'alias', None)
+            if metric_alias is not None:
+                self.log(f"val/{metric_alias}", m, batch_size=batch_size,
+                         logger=True, prog_bar=False)
+
+        # Val loss
+        self.metrics[-1](preds, targets, mask, weights, lt_mask, gt_mask)
+        self.log("val_loss", self.metrics[-1], batch_size=batch_size, prog_bar=True,
+                 on_epoch=True, on_step=False)
+
+        # Log Stage2D diagnostics
+        diag = self.stage2_aggregator.log_diagnostics(aux)
+        for k, v in diag.items():
+            self.log(k, v, batch_size=batch_size, prog_bar=False)
 
     def test_step(self, batch, batch_idx: int = 0):
         self._evaluate_batch(batch, "test")

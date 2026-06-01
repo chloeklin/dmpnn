@@ -26,9 +26,9 @@ TARGETS = ["EA vs SHE (eV)", "IP vs SHE (eV)"]
 # For per-target files, {target} is replaced at runtime.
 # For single files (wDMPNN), data is filtered by the target column.
 MODELS = {
-    "HPG_frac": {
+    "HPG_frac (+poly_type)": {
         "dir": "HPG",
-        "pattern": "ea_ip__hpg_frac__a_held_out__target_{target}_results.csv",
+        "pattern": "ea_ip__hpg_frac_polytype__poly_type__a_held_out__target_{target}_results.csv",
         "per_target": True,
     },
     "wDMPNN": {
@@ -37,19 +37,22 @@ MODELS = {
         "per_target": False,
     },
     "HPG-2Stage-Frac": {
-        "dir": "DMPNN",
+        "dir": "HPG2Stage",
+        "fallback_dir": "DMPNN",
         "pattern": "ea_ip__copoly_mix_meta__poly_type__a_held_out__target_{target}_results.csv",
         "per_target": True,
     },
     "HPG-2Stage-Interact-fixed": {
-        "dir": "DMPNN",
+        "dir": "HPG2Stage",
+        "fallback_dir": "DMPNN",
         # New code adds fusion suffix; fall back to old file without it.
         "pattern": "ea_ip__copoly_mix_pair_meta__fusion_sum_fusion__poly_type__a_held_out__target_{target}_results.csv",
         "fallback": "ea_ip__copoly_mix_pair_meta__poly_type__a_held_out__target_{target}_results.csv",
         "per_target": True,
     },
     "HPG-2Stage-Interact-learned": {
-        "dir": "DMPNN",
+        "dir": "HPG2Stage",
+        "fallback_dir": "DMPNN",
         "pattern": "ea_ip__copoly_mix_pair_meta__fusion_scalar_residual_fusion__poly_type__a_held_out__target_{target}_results.csv",
         "per_target": True,
     },
@@ -58,18 +61,32 @@ MODELS = {
 
 def load_target_df(spec: dict, target: str) -> pd.DataFrame | None:
     """Return a DataFrame for a single target, or None if the file is missing."""
-    base = RESULTS_DIR / spec["dir"]
+    dirs_to_try = [RESULTS_DIR / spec["dir"]]
+    if "fallback_dir" in spec:
+        dirs_to_try.append(RESULTS_DIR / spec["fallback_dir"])
 
     if spec["per_target"]:
-        path = base / spec["pattern"].format(target=target)
-        if not path.exists() and "fallback" in spec:
-            path = base / spec["fallback"].format(target=target)
+        for base in dirs_to_try:
+            path = base / spec["pattern"].format(target=target)
+            if path.exists():
+                break
+            if "fallback" in spec:
+                path = base / spec["fallback"].format(target=target)
+                if path.exists():
+                    break
+        else:
+            return None
         if not path.exists():
             return None
         df = pd.read_csv(path)
     else:
-        path = base / spec["pattern"]
-        if not path.exists():
+        path = None
+        for base in dirs_to_try:
+            candidate = base / spec["pattern"]
+            if candidate.exists():
+                path = candidate
+                break
+        if path is None:
             return None
         df = pd.read_csv(path)
         df = df[df["target"] == target]

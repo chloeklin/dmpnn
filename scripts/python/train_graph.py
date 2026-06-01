@@ -17,7 +17,8 @@ from utils import (set_seed, process_data,
                   setup_model_environment, save_model_results, pick_best_checkpoint,
                   create_copolymer_data, create_multi_monomer_copolymer_data,
                   build_copolymer_model_and_trainer,
-                  generate_a_held_out_splits, save_fold_assignments, canonicalize_smiles)
+                  generate_a_held_out_splits, save_fold_assignments, canonicalize_smiles,
+                  resolve_encoder_name)
 
 # polymer_input integration — canonical polymer spec utilities
 # These are used for optional PolymerSpec-based validation and scalar-feature
@@ -95,8 +96,9 @@ EPOCHS = setup_info['EPOCHS']
 PATIENCE = setup_info['PATIENCE']
 num_workers = setup_info['num_workers']
 
-# Check model configuration
-model_config = config['MODELS'].get(args.model_name, {})
+# Check model configuration (HPG2Stage uses DMPNN config)
+_encoder_name = resolve_encoder_name(args.model_name)
+model_config = config['MODELS'].get(args.model_name, config['MODELS'].get(_encoder_name, {}))
 if not model_config:
     logger.warning(f"No configuration found for model '{args.model_name}'. Using defaults.")
 
@@ -688,7 +690,7 @@ if args.model_name == "HPG":
 # ========================= COPOLYMER BRANCH =========================
 # wDMPNN bypasses the copolymer branch: it reads from WDMPNN_Input and
 # runs through the standard homopolymer path below.
-if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
+if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG"):
     from chemprop.data.copolymer import CopolymerDataset, MultiMonomerCopolymerDataset
     from chemprop.models.copolymer import CopolymerMPNN
 
@@ -784,6 +786,31 @@ if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
             args.copolymer_mode = _UPGRADES[copolymer_mode]
             copolymer_mode = args.copolymer_mode
             logger.info(f'incl_poly_type: copolymer_mode upgraded to {copolymer_mode}')
+
+    # ── Stage 2D: ordinal-encode poly_type as X_d[:, 0] ────────────────────
+    # Stage2D modes use architecture index (0/1/2) directly, not one-hot.
+    # This REPLACES any descriptor/poly_type handling above.
+    if copolymer_mode.startswith('stage2d_'):
+        if 'poly_type' not in df_input.columns:
+            raise ValueError(
+                f"copolymer_mode='{copolymer_mode}' requires a 'poly_type' column "
+                "in the dataset for architecture-aware aggregation."
+            )
+        from chemprop.nn.stage2d import ARCH_LABEL_MAP
+        _arch_ordinal = df_input['poly_type'].astype(str).str.lower().str.strip().map(ARCH_LABEL_MAP)
+        if _arch_ordinal.isna().any():
+            _unknown = df_input.loc[_arch_ordinal.isna(), 'poly_type'].unique().tolist()
+            raise ValueError(
+                f"Unknown poly_type values for Stage2D: {_unknown}. "
+                f"Expected one of {list(ARCH_LABEL_MAP.keys())}"
+            )
+        # X_d = single column with ordinal architecture label (float for tensor compat)
+        combined_descriptor_data = _arch_ordinal.values.astype(np.float32).reshape(-1, 1)
+        orig_Xd_copoly = combined_descriptor_data.copy()
+        logger.info(
+            f"Stage2D: poly_type → ordinal X_d (shape={combined_descriptor_data.shape}), "
+            f"mapping={ARCH_LABEL_MAP}"
+        )
 
     featurizer_copoly = featurizers.SimpleMoleculeMolGraphFeaturizer()
 
@@ -1072,7 +1099,9 @@ if args.polymer_type == "copolymer" and args.model_name != "wDMPNN":
                 val_ds.normalize_targets(scaler)
 
             # Normalize descriptors with caching (matches homopolymer branch)
-            if orig_Xd_copoly is not None:
+            # Skip normalization for Stage2D: X_d is an ordinal arch index, not continuous
+            _skip_xd_norm = copolymer_mode.startswith('stage2d_')
+            if orig_Xd_copoly is not None and not _skip_xd_norm:
                 if descriptor_scaler is not None:
                     # Use cached scaler
                     train_ds.normalize_inputs("X_d", descriptor_scaler)
@@ -1339,7 +1368,7 @@ smis, df_input, combined_descriptor_data, n_classes_per_target = process_data(df
 # featurizers add a PolymerSpec → Chem.Mol conversion step on top;
 # here we rely on Chemprop's from_smi datapoint path which handles
 # that conversion.  See polymer_input/README.md for the full pipeline.
-small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "GIN", "GIN0", "GINE", "GAT", "GATv2", "AttentiveFP"]
+small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "GIN", "GIN0", "GINE", "GAT", "GATv2", "AttentiveFP", "HPG2Stage"]
 if args.model_name == "PPG":
     featurizer = featurizers.PPGMolGraphFeaturizer()
 elif args.model_name in small_molecule_models:
@@ -1722,7 +1751,7 @@ for target in target_columns:
         # Create datasets after cleaning
         # Small molecule models (DMPNN, PPG, GAT, GIN, etc.) use MoleculeDataset
         # Only wDMPNN uses PolymerDataset (for polymer-specific datapoints with edges)
-        small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG", "GIN", "GIN0", "GINE", "GAT", "GATv2", "AttentiveFP"]
+        small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG", "GIN", "GIN0", "GINE", "GAT", "GATv2", "AttentiveFP", "HPG2Stage"]
         DS = data.MoleculeDataset if args.model_name in small_molecule_models else data.PolymerDataset
         train = DS(train_data[i], featurizer)
         val = DS(val_data[i], featurizer)

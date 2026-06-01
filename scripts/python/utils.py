@@ -32,6 +32,19 @@ except Exception:
     HAVE_SGKF = False
 
 
+# ===== MODEL NAME → ENCODER MAPPING =====
+# Models that are aliases for another encoder architecture.
+# HPG2Stage uses DMPNN as its encoder but saves results under HPG2Stage/.
+ENCODER_MAP = {
+    "HPG2Stage": "DMPNN",
+}
+
+
+def resolve_encoder_name(model_name: str) -> str:
+    """Return the underlying encoder architecture for a given model_name."""
+    return ENCODER_MAP.get(model_name, model_name)
+
+
 # ===== ARGUMENT PARSER FACTORY FUNCTIONS =====
 
 def create_base_argument_parser(description="Train a graph model"):
@@ -61,7 +74,10 @@ def create_base_argument_parser(description="Train a graph model"):
                                  "frac_attn_pair", "frac_attn_pair_meta",
                                  "frac_attn_pair_attn", "frac_attn_pair_attn_meta",
                                  "self_attn", "self_attn_meta",
-                                 "interact", "interact_meta"],
+                                 "interact", "interact_meta",
+                                 "stage2d_frac", "stage2d_2d0_fixed", "stage2d_2d0_arch",
+                                 "stage2d_2d0_gate", "stage2d_2d1_fixed", "stage2d_2d1_arch",
+                                 "stage2d_2d1_gate"],
                         default="mix",
                         help='Copolymer integration mode: '
                              '"mean" = (z_A+z_B)/2, '
@@ -71,7 +87,8 @@ def create_base_argument_parser(description="Train a graph model"):
                              '"mix_frac" = mix + fracs, '
                              '"mix_frac_meta" = mix + fracs + descriptors, '
                              '"interact" = [z_A||z_B||diff||prod||fracs], '
-                             '"interact_meta" = interact + descriptors')
+                             '"interact_meta" = interact + descriptors, '
+                             '"stage2d_*" = architecture-aware Stage 2D variants')
     parser.add_argument('--fusion_type', type=str,
                         choices=['sum_fusion', 'concat_fusion', 'gated_fusion', 'scalar_residual_fusion'],
                         default='sum_fusion',
@@ -153,6 +170,9 @@ def create_base_argument_parser(description="Train a graph model"):
                         help='Hidden dim of FiLM MLP trunk (default: message passing hidden dim)')
 
     # Output arguments
+    parser.add_argument('--results_subdir', type=str, default=None,
+                        help='Override subdirectory name under results/ for saving outputs '
+                             '(default: use model_name, e.g. "HPG2Stage" to save under results/HPG2Stage/)')
     parser.add_argument('--export_embeddings', action='store_true',
                         help='Export GNN embeddings/encodings for train/val/test sets after training')
     parser.add_argument('--save_predictions', action='store_true',
@@ -167,7 +187,7 @@ def add_model_specific_args(parser, model_type):
     """Add model-specific arguments to the base parser."""
     if model_type == "dmpnn":
         parser.add_argument('--model_name', type=str, default="DMPNN", 
-                            choices=["DMPNN", "wDMPNN", "PPG", "HPG", "DMPNN_DiffPool", "GAT", "GATv2", "GIN", "GIN0", "GINE"],
+                            choices=["DMPNN", "wDMPNN", "PPG", "HPG", "HPG2Stage", "DMPNN_DiffPool", "GAT", "GATv2", "GIN", "GIN0", "GINE"],
                             help='Name of the model to use')
         parser.add_argument('--batch_size', type=int, default=64,
                             help='Batch size for training and evaluation')
@@ -263,8 +283,9 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
     else:
         results_df = results_data
     
-    # Create results directory
-    model_results_dir = Path(results_dir) / model_name
+    # Create results directory (--results_subdir overrides model_name)
+    subdir = getattr(args, 'results_subdir', None) or model_name
+    model_results_dir = Path(results_dir) / subdir
     model_results_dir.mkdir(parents=True, exist_ok=True)
     
     # Build filename with consistent naming
@@ -760,7 +781,7 @@ def create_all_data(
     # Create datapoints based on model type
     # Use MoleculeDatapoint for small molecule models (DMPNN, DMPNN_DiffPool, AttentiveFP, PPG, GAT, GIN, etc.)
     # Use PolymerDatapoint for polymer models (wDMPNN)
-    small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG", "AttentiveFP", "GAT", "GATv2", "GIN", "GIN0", "GINE"]
+    small_molecule_models = ["DMPNN", "DMPNN_DiffPool", "PPG", "AttentiveFP", "GAT", "GATv2", "GIN", "GIN0", "GINE", "HPG2Stage"]
     datapoint_class = (
         data.MoleculeDatapoint 
         if model_name in small_molecule_models
@@ -960,37 +981,38 @@ def build_copolymer_model_and_trainer(
     descriptor_dim = combined_descriptor_data.shape[1] if combined_descriptor_data is not None else 0
 
     # ---------- shared encoder (same code as build_model_and_trainer) ----------
-    if args.model_name == "PPG":
+    encoder_name = resolve_encoder_name(args.model_name)
+    if encoder_name == "PPG":
         raise ValueError("PPG is not supported for copolymer mode")
-    elif args.model_name == "wDMPNN":
+    elif encoder_name == "wDMPNN":
         raise ValueError("wDMPNN is not supported for copolymer mode (use small-molecule encoders)")
-    elif args.model_name == "DMPNN":
+    elif encoder_name == "DMPNN":
         mp = nn.BondMessagePassing()
         agg = nn.MeanAggregation()
-    elif args.model_name == "DMPNN_DiffPool":
+    elif encoder_name == "DMPNN_DiffPool":
         mp = nn.BondMessagePassingWithDiffPool(
             base_mp_cls=nn.BondMessagePassing,
             depth=getattr(args, "diffpool_depth", 1),
             ratio=getattr(args, "diffpool_ratio", 0.5),
         )
         agg = nn.IdentityAggregation()
-    elif args.model_name == "GIN":
+    elif encoder_name == "GIN":
         mp = nn.GINMessagePassing(eps_learnable=True, mlp_layers=getattr(args, "gin_mlp_layers", 2), use_edge_features=True)
         agg = nn.MeanAggregation()
-    elif args.model_name == "GIN0":
+    elif encoder_name == "GIN0":
         mp = nn.GIN0MessagePassing(mlp_layers=getattr(args, "gin_mlp_layers", 2), use_edge_features=True)
         agg = nn.MeanAggregation()
-    elif args.model_name == "GINE":
+    elif encoder_name == "GINE":
         mp = nn.GINEMessagePassing(eps_learnable=True, mlp_layers=getattr(args, "gin_mlp_layers", 2))
         agg = nn.MeanAggregation()
-    elif args.model_name == "GAT":
+    elif encoder_name == "GAT":
         mp = nn.GATMessagePassing(num_heads=getattr(args, "gat_num_heads", 4), concat_heads=getattr(args, "gat_concat_heads", True), attention_dropout=getattr(args, "gat_attention_dropout", 0.0), use_edge_features=True)
         agg = nn.MeanAggregation()
-    elif args.model_name == "GATv2":
+    elif encoder_name == "GATv2":
         mp = nn.GATv2MessagePassing(num_heads=getattr(args, "gat_num_heads", 4), concat_heads=getattr(args, "gat_concat_heads", True), attention_dropout=getattr(args, "gat_attention_dropout", 0.0), use_edge_features=True)
         agg = nn.MeanAggregation()
     else:
-        raise ValueError(f"Unsupported model for copolymer: {args.model_name}")
+        raise ValueError(f"Unsupported model for copolymer: {args.model_name} (encoder: {encoder_name})")
 
     d_mp = mp.output_dim  # GNN embedding dim
 
@@ -1039,6 +1061,11 @@ def build_copolymer_model_and_trainer(
         ffn_input_dim = 4 * d_mp + 2
     elif copolymer_mode == "interact_meta":
         ffn_input_dim = 4 * d_mp + 2 + descriptor_dim
+    elif copolymer_mode.startswith("stage2d_"):
+        # Stage2D has its own prediction heads inside the aggregator.
+        # The predictor FFN is still built (for compatibility) but n_tasks
+        # matches the aggregator output. FFN input_dim = d_mp (placeholder).
+        ffn_input_dim = d_mp
     else:
         raise ValueError(
             f"Unknown copolymer_mode: {copolymer_mode}. "
@@ -1390,7 +1417,8 @@ def build_model_and_trainer(
         return mpnn, trainer
 
     # Create message passing and aggregation layers
-    if args.model_name == "PPG":
+    _enc = resolve_encoder_name(args.model_name)
+    if _enc == "PPG":
         # PPG uses standard DMPNN architecture with PPGMolGraphFeaturizer
         # PPG adds 10 bond length bins, so we need to get dimensions from featurizer
         if featurizer is not None and hasattr(featurizer, 'shape'):
@@ -1400,19 +1428,19 @@ def build_model_and_trainer(
             # Fallback: use default dimensions (will likely fail)
             mp = nn.BondMessagePassing()
         agg = nn.MeanAggregation()
-    elif args.model_name == "wDMPNN":
+    elif _enc == "wDMPNN":
         mp = nn.WeightedBondMessagePassing()
         agg = nn.WeightedMeanAggregation()        # ✅ no-op for graph-level outputs
-    elif args.model_name == "DMPNN":
+    elif _enc == "DMPNN":
         mp = nn.BondMessagePassing()
         agg = nn.MeanAggregation()
-    elif args.model_name == "DMPNN_SumPool":
+    elif _enc == "DMPNN_SumPool":
         mp = nn.BondMessagePassing()
         agg = nn.SumAggregation()
-    elif args.model_name == "DMPNN_AttnPool":
+    elif _enc == "DMPNN_AttnPool":
         mp = nn.BondMessagePassing()
         agg = nn.AttentiveAggregation()
-    elif args.model_name == "DMPNN_DiffPool":
+    elif _enc == "DMPNN_DiffPool":
         # ---- base D-MPNN used INSIDE the wrapper ----
         base_mp_cls = nn.BondMessagePassing
         
@@ -1423,26 +1451,26 @@ def build_model_and_trainer(
         )
 
         agg = nn.IdentityAggregation()
-    elif args.model_name == "GIN":
+    elif _enc == "GIN":
         mp = nn.GINMessagePassing(
             eps_learnable=True,
             mlp_layers=getattr(args, "gin_mlp_layers", 2),
             use_edge_features=True
         )
         agg = nn.MeanAggregation()
-    elif args.model_name == "GIN0":
+    elif _enc == "GIN0":
         mp = nn.GIN0MessagePassing(
             mlp_layers=getattr(args, "gin_mlp_layers", 2),
             use_edge_features=True
         )
         agg = nn.MeanAggregation()
-    elif args.model_name == "GINE":
+    elif _enc == "GINE":
         mp = nn.GINEMessagePassing(
             eps_learnable=True,
             mlp_layers=getattr(args, "gin_mlp_layers", 2)
         )
         agg = nn.MeanAggregation()
-    elif args.model_name == "GAT":
+    elif _enc == "GAT":
         mp = nn.GATMessagePassing(
             num_heads=getattr(args, "gat_num_heads", 4),
             concat_heads=getattr(args, "gat_concat_heads", True),
@@ -1450,7 +1478,7 @@ def build_model_and_trainer(
             use_edge_features=True
         )
         agg = nn.MeanAggregation()
-    elif args.model_name == "GATv2":
+    elif _enc == "GATv2":
         mp = nn.GATv2MessagePassing(
             num_heads=getattr(args, "gat_num_heads", 4),
             concat_heads=getattr(args, "gat_concat_heads", True),
@@ -1459,7 +1487,7 @@ def build_model_and_trainer(
         )
         agg = nn.MeanAggregation()
     else:
-        raise ValueError(f"Unsupported model_name: {args.model_name}")
+        raise ValueError(f"Unsupported model_name: {args.model_name} (encoder: {_enc})")
     
     # ---- Attach FiLM conditioner to message passing (post-creation) ----
     if _film_requested:

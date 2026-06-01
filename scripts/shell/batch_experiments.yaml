@@ -51,6 +51,16 @@
 #   interact       head gets [z_A || z_B || |diff| || prod || frac]
 #   interact_meta  head gets [z_A || z_B || |diff| || prod || frac || descriptors]  (needs incl_desc)
 #
+#   STAGE 2D MODES (architecture-aware, own prediction heads, require poly_type column):
+#   stage2d_frac       h_poly = h_mix (Frac baseline, no arch)
+#   stage2d_2d0_fixed  h_poly = h_mix + alpha * e_arch (learned scalar alpha)
+#   stage2d_2d0_arch   h_poly = h_mix + alpha_arch * e_arch (per-architecture alpha vector)
+#   stage2d_2d0_gate   h_poly = h_mix + sigmoid(gate) * e_arch (gated via MLP)
+#   stage2d_2d1_fixed  h_poly = h_mix + alpha * MLP(z) (interaction MLP, fixed alpha)
+#   stage2d_2d1_arch   h_poly = h_mix + alpha_arch * MLP(z) (per-arch alpha)
+#   stage2d_2d1_gate   h_poly = h_mix + sigmoid(gate(z)) * MLP(z) (fully gated)
+#   Note: Stage2D modes auto-encode poly_type as ordinal X_d; no incl_poly_type needed.
+#
 # DATASET FEATURE AVAILABILITY
 # -----------------------------
 #   tc         : rdkit, desc           (single target)
@@ -1713,6 +1723,82 @@ experiments:
     hpg_variant: pairInteractGate
     split_type: a_held_out
     walltime: "3:00:00"
+    targets: *eaip_targets
+
+  # ═══════════════════════════════════════════════════════════════════
+  # HPG-2STAGE PHASE 2D: ARCHITECTURE-AWARE VARIANTS (a_held_out)
+  #
+  # Stage 2D uses architecture (poly_type) as an explicit signal in the
+  # polymer aggregation step.  All variants zero-init so that alpha=0
+  # starts identical to the Frac baseline (stage2d_frac).
+  #
+  # Ablation ladder:
+  #   stage2d_frac      : Frac baseline (no arch signal)
+  #   stage2d_2d0_fixed : + scalar alpha * e_arch embedding residual
+  #   stage2d_2d0_arch  : + per-arch alpha vector
+  #   stage2d_2d0_gate  : + sigmoid-gated e_arch
+  #   stage2d_2d1_fixed : + MLP interaction residual (scalar alpha)
+  #   stage2d_2d1_arch  : + MLP interaction (per-arch alpha)
+  #   stage2d_2d1_gate  : + MLP interaction (fully gated)
+  #
+  # poly_type is auto-encoded as ordinal X_d[:, 0] inside train_graph.
+  # No --incl_poly_type needed (it would conflict).
+  # ═══════════════════════════════════════════════════════════════════
+
+  # -- Stage2D: Frac baseline (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_frac
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- Stage2D: 2D-0 fixed alpha (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_2d0_fixed
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- Stage2D: 2D-0 per-arch alpha (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_2d0_arch
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- Stage2D: 2D-0 gated (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_2d0_gate
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- Stage2D: 2D-1 fixed alpha (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_2d1_fixed
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- Stage2D: 2D-1 per-arch alpha (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_2d1_arch
+    split_type: a_held_out
+    walltime: "5:30:00"
+    targets: *eaip_targets
+
+  # -- Stage2D: 2D-1 gated (a_held_out) --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_2d1_gate
+    split_type: a_held_out
+    walltime: "5:30:00"
     targets: *eaip_targets
 
   # -- Identity Baseline --

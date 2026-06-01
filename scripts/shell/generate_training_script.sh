@@ -19,7 +19,7 @@
 #   target=<name>          # single prediction target/column
 #   train_size=<float>     # e.g., 0.8
 #   polymer_type=<string>  # e.g., copolymer
-#   copolymer_mode=<string> # mix | interact (for copolymer datasets)
+#   copolymer_mode=<string> # mix | interact | stage2d_frac | stage2d_2d0_fixed | ... (for copolymer datasets)
 #   fusion_type=<string>   # sum_fusion | concat_fusion | gated_fusion | scalar_residual_fusion
 #   fusion_mode=<string>   # none | late_concat | film
 #   film_layers=<string>   # all | last
