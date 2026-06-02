@@ -71,6 +71,10 @@ else:
     args._aux_cols = []
     args._n_aux_targets = 0
 
+# Auto-set results_subdir for Stage 2D modes (HPG2Stage project)
+if getattr(args, 'copolymer_mode', '').startswith('stage2d_') and not getattr(args, 'results_subdir', None):
+    args.results_subdir = 'HPG2Stage'
+
 # Setup training environment with common configuration
 setup_info = setup_model_environment(args, "dmpnn")
 
@@ -79,6 +83,9 @@ config = setup_info['config']
 chemprop_dir = setup_info['chemprop_dir']
 checkpoint_dir = setup_info['checkpoint_dir']
 results_dir = setup_info['results_dir']
+
+# Effective output model name: use results_subdir (e.g. HPG2Stage) if specified
+output_model_name = getattr(args, 'results_subdir', None) or args.model_name
 
 # Create predictions directory if saving predictions
 if args.save_predictions:
@@ -283,7 +290,7 @@ if args.pretrain_monomer:
         X_full = get_encodings_from_loader(mpnn, full_loader)
         # Save as .npy; map to smiles with df_input[smiles_column]
         emb_dir = checkpoint_dir / "embeddings"; emb_dir.mkdir(parents=True, exist_ok=True)
-        emb_base = f"{args.dataset_name}__{args.model_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}"
+        emb_base = f"{args.dataset_name}__{output_model_name}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}"
         np.save(emb_dir / f"{emb_base}__monomer_encoder.npy", X_full)
         pd.DataFrame({
             "smiles": [dp.smiles for dp in all_data],
@@ -681,7 +688,7 @@ if args.model_name == "HPG":
 
     if all_results:
         combined_results = pd.concat(all_results, ignore_index=True)
-        save_model_results(combined_results, args, args.model_name, results_dir, logger)
+        save_model_results(combined_results, args, output_model_name, results_dir, logger)
 
     raise SystemExit(0)
 # ========================= END HPG BRANCH =========================
@@ -1241,7 +1248,7 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
                 # Save predictions with IDs and training configuration metadata
                 split_type_sfx = f"__{args.split_type}"
                 save_predictions(
-                    y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
+                    y_true, y_pred, predictions_dir, args.dataset_name, target, output_model_name,
                     desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,
                     test_ids=test_ids,
                     copolymer_mode=copolymer_mode,
@@ -1298,7 +1305,7 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
                 _ft = getattr(args, 'fusion_type', 'sum_fusion')
                 _is_pw = (copolymer_mode.startswith('frac_attn_pair') or copolymer_mode.startswith('mix_pair'))
                 _fusion_sfx = f"__fusion_{_ft}" if _is_pw else ""
-                emb_prefix = f"{args.dataset_name}__{args.model_name}__{target}__copoly_{copolymer_mode}{_fusion_sfx}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{split_type_suffix}{size_suffix}"
+                emb_prefix = f"{args.dataset_name}__{output_model_name}__{target}__copoly_{copolymer_mode}{_fusion_sfx}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{split_type_suffix}{size_suffix}"
 
                 for key in ["z_A", "z_B", "z_final"]:
                     np.save(embeddings_dir / f"{emb_prefix}__{key}_train_split_{i}.npy", emb_train[key])
@@ -1319,7 +1326,7 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
     # Save final results
     if all_results:
         combined_results = pd.concat(all_results, ignore_index=True)
-        save_model_results(combined_results, args, args.model_name, results_dir, logger)
+        save_model_results(combined_results, args, output_model_name, results_dir, logger)
 
     raise SystemExit(0)
 # ========================= END COPOLYMER BRANCH =========================
@@ -1972,7 +1979,7 @@ for target in target_columns:
             
             # Save predictions with IDs and training configuration metadata
             save_predictions(
-                y_true, y_pred, predictions_dir, args.dataset_name, target, args.model_name,
+                y_true, y_pred, predictions_dir, args.dataset_name, target, output_model_name,
                 desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,
                 test_ids=test_ids,
                 copolymer_mode=None,
@@ -2008,7 +2015,7 @@ for target in target_columns:
             embeddings_dir.mkdir(parents=True, exist_ok=True)
             
             # Build embedding filename prefix with all identifiers including model name
-            embedding_prefix = f"{args.dataset_name}__{args.model_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}"
+            embedding_prefix = f"{args.dataset_name}__{output_model_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{size_suffix}"
             
             # Save embeddings as numpy arrays with full identifiers
             np.save(embeddings_dir / f"{embedding_prefix}__X_train_split_{i}.npy", X_train)
@@ -2043,4 +2050,4 @@ for target in target_columns:
 # Save final results using modular function
 if all_results:
     combined_results = pd.concat(all_results, ignore_index=True)
-    save_model_results(combined_results, args, args.model_name, results_dir, logger)
+    save_model_results(combined_results, args, output_model_name, results_dir, logger)

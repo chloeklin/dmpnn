@@ -1752,6 +1752,7 @@ experiments:
     split_type: a_held_out
     walltime: "5:30:00"
     targets: *eaip_targets
+    results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-0 fixed alpha (a_held_out) --
   - <<: *eaip_base
@@ -1760,6 +1761,7 @@ experiments:
     split_type: a_held_out
     walltime: "5:30:00"
     targets: *eaip_targets
+    results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-0 per-arch alpha (a_held_out) --
   - <<: *eaip_base
@@ -1768,6 +1770,7 @@ experiments:
     split_type: a_held_out
     walltime: "5:30:00"
     targets: *eaip_targets
+    results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-0 gated (a_held_out) --
   - <<: *eaip_base
@@ -1776,6 +1779,7 @@ experiments:
     split_type: a_held_out
     walltime: "5:30:00"
     targets: *eaip_targets
+    results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-1 fixed alpha (a_held_out) --
   - <<: *eaip_base
@@ -1784,6 +1788,7 @@ experiments:
     split_type: a_held_out
     walltime: "5:30:00"
     targets: *eaip_targets
+    results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-1 per-arch alpha (a_held_out) --
   - <<: *eaip_base
@@ -1792,6 +1797,7 @@ experiments:
     split_type: a_held_out
     walltime: "5:30:00"
     targets: *eaip_targets
+    results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-1 gated (a_held_out) --
   - <<: *eaip_base
@@ -1800,6 +1806,7 @@ experiments:
     split_type: a_held_out
     walltime: "5:30:00"
     targets: *eaip_targets
+    results_subdir: HPG2Stage
 
   # -- Identity Baseline --
   # - <<: *eaip_base

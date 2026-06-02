@@ -2270,7 +2270,9 @@ def setup_training_environment(args, model_type="graph"):
     results_dir = chemprop_dir / paths.get('results_dir', 'results')
     
     if model_type == "graph":
-        checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / args.model_name
+        # Use results_subdir for checkpoint dir when specified (e.g. HPG2Stage for stage2d_* modes)
+        ckpt_subdir = getattr(args, 'results_subdir', None) or args.model_name
+        checkpoint_dir = chemprop_dir / paths.get('checkpoint_dir', 'checkpoints') / ckpt_subdir
         feat_select_dir = None  # Not used for graph models
     else:  # tabular
         checkpoint_dir = None

@@ -260,6 +260,11 @@ try:
         if hpg_variant:
             args.append(f'hpg_variant={hpg_variant}')
         
+        # Add results_subdir if specified (overrides model_name for results/checkpoints/predictions)
+        results_subdir = exp.get('results_subdir')
+        if results_subdir:
+            args.append(f'results_subdir={results_subdir}')
+        
         # Identity baseline specific args
         identity_mode = exp.get('identity_mode')
         if identity_mode:

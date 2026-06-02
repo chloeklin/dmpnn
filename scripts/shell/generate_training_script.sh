@@ -28,6 +28,7 @@
 #   aux_descriptor_cols=<string>  # comma-separated column names
 #   lambda_aux=<float>     # auxiliary loss weight
 #   split_type=<string>    # random | a_held_out
+#   results_subdir=<string> # Override output directory (e.g., HPG2Stage for stage2d_* modes)
 
 # Check args
 if [ $# -lt 3 ]; then
@@ -71,6 +72,7 @@ AUX_DESCRIPTOR_COLS=""
 LAMBDA_AUX=""
 SPLIT_TYPE=""
 HPG_VARIANT=""
+RESULTS_SUBDIR=""
 
 # Validate model
 case $MODEL in
@@ -111,6 +113,7 @@ for arg in "${@:4}"; do
     lambda_aux=*)       LAMBDA_AUX="${arg#lambda_aux=}" ;;
     split_type=*)       SPLIT_TYPE="${arg#split_type=}" ;;
     hpg_variant=*)      HPG_VARIANT="${arg#hpg_variant=}" ;;
+    results_subdir=*)   RESULTS_SUBDIR="${arg#results_subdir=}" ;;
     *)
       echo "Warning: Unknown argument '$arg' ignored"
       ;;
@@ -167,6 +170,7 @@ fi
 [ -n "$FUSION_TYPE" ]        && ARGS="$ARGS --fusion_type $FUSION_TYPE"
 [ -n "$SPLIT_TYPE" ]         && ARGS="$ARGS --split_type $SPLIT_TYPE"
 [ -n "$HPG_VARIANT" ]        && ARGS="$ARGS --hpg_variant $HPG_VARIANT"
+[ -n "$RESULTS_SUBDIR" ]     && ARGS="$ARGS --results_subdir $RESULTS_SUBDIR"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
 if [ -n "$TARGETS" ]; then
   # Split comma-separated targets and quote each individually (handles spaces/parens)
@@ -209,6 +213,7 @@ SUFFIX="_${MODEL}"
 [ -n "$LAMBDA_AUX" ]       && SUFFIX="${SUFFIX}_la${LAMBDA_AUX}"
 [ -n "$SPLIT_TYPE" ]       && SUFFIX="${SUFFIX}_${SPLIT_TYPE}"
 [ -n "$HPG_VARIANT" ] && [ "$HPG_VARIANT" != "baseline" ] && SUFFIX="${SUFFIX}_hpg_${HPG_VARIANT}"
+[ -n "$RESULTS_SUBDIR" ]   && OUTPUT_PREFIX="$RESULTS_SUBDIR"
 [ -n "$IDENTITY_MODE" ]    && SUFFIX="${SUFFIX}_${IDENTITY_MODE}"
 [ -n "$EMBED_DIM" ]        && SUFFIX="${SUFFIX}_ed${EMBED_DIM}"
 # Sanitize target name for PBS job name compatibility (alphanumeric, dash, underscore only)
