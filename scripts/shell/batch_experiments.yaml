@@ -1505,24 +1505,24 @@ experiments:
   # ═══════════════════════════════════════════════════════════════════
 
   # -- HPG-2Stage-Interact-fixed (a_held_out) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: mix_pair
-    fusion_type: sum_fusion
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "7:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_pair
+  #   fusion_type: sum_fusion
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "7:30:00"
+  #   targets: *eaip_targets
 
   # -- HPG-2Stage-Interact-learned (a_held_out) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: mix_pair
-    fusion_type: scalar_residual_fusion
-    incl_poly_type: true
-    split_type: a_held_out
-    walltime: "7:30:00"
-    targets: *eaip_targets
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: mix_pair
+  #   fusion_type: scalar_residual_fusion
+  #   incl_poly_type: true
+  #   split_type: a_held_out
+  #   walltime: "7:30:00"
+  #   targets: *eaip_targets
 
   # -- wDMPNN --
   # - <<: *eaip_base
