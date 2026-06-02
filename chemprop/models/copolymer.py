@@ -908,7 +908,12 @@ class CopolymerMPNN(pl.LightningModule):
         """Return individual embedding components for export."""
         z_A = self._encode_single(bmg_A)
         z_B = self._encode_single(bmg_B)
-        z_final = self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d)
+        if self._is_stage2d:
+            arch = self._extract_arch_idx(X_d)
+            _, aux = self.stage2_aggregator(z_A, z_B, fracA, fracB, arch)
+            z_final = aux["h_poly"]
+        else:
+            z_final = self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d)
         return {"z_A": z_A, "z_B": z_B, "z_final": z_final}
 
     def fingerprint_components_multi_monomer(
