@@ -61,8 +61,8 @@ class Stage2Aggregator(nn.Module):
     dropout : float
         Dropout probability in MLPs.
     alpha_init : float
-        Initial value for the learnable alpha scalar(s). Default 0.0 means
-        the model starts identical to Frac baseline.
+        Initial value for the learnable alpha scalar(s). Default 0.1 breaks
+        the zero-gradient symmetry with zero-initialized residual MLPs.
     n_targets : int
         Number of prediction targets (typically 2 for EA + IP).
     """
@@ -74,7 +74,7 @@ class Stage2Aggregator(nn.Module):
         arch_emb_dim: int | None = None,
         hidden_dim: int = 256,
         dropout: float = 0.1,
-        alpha_init: float = 0.0,
+        alpha_init: float = 0.1,
         n_targets: int = 2,
     ):
         super().__init__()

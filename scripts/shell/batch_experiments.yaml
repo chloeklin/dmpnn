@@ -1746,42 +1746,47 @@ experiments:
   # ═══════════════════════════════════════════════════════════════════
 
   # -- Stage2D: Frac baseline (a_held_out) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: stage2d_frac
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-    results_subdir: HPG2Stage
+  # Already validated — no retraining required (R²=0.974 EA, 0.964 IP)
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: stage2d_frac
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  #   results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-0 fixed alpha (a_held_out) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: stage2d_2d0_fixed
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-    results_subdir: HPG2Stage
+  # Already validated — no retraining required (R²=0.981 EA, 0.977 IP)
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: stage2d_2d0_fixed
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  #   results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-0 per-arch alpha (a_held_out) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: stage2d_2d0_arch
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-    results_subdir: HPG2Stage
+  # Already validated — no retraining required (R²=0.981 EA, 0.978 IP)
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: stage2d_2d0_arch
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  #   results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-0 gated (a_held_out) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: stage2d_2d0_gate
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-    results_subdir: HPG2Stage
+  # Already validated — no retraining required (R²=0.981 EA, 0.977 IP)
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: stage2d_2d0_gate
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  #   results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-1 fixed alpha (a_held_out) --
+  # RERUN: Dead initialization fixed (alpha_init changed from 0.0 to 0.1)
   - <<: *eaip_base
     model: DMPNN
     copolymer_mode: stage2d_2d1_fixed
@@ -1791,6 +1796,7 @@ experiments:
     results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-1 per-arch alpha (a_held_out) --
+  # RERUN: Dead initialization fixed (alpha_init changed from 0.0 to 0.1)
   - <<: *eaip_base
     model: DMPNN
     copolymer_mode: stage2d_2d1_arch
@@ -1800,13 +1806,14 @@ experiments:
     results_subdir: HPG2Stage
 
   # -- Stage2D: 2D-1 gated (a_held_out) --
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: stage2d_2d1_gate
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-    results_subdir: HPG2Stage
+  # Already validated — no retraining required (R²=0.981 EA, 0.979 IP)
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: stage2d_2d1_gate
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  #   results_subdir: HPG2Stage
 
   # -- Identity Baseline --
   # - <<: *eaip_base
