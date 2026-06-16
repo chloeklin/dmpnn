@@ -8,33 +8,46 @@
 # Usage:
 #   ./submit_learning_curve.sh              # Submit all 40 jobs
 #   ./submit_learning_curve.sh --dry_run    # Print commands without submitting
-#
-# Prerequisites:
-#   - Run dry_run first to generate group IDs:
-#     python scripts/python/run_stage2d_learning_curve.py --dry_run
+#   ./submit_learning_curve.sh --no-submit  # Generate PBS scripts only
 
 set -e
 
-# Configuration
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PYTHON_SCRIPT="$PROJECT_ROOT/scripts/python/run_stage2d_learning_curve.py"
-VENV_ACTIVATE="$PROJECT_ROOT/.venv/bin/activate"
+# ── Cluster configuration (matches generate_training_script.sh) ──
+PROJECT_DIR="/scratch/um09/hl4138/dmpnn"
+VENV_ACTIVATE="/home/659/hl4138/dmpnn-venv/bin/activate"
+MODULE_PYTHON="python3/3.12.1"
+MODULE_CUDA="cuda/12.0.0"
+MODULE_PATH="/g/data/dk92/apps/Modules/modulefiles"
 
+# PBS resources
+WALLTIME="5:30:00"
+NCPUS=12
+MEM="100GB"
+NGPUS=1
+QUEUE="gpuvolta"
+PROJECT="ng76"
+STORAGE="scratch/um09+gdata/dk92"
+JOBFS="100GB"
+
+# Experiment configuration
 MODELS=("2d0_arch" "2d1_arch")
 FOLDS=(0 1 2 3 4)
 FRACTIONS=(25 50 75 100)
 
-WALLTIME="5:00:00"
-NCPUS=4
-MEM="32gb"
-NGPUS=1
-QUEUE="normal"
-
+# Parse arguments
 DRY_RUN=false
-if [[ "$1" == "--dry_run" ]]; then
-    DRY_RUN=true
-fi
+NO_SUBMIT=false
+for arg in "$@"; do
+    case $arg in
+        --dry_run)  DRY_RUN=true ;;
+        --no-submit) NO_SUBMIT=true ;;
+    esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOCAL_PROJECT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+LOG_DIR="$LOCAL_PROJECT/logs/learning_curve"
+mkdir -p "$LOG_DIR"
 
 echo "================================================================"
 echo "Stage 2D Learning Curve - Job Submission"
@@ -44,17 +57,11 @@ echo "  Folds: ${FOLDS[*]}"
 echo "  Fractions: ${FRACTIONS[*]}"
 echo "  Total jobs: $((${#MODELS[@]} * ${#FOLDS[@]} * ${#FRACTIONS[@]}))"
 echo "  Walltime: $WALLTIME"
+echo "  Project dir: $PROJECT_DIR"
 echo "  Dry run: $DRY_RUN"
+echo "  No submit: $NO_SUBMIT"
 echo "================================================================"
 echo ""
-
-# First ensure group IDs are generated
-if [[ "$DRY_RUN" == "false" ]]; then
-    echo "Step 1: Generating group subsampling (dry run)..."
-    cd "$PROJECT_ROOT/scripts/python"
-    python3 run_stage2d_learning_curve.py --dry_run
-    echo ""
-fi
 
 JOB_COUNT=0
 
@@ -62,10 +69,8 @@ for MODEL in "${MODELS[@]}"; do
     for FOLD in "${FOLDS[@]}"; do
         for FRAC in "${FRACTIONS[@]}"; do
             JOB_NAME="lc_${MODEL}_f${FOLD}_p${FRAC}"
-            LOG_DIR="$PROJECT_ROOT/logs/learning_curve"
-            mkdir -p "$LOG_DIR"
             
-            CMD="python3 $PYTHON_SCRIPT --models $MODEL --folds $FOLD --fractions $FRAC"
+            CMD="python3 scripts/python/run_stage2d_learning_curve.py --models $MODEL --folds $FOLD --fractions $FRAC"
             
             if [[ "$DRY_RUN" == "true" ]]; then
                 echo "  [DRY] $JOB_NAME: $CMD"
@@ -74,21 +79,23 @@ for MODEL in "${MODELS[@]}"; do
                 PBS_SCRIPT="$LOG_DIR/${JOB_NAME}.pbs"
                 cat > "$PBS_SCRIPT" <<EOF
 #!/bin/bash
-#PBS -N $JOB_NAME
-#PBS -l walltime=$WALLTIME
-#PBS -l ncpus=$NCPUS
-#PBS -l mem=$MEM
-#PBS -l ngpus=$NGPUS
 #PBS -q $QUEUE
-#PBS -o $LOG_DIR/${JOB_NAME}.out
-#PBS -e $LOG_DIR/${JOB_NAME}.err
-#PBS -l storage=gdata/vf+scratch/vf
+#PBS -P $PROJECT
+#PBS -l ncpus=$NCPUS
+#PBS -l ngpus=$NGPUS
+#PBS -l mem=$MEM
+#PBS -l walltime=$WALLTIME
+#PBS -l storage=$STORAGE
+#PBS -l jobfs=$JOBFS
+#PBS -N $JOB_NAME
 
-cd $PROJECT_ROOT/scripts/python
+module use $MODULE_PATH
+module load $MODULE_PYTHON $MODULE_CUDA
 source $VENV_ACTIVATE
+cd $PROJECT_DIR
 
 echo "Job: $JOB_NAME"
-echo "Model: $MODEL, Fold: $FOLD, Fraction: $FRAC%"
+echo "Model: $MODEL, Fold: $FOLD, Fraction: ${FRAC}%"
 echo "Start: \$(date)"
 
 $CMD
@@ -96,9 +103,14 @@ $CMD
 echo "End: \$(date)"
 EOF
                 
-                # Submit
-                JOB_ID=$(qsub "$PBS_SCRIPT")
-                echo "  Submitted: $JOB_NAME -> $JOB_ID"
+                chmod +x "$PBS_SCRIPT"
+                
+                if [[ "$NO_SUBMIT" == "true" ]]; then
+                    echo "  [GENERATED] $JOB_NAME -> $PBS_SCRIPT"
+                else
+                    JOB_ID=$(qsub "$PBS_SCRIPT")
+                    echo "  [SUBMITTED] $JOB_NAME -> $JOB_ID"
+                fi
             fi
             
             JOB_COUNT=$((JOB_COUNT + 1))
@@ -110,10 +122,18 @@ echo ""
 echo "================================================================"
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "Dry run complete. $JOB_COUNT jobs would be submitted."
+    echo ""
+    echo "To generate PBS scripts: ./submit_learning_curve.sh --no-submit"
+    echo "To submit all jobs:      ./submit_learning_curve.sh"
+elif [[ "$NO_SUBMIT" == "true" ]]; then
+    echo "Generated $JOB_COUNT PBS scripts in: $LOG_DIR"
+    echo "To submit all: for f in $LOG_DIR/lc_*.pbs; do qsub \$f; done"
 else
     echo "Submitted $JOB_COUNT jobs."
     echo "Monitor with: qstat -u \$USER"
+    echo ""
     echo "After completion, run analysis:"
+    echo "  cd $PROJECT_DIR"
     echo "  python3 analysis/results/hpg2stage/analyze_stage2d_learning_curve.py"
 fi
 echo "================================================================"
