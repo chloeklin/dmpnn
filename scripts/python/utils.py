@@ -3303,10 +3303,28 @@ def _find_best_ckpt_in_dir(ckpt_dir: Path):
 def pick_best_checkpoint(checkpoint_path: Path):
     """
     Find a 'best' checkpoint in either:
+      - best.json in the checkpoint root (authoritative, written at training end)
       - the checkpoint root (legacy 'best-*.ckpt')
       - lightning logs/checkpoints/ subdir
     Returns (best_ckpt_path or None, best_val or None)
     """
+    # Prefer best.json if it exists — it records the authoritative best checkpoint.
+    # The path stored in best.json may be a remote/cluster path; resolve to local.
+    best_json = checkpoint_path / "best.json"
+    if best_json.exists():
+        try:
+            with open(best_json) as _f:
+                _info = json.load(_f)
+            _stored = _info.get("best_ckpt", "")
+            _best_val = _info.get("best_val_loss")
+            if _stored:
+                _fname = Path(_stored).name
+                _local = checkpoint_path / "logs" / "checkpoints" / _fname
+                if _local.exists():
+                    return str(_local), _best_val
+        except Exception:
+            pass
+
     # Legacy pattern in root dir
     best_root, best_root_val = _find_best_ckpt_in_dir(checkpoint_path)
     # Lightning pattern under logs/checkpoints
