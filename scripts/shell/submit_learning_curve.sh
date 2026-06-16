@@ -134,6 +134,6 @@ else
     echo ""
     echo "After completion, run analysis:"
     echo "  cd $PROJECT_DIR"
-    echo "  python3 analysis/results/hpg2stage/analyze_stage2d_learning_curve.py"
+    echo "  python3 experiments/hpg2stage/scripts/analyze_stage2d_learning_curve.py"
 fi
 echo "================================================================"

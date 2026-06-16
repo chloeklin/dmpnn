@@ -15,7 +15,7 @@ Usage (from scripts/python/):
 
 Output:
     predictions/HPG2Stage_LC/  (prediction .npz files)
-    analysis/results/hpg2stage/learning_curve_output/  (group_ids, metadata)
+    experiments/hpg2stage/output/learning_curve/  (group_ids, metadata)
 """
 
 import logging
@@ -49,7 +49,7 @@ from utils import (
 ROOT = Path(__file__).resolve().parents[2]
 DATA_PATH = ROOT / 'data' / 'ea_ip.csv'
 PREDICTIONS_DIR = ROOT / 'predictions' / 'HPG2Stage_LC'
-LC_OUTPUT_DIR = ROOT / 'analysis' / 'results' / 'hpg2stage' / 'learning_curve_output'
+LC_OUTPUT_DIR = ROOT / 'experiments' / 'hpg2stage' / 'output' / 'learning_curve'
 
 MODELS = ['2d0_arch', '2d1_arch']
 FRACTIONS = [0.25, 0.50, 0.75, 1.00]
