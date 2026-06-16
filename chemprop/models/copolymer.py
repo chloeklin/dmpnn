@@ -973,7 +973,7 @@ class CopolymerMPNN(pl.LightningModule):
     ) -> Tensor:
         if self._is_stage2d:
             preds, _ = self.forward_stage2d(bmg_A, bmg_B, fracA, fracB, X_d)
-            return preds
+            return self.predictor.output_transform(preds)
         return self.predictor(self.fingerprint(bmg_A, bmg_B, fracA, fracB, X_d))
 
     def forward_multi_monomer(

@@ -241,6 +241,80 @@ class TestCopolymerIntegration:
         assert len(ARCH_LABEL_MAP) == NUM_ARCHITECTURES
         assert set(ARCH_LABEL_MAP.values()) == {0, 1, 2}
 
+    def test_forward_applies_output_transform_in_eval(self):
+        """Regression test: CopolymerMPNN.forward() must apply UnscaleTransform in eval mode.
+
+        Stage2D models previously returned normalized predictions from predict_step
+        because forward() called forward_stage2d() without applying output_transform.
+        This test ensures the unscale transform is applied correctly.
+        """
+        import numpy as np
+        from chemprop.models.copolymer import CopolymerMPNN
+        from chemprop.nn.transforms import UnscaleTransform
+
+        class FakeArgs:
+            model_name = "DMPNN"
+            task_type = "reg"
+            message_hidden_dim = 32
+            message_depth = 2
+            dropout = 0.0
+            activation = "relu"
+            aggregation = "mean"
+            aggregation_norm = 100
+            warmup_epochs = 2
+            init_lr = 1e-4
+            max_lr = 1e-3
+            final_lr = 1e-5
+            ffn_hidden_dim = 32
+            ffn_num_layers = 2
+
+        args = FakeArgs()
+
+        class FakeScaler:
+            mean_ = np.array([-2.5])
+            scale_ = np.array([0.6])
+
+        scaler = FakeScaler()
+        transform = UnscaleTransform.from_standard_scaler(scaler)
+
+        mode = "stage2d_2d0_arch"
+        mpnn = CopolymerMPNN(args=args, copolymer_mode=mode, descriptor_dim=0, n_tasks=1)
+        mpnn.predictor.output_transform = transform
+
+        mpnn.eval()
+        assert not mpnn.predictor.output_transform.training, \
+            "output_transform should be in eval mode"
+
+        h_A = torch.randn(2, 300)
+        h_B = torch.randn(2, 300)
+        fracA = torch.tensor([0.5, 0.6])
+        fracB = torch.tensor([0.5, 0.4])
+        arch = torch.tensor([0, 1], dtype=torch.long)
+
+        with torch.no_grad():
+            preds_raw, _ = mpnn.forward_stage2d(
+                None, None, fracA, fracB,
+                torch.tensor([[0.], [1.]])
+            )
+
+        mpnn.train()
+        transform.train()
+        assert transform.training, "sanity: transform should be in train mode"
+        with torch.no_grad():
+            out_train = transform(preds_raw)
+        assert torch.allclose(out_train, preds_raw), \
+            "In train mode, UnscaleTransform must be identity (normalized predictions kept)"
+
+        transform.eval()
+        with torch.no_grad():
+            out_eval = transform(preds_raw)
+        expected = preds_raw * 0.6 + (-2.5)
+        assert torch.allclose(out_eval, expected, atol=1e-5), \
+            "In eval mode, UnscaleTransform must unscale predictions"
+
+        assert not torch.allclose(preds_raw, expected, atol=1e-3), \
+            "Normalized and unscaled predictions must differ (regression test for the unscale bug)"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
