@@ -52,7 +52,7 @@ echo ""
 if [[ "$DRY_RUN" == "false" ]]; then
     echo "Step 1: Generating group subsampling (dry run)..."
     cd "$PROJECT_ROOT/scripts/python"
-    python run_stage2d_learning_curve.py --dry_run
+    python3 run_stage2d_learning_curve.py --dry_run
     echo ""
 fi
 
@@ -65,7 +65,7 @@ for MODEL in "${MODELS[@]}"; do
             LOG_DIR="$PROJECT_ROOT/logs/learning_curve"
             mkdir -p "$LOG_DIR"
             
-            CMD="python $PYTHON_SCRIPT --models $MODEL --folds $FOLD --fractions $FRAC"
+            CMD="python3 $PYTHON_SCRIPT --models $MODEL --folds $FOLD --fractions $FRAC"
             
             if [[ "$DRY_RUN" == "true" ]]; then
                 echo "  [DRY] $JOB_NAME: $CMD"
@@ -114,6 +114,6 @@ else
     echo "Submitted $JOB_COUNT jobs."
     echo "Monitor with: qstat -u \$USER"
     echo "After completion, run analysis:"
-    echo "  python analysis/results/hpg2stage/analyze_stage2d_learning_curve.py"
+    echo "  python3 analysis/results/hpg2stage/analyze_stage2d_learning_curve.py"
 fi
 echo "================================================================"
