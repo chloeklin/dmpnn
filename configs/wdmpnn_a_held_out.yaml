@@ -1,0 +1,30 @@
+# wDMPNN — a_held_out split (5-fold, group by smiles_A)
+# Matches original training hyperparameters
+# Run via: scripts/run_wdmpnn_stage2d_baselines.sh
+
+dataset: ea_ip
+model: wDMPNN
+task_type: reg
+polymer_type: copolymer
+split_type: a_held_out
+save_predictions: true
+export_embeddings: false
+
+targets:
+  - "EA vs SHE (eV)"
+  - "IP vs SHE (eV)"
+
+# Hyperparameters (match original wDMPNN ea_ip runs)
+epochs: 300
+patience: 30
+batch_size: 64
+seed: 42
+replicates: 5
+
+# wDMPNN reads from WDMPNN_Input column (weighted DMPNN polymer SMILES)
+# No copolymer_mode, no incl_desc, no incl_rdkit needed
+
+walltime: "12:30:00"
+ncpus: 12
+mem: 48GB
+ngpus: 1

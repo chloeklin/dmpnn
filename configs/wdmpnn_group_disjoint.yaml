@@ -1,0 +1,32 @@
+# wDMPNN — group_disjoint split (5-fold, group by (smiles_A, smiles_B, fracA))
+# Must be run via run_wdmpnn_generalization.py (train_graph.py does not support this split)
+# Matches original wDMPNN hyperparameters
+
+dataset: ea_ip
+model: wDMPNN
+task_type: reg
+polymer_type: copolymer
+split_type: group_disjoint
+save_predictions: true
+export_embeddings: false
+
+targets:
+  - "EA vs SHE (eV)"
+  - "IP vs SHE (eV)"
+
+# Hyperparameters (match original wDMPNN ea_ip runs)
+epochs: 300
+patience: 30
+batch_size: 64
+seed: 42
+n_folds: 5
+
+# wDMPNN reads from WDMPNN_Input column (weighted DMPNN polymer SMILES)
+# Split grouping key: (smiles_A || smiles_B || fracA)
+# All architecture variants of a composition group stay together
+# Ensures no composition leakage between train/val/test
+
+walltime: "12:30:00"
+ncpus: 12
+mem: 48GB
+ngpus: 1
