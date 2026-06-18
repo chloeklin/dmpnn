@@ -145,7 +145,6 @@ generate_job() {
 #PBS -l storage=$STORAGE
 #PBS -N $job_name
 #PBS -j oe
-#PBS -o $PROJECT_ROOT/logs/${job_name}_\$(date +%Y%m%d_%H%M%S).log
 
 $MODULE_LOAD
 
