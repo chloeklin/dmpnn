@@ -36,6 +36,7 @@ sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from chemprop import data, featurizers, nn
+from chemprop import models
 from chemprop.data import MoleculeDatapoint, MoleculeDataset, build_dataloader
 from utils import (
     set_seed, get_metric_list, pick_best_checkpoint,
@@ -72,7 +73,7 @@ def build_wdmpnn_model(n_targets=1):
     mp = nn.BondMessagePassing()
     agg = nn.MeanAggregation()
     ffn = nn.RegressionFFN(input_dim=mp.output_dim)
-    mpnn = nn.MPNN(mp, agg, ffn, batch_norm=False)
+    mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)
     return mpnn
 
 
