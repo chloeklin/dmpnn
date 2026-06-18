@@ -114,7 +114,7 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     agg = nn.MeanAggregation()
     output_transform = nn.UnscaleTransform.from_standard_scaler(scaler)
     ffn = nn.RegressionFFN(input_dim=mp.output_dim, output_transform=output_transform)
-    mpnn = nn.MPNN(mp, agg, ffn, batch_norm=False)
+    mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)
 
     # Trainer
     from lightning import pytorch as pl
