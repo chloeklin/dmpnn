@@ -61,22 +61,16 @@ PROJECT="um09"
 STORAGE="scratch/um09+gdata/um09"
 
 # ── Python Environment ───────────────────────────────────────────────
-# Match the pattern from generate_training_script.sh
+# Match the pattern from generate_training_script.sh (Gadi cluster)
 MODULE_LOAD='
-module load python3/3.11.7
-module load cuda/12.3.2'
+module use /g/data/dk92/apps/Modules/modulefiles
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate'
 
-PYTHON="$PROJECT_ROOT/venv/bin/python3"
 TRAIN_GRAPH="scripts/python/train_graph.py"
 WDMPNN_GEN="scripts/python/run_wdmpnn_generalization.py"
 
 # Ensure scripts exist
-if [ ! -f "$PYTHON" ]; then
-    echo "Error: Python not found at $PYTHON"
-    echo "Create venv first: python3 -m venv venv && ./venv/bin/pip install -e ."
-    exit 1
-fi
-
 if [ ! -f "$PROJECT_ROOT/$WDMPNN_GEN" ]; then
     echo "Error: Script not found: $WDMPNN_GEN"
     exit 1
@@ -159,8 +153,8 @@ $MODULE_LOAD
 cd "$PROJECT_ROOT"
 
 # Verify environment
-if [ ! -f "$PYTHON" ]; then
-    echo "Error: Python not found at $PYTHON"
+if ! command -v python3 &> /dev/null; then
+    echo "Error: python3 not found after module load/activate"
     exit 1
 fi
 
@@ -169,8 +163,10 @@ echo " wDMPNN Training: $split_name"
 echo " Start: \$(date)"
 echo " Host: \$(hostname)"
 echo " CUDA: \$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Python: \$(which python3)"
 echo "═══════════════════════════════════════════════════════════════"
 
+# Run commands (python3 is available after module load + activate)
 $commands
 
 echo ""
