@@ -37,7 +37,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from chemprop import data, featurizers, nn
 from chemprop import models
-from chemprop.data import MoleculeDatapoint, MoleculeDataset, build_dataloader
+from chemprop.data import PolymerDatapoint, PolymerDataset, build_dataloader
 from utils import (
     set_seed, get_metric_list, pick_best_checkpoint,
     canonicalize_smiles,
@@ -85,17 +85,19 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     ys = df[target].astype(float).values.reshape(-1, 1)
 
     # Create datapoints using WDMPNN_Input SMILES
-    featurizer = featurizers.PolymerMolGraphFeaturizer()
-    all_datapoints = [MoleculeDatapoint(smi, y) for smi, y in zip(smis_wdmpnn, ys)]
+    # wDMPNN uses PolymerDatapoint.from_smi() which parses "SMILES|w1|w2|...<edge1<edge2..."
+    # and PolymerDataset with PolymerMolGraphFeaturizer
+    polymer_featurizer = featurizers.PolymerMolGraphFeaturizer()
+    all_datapoints = [PolymerDatapoint.from_smi(smi, y) for smi, y in zip(smis_wdmpnn, ys)]
 
     # Split data
     train_data = [all_datapoints[i] for i in train_idx]
     val_data = [all_datapoints[i] for i in val_idx]
     test_data = [all_datapoints[i] for i in test_idx]
 
-    train_ds = MoleculeDataset(train_data)
-    val_ds = MoleculeDataset(val_data)
-    test_ds = MoleculeDataset(test_data)
+    train_ds = PolymerDataset(train_data, polymer_featurizer)
+    val_ds = PolymerDataset(val_data, polymer_featurizer)
+    test_ds = PolymerDataset(test_data, polymer_featurizer)
 
     # Normalize targets (fit on train)
     scaler = train_ds.normalize_targets()
