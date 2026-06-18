@@ -13,6 +13,7 @@ import sys
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from scipy import stats
 from sklearn.metrics import r2_score, mean_absolute_error
 
 # ─── Paths ───────────────────────────────────────────────────────────
@@ -92,10 +93,29 @@ def match_to_dataset(y_true, df, target_long):
 # LOAD PREDICTIONS
 # ═══════════════════════════════════════════════════════════════════════
 
+def apply_inverse_transform(y_true, y_pred):
+    """Apply linregress inverse transform (same as analyze_pair_disjoint_transfer.py line 142)."""
+    slope, intercept, _, _, _ = stats.linregress(y_pred, y_true)
+    return y_pred * slope + intercept
+
+
+def needs_inverse_transform(y_true, y_pred):
+    """Check if predictions are in normalized space (same heuristic as LC script)."""
+    if r2_score(y_true, y_pred) < -1:
+        return True
+    if abs(y_pred.mean() - y_true.mean()) > 1.0:
+        return True
+    return False
+
+
 def load_lc_100_preds(model, target_long):
     """
     Load 100% learning-curve predictions.
     Pattern: ea_ip__{target}__stage2d_{model}__fold{fold}__frac100__split{fold}.npz
+    
+    NOTE: LC predictions are stored in NORMALIZED space.
+    We apply linregress inverse transform (same as analyze_pair_disjoint_transfer.py
+    does for original A-held-out predictions).
     """
     per_fold = []
     for fold in range(N_FOLDS):
@@ -109,9 +129,16 @@ def load_lc_100_preds(model, target_long):
                 return None
         
         npz = np.load(fpath, allow_pickle=True)
+        y_true = npz['y_true'].flatten().astype(float)
+        y_pred = npz['y_pred'].flatten().astype(float)
+        
+        # Apply inverse transform if predictions are in normalized space
+        if needs_inverse_transform(y_true, y_pred):
+            y_pred = apply_inverse_transform(y_true, y_pred)
+        
         per_fold.append({
-            'y_true': npz['y_true'].flatten().astype(float),
-            'y_pred': npz['y_pred'].flatten().astype(float),
+            'y_true': y_true,
+            'y_pred': y_pred,
             'test_indices': npz['test_indices'].flatten().astype(int) if 'test_indices' in npz else None,
         })
     return per_fold

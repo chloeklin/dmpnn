@@ -2,95 +2,108 @@
 
 ## Objective
 
-Recompute architecture-deviation R² for 100% learning-curve checkpoints using the **EXACT** same metric function from `analyze_pair_disjoint_transfer.py` to determine if the discrepancy with Stage 2D results is due to metric computation differences.
+Recompute architecture-deviation R² for 100% learning-curve checkpoints using the **EXACT** same metric function from `analyze_pair_disjoint_transfer.py` to determine whether the discrepancy with final Stage 2D values is due to metric computation differences or genuinely different predictions.
 
 ## Method
 
-- **Metric function**: `compute_archdev_metrics()` copied exactly from `analyze_pair_disjoint_transfer.py`
+- **Metric function**: `compute_archdev_metrics()` copied exactly from `analyze_pair_disjoint_transfer.py` (lines 167-194)
 - **Group definition**: 4-part key (`smiles_A || smiles_B || fracA || fracB`)
-- **Aggregation**: Per-fold processing (each fold computed separately, then averaged)
-- **Inverse transform**: None (predictions already in real scale)
-- **Comparison**: LC(100%) vs Stage2D (group_disjoint split)
+- **Filter**: Groups with ≥ 2 unique architectures (poly_type)
+- **Aggregation**: Per-fold (each fold computed independently, then averaged)
+- **Inverse transform**: linregress-based (same as `analyze_pair_disjoint_transfer.py` line 142) — applied because LC predictions are stored in normalized space
+- **Sources compared**:
+  - `HPG2Stage_LC/` — 100% learning-curve checkpoints (a_held_out split)
+  - `HPG2Stage/` — Original final checkpoints (a_held_out split)
+  - `HPG2Stage_Gen/` — Generalization checkpoints (group_disjoint and pair_disjoint splits)
 
 ## Results
 
-### Raw Output
+### Full Three-Way Comparison
 
-```
---- Target: EA ---
-  2d0_arch: LC(100%)  R²(Δy) = -0.0419 ± 0.5865 (n=5 folds)
-  2d0_arch: Stage2D   R²(Δy) =  0.8828 ± 0.0065 (n=5 folds) [group_disjoint]
-  2d0_arch: GAP = +0.9247 (Stage2D - LC100)
+Using the **identical** metric function for all sources:
 
-  2d1_arch: LC(100%)  R²(Δy) = -1.5705 ± 3.0489 (n=5 folds)
-  2d1_arch: Stage2D   R²(Δy) =  0.9422 ± 0.0027 (n=5 folds) [group_disjoint]
-  2d1_arch: GAP = +2.5127 (Stage2D - LC100)
+#### EA (EA vs SHE (eV))
 
---- Target: IP ---
-  2d0_arch: LC(100%)  R²(Δy) = -1.3218 ± 1.6339 (n=5 folds)
-  2d0_arch: Stage2D   R²(Δy) =  0.9423 ± 0.0032 (n=5 folds) [group_disjoint]
-  2d1_arch: GAP = +2.2640 (Stage2D - LC100)
+| Source | Split | 2d0_arch R²(Δy) | 2d1_arch R²(Δy) |
+|--------|-------|-----------------|-----------------|
+| LC(100%) | a_held_out | 0.4742 ± 0.30 | 0.3498 ± 0.55 |
+| Original | a_held_out | 0.8438 ± 0.02 | 0.8626 ± 0.01 |
+| Gen | group_disjoint | 0.8868 ± 0.01 | 0.9381 ± 0.01 |
+| Gen | pair_disjoint | 0.8862 ± 0.005 | 0.9346 ± 0.01 |
 
-  2d1_arch: LC(100%)  R²(Δy) = -1.2375 ± 1.6458 (n=5 folds)
-  2d1_arch: Stage2D   R²(Δy) =  0.9649 ± 0.0017 (n=5 folds) [group_disjoint]
-  2d1_arch: GAP = +2.2024 (Stage2D - LC100)
-```
+#### IP (IP vs SHE (eV))
 
-### Summary Table
+| Source | Split | 2d0_arch R²(Δy) | 2d1_arch R²(Δy) |
+|--------|-------|-----------------|-----------------|
+| LC(100%) | a_held_out | 0.3984 ± 0.27 | 0.5318 ± 0.42 |
+| Original | a_held_out | 0.9064 ± 0.02 | 0.9135 ± 0.02 |
+| Gen | group_disjoint | 0.9423 ± 0.003 | 0.9649 ± 0.002 |
+| Gen | pair_disjoint | 0.9406 ± 0.002 | 0.9637 ± 0.003 |
 
-| Target | Model | LC(100%) R²(Δy) | Stage2D R²(Δy) | Gap |
-|--------|-------|-----------------|-----------------|-----|
-| EA | 2d0_arch | -0.0419 ± 0.59 | 0.8828 ± 0.007 | **+0.92** |
-| EA | 2d1_arch | -1.5705 ± 3.05 | 0.9422 ± 0.003 | **+2.51** |
-| IP | 2d0_arch | -1.3218 ± 1.63 | 0.9423 ± 0.003 | **+2.26** |
-| IP | 2d1_arch | -1.2375 ± 1.65 | 0.9649 ± 0.002 | **+2.20** |
-| **EA Avg** | | **-0.81** | **0.91** | **+1.72** |
-| **IP Avg** | | **-1.28** | **0.95** | **+2.23** |
+### Averages Across All Models
 
-## Critical Finding
+| Source | Mean R²(Δy) |
+|--------|-------------|
+| LC(100%) [a_held_out] | **0.44** |
+| Original [a_held_out] | **0.88** |
+| Gen [group_disjoint] | **0.93** |
+| Gen [pair_disjoint] | **0.93** |
 
-### The Discrepancy REMAINS — and is Even Larger
+## Critical Findings
 
-When using **identical** metric computation:
-- **Learning curve (100%)**: R²(Δy) is **negative** (~-0.8 to -1.3)
-- **Stage 2D**: R²(Δy) is **high positive** (~0.88 to 0.96)
-- **Gap**: ~1.7 to 2.2 R² units
+### 1. The Discrepancy REMAINS
 
-### What This Proves
+Using identical metric computation, the LC(100%) checkpoints produce R²(Δy) ≈ 0.35–0.53, while Original/Gen checkpoints produce R²(Δy) ≈ 0.84–0.96.
 
-The discrepancy is **NOT** due to:
-- ❌ Different group definitions
-- ❌ Different aggregation methods (per-fold vs pooled)
-- ❌ Different inverse transform logic
-- ❌ Different metric computation
+### 2. LC and Original Are Different Checkpoints
 
-The discrepancy **IS** due to:
-- ✅ **Different model checkpoints** — the actual predictions are different
-- ✅ **Different training procedures** — LC vs Stage 2D may have different configurations
-- ✅ **Different data splits** — LC uses a_held_out with matched group sampling, Stage 2D uses group_disjoint
+Despite both using `a_held_out` splits, the LC(100%) and Original predictions differ:
+- **Different test set sizes**: LC fold 0 has 9548 samples; Original fold 0 has 8596
+- **Different predictions**: y_pred distributions do not match
+- **Conclusion**: These are different training runs with different split assignments
 
-## Key Insight: Negative R²(Δy) for LC(100%)
+### 3. Split Type Has Moderate Effect (~0.05 gap)
 
-The fact that LC(100%) has **negative** architecture-deviation R² is significant:
-- Negative R² means the model is worse than predicting the group mean
-- The model is essentially "anti-correlated" with architecture effects
-- This suggests the learning curve training may have **overfit** to chemistry-specific patterns at the expense of architecture-aware prediction
+Comparing Original (a_held_out) vs Gen (group/pair_disjoint) — **same model quality, different split**:
+- Original a_held_out: R²(Δy) ≈ 0.88
+- Gen group_disjoint: R²(Δy) ≈ 0.93
+- Gap from split type alone: ~0.05
+
+### 4. The Dominant Factor Is the Model Checkpoint (~0.44 gap)
+
+The LC(100%) checkpoint produces dramatically worse architecture-deviation predictions even compared to the Original checkpoint trained on the same split type:
+- LC(100%) a_held_out: R²(Δy) ≈ 0.44
+- Original a_held_out: R²(Δy) ≈ 0.88
+- **Gap from different checkpoint: ~0.44**
+
+## Root Cause Decomposition
+
+| Factor | Contribution | Evidence |
+|--------|-------------|----------|
+| Model checkpoint quality | **~0.44 R²** | LC(100%) vs Original, same split type |
+| Split type | ~0.05 R² | Original vs Gen, different split type |
+| Metric computation | 0.00 R² | Same function used for all |
+
+## Why LC(100%) Checkpoints Are Worse
+
+The LC experiment trains models at multiple fractions (5%, 10%, 20%, 40%, 60%, 80%, 100%). The 100% fraction checkpoint likely differs from the Original because:
+
+1. **Different split assignment** — test sizes differ (9548 vs 8596), confirming different GroupKFold assignments or train/val/test ratios
+2. **Different training pipeline** — the LC script may use a simplified training loop (fixed epochs, no full hyperparameter optimization) optimized for quick iteration across fractions
+3. **Linregress inverse transform limitation** — a single linear correction across ALL test samples cannot recover per-group deviations if the underlying predictions are poor at the group level
+4. **High fold-to-fold variance** (std ≈ 0.3–0.55) — suggests some folds are reasonable while others are very poor, indicating an under-trained or unstable model
 
 ## Conclusion
 
-**Using identical metric computation, the discrepancy between learning curve (~-0.8 to -1.3) and Stage 2D (~0.88 to 0.96) architecture-deviation R² values REMAINS and is actually larger than previously reported (~1.7-2.2 gap vs ~0.4 gap).**
+**The discrepancy is NOT a metric computation artifact.** Using the identical `compute_archdev_metrics()` function from `analyze_pair_disjoint_transfer.py`:
 
-This proves the difference stems from fundamental differences in the model checkpoints/training, not metric computation artifacts.
+- LC(100%) checkpoints: R²(Δy) ≈ **0.44** (high variance)
+- Original a_held_out checkpoints: R²(Δy) ≈ **0.88** (low variance)
+- Gen group/pair_disjoint checkpoints: R²(Δy) ≈ **0.93** (low variance)
 
-## Recommendation
-
-The learning curve and Stage 2D results should be treated as **incomparable** for architecture-deviation R²:
-- Learning curve: Evaluates how arch-dev prediction improves with more training data
-- Stage 2D: Evaluates final model performance on architecture-generalization tasks
-
-The negative R²(Δy) for LC(100%) warrants investigation into the learning curve training configuration.
+The dominant source of discrepancy (~0.44 R² gap) is that the LC experiment produced different, lower-quality checkpoints compared to the Original training run. A secondary ~0.05 R² contribution comes from the split type (a_held_out vs group/pair_disjoint).
 
 ---
 
 *Generated: June 18, 2026*
-*Script: `recompute_lc_archdev.py`*
+*Scripts: `recompute_lc_archdev.py`, `_full_comparison.py`*
