@@ -68,8 +68,8 @@ module use /g/data/dk92/apps/Modules/modulefiles
 module load python3/3.12.1 cuda/12.0.0
 source /home/659/hl4138/dmpnn-venv/bin/activate'
 
-TRAIN_GRAPH="../python/train_graph.py"
-WDMPNN_GEN="../python/run_wdmpnn_generalization.py"
+TRAIN_GRAPH="scripts/python/train_graph.py"
+WDMPNN_GEN="scripts/python/run_wdmpnn_generalization.py"
 
 # Ensure scripts exist
 if [ ! -f "$PROJECT_ROOT/$WDMPNN_GEN" ]; then
