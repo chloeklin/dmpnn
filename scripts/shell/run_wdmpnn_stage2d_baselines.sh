@@ -3,11 +3,12 @@
 # wDMPNN Stage 2D Baseline Training — PBS Job Script
 # ═══════════════════════════════════════════════════════════════════════
 # Generates and submits PBS jobs for wDMPNN on ea_ip dataset.
-# Uses the batch system pattern (like batch_generate_scripts.sh).
+# Each job trains ONE target (EA or IP) to keep walltime manageable.
+# Total: 6 jobs (3 splits × 2 targets).
 #
 # Usage:
-#   ./run_wdmpnn_stage2d_baselines.sh              # Generate all 3 split jobs
-#   ./run_wdmpnn_stage2d_baselines.sh a_held_out   # Generate only a_held_out job
+#   ./run_wdmpnn_stage2d_baselines.sh              # Generate all 6 jobs
+#   ./run_wdmpnn_stage2d_baselines.sh a_held_out   # Generate EA+IP for a_held_out
 #   ./run_wdmpnn_stage2d_baselines.sh --no-submit  # Generate but don't submit
 #
 # Splits:
@@ -52,7 +53,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── PBS Configuration ────────────────────────────────────────────────
-WALLTIME="12:30:00"
+WALLTIME="7:00:00"
 NCPUS=12
 NGPUS=1
 MEM="48GB"
@@ -85,13 +86,13 @@ echo " Auto-submit: $([ "$NO_SUBMIT" = true ] && echo "NO" || echo "YES")"
 echo "═══════════════════════════════════════════════════════════════"
 
 # ── Define split configurations ─────────────────────────────────────
+# Each job handles ONE target to halve walltime per submission.
 declare -A SPLIT_CONFIGS
 declare -A SPLIT_CMDS
 
-# a_held_out: uses train_graph.py with --split_type a_held_out
-SPLIT_CONFIGS[a_held_out]="ea_ip__wDMPNN__a_held_out"
-SPLIT_CMDS[a_held_out]='
-# Train EA target
+# a_held_out EA
+SPLIT_CONFIGS[a_held_out_EA]="wDMPNN__aho__EA"
+SPLIT_CMDS[a_held_out_EA]='
 python3 '"$TRAIN_GRAPH"' \
     --dataset_name ea_ip \
     --model_name wDMPNN \
@@ -99,9 +100,11 @@ python3 '"$TRAIN_GRAPH"' \
     --polymer_type copolymer \
     --split_type a_held_out \
     --save_predictions \
-    --target "EA vs SHE (eV)"
+    --target "EA vs SHE (eV)"'
 
-# Train IP target  
+# a_held_out IP
+SPLIT_CONFIGS[a_held_out_IP]="wDMPNN__aho__IP"
+SPLIT_CMDS[a_held_out_IP]='
 python3 '"$TRAIN_GRAPH"' \
     --dataset_name ea_ip \
     --model_name wDMPNN \
@@ -111,21 +114,37 @@ python3 '"$TRAIN_GRAPH"' \
     --save_predictions \
     --target "IP vs SHE (eV)"'
 
-# group_disjoint: uses custom generalization script
-SPLIT_CONFIGS[group_disjoint]="ea_ip__wDMPNN__group_disjoint"
-SPLIT_CMDS[group_disjoint]='
+# group_disjoint EA
+SPLIT_CONFIGS[group_disjoint_EA]="wDMPNN__gdis__EA"
+SPLIT_CMDS[group_disjoint_EA]='
 python3 '"$WDMPNN_GEN"' \
     --split_types group_disjoint \
     --folds 0,1,2,3,4 \
-    --targets "EA vs SHE (eV),IP vs SHE (eV)"'
+    --targets "EA vs SHE (eV)"'
 
-# pair_disjoint: uses custom generalization script
-SPLIT_CONFIGS[pair_disjoint]="ea_ip__wDMPNN__pair_disjoint"
-SPLIT_CMDS[pair_disjoint]='
+# group_disjoint IP
+SPLIT_CONFIGS[group_disjoint_IP]="wDMPNN__gdis__IP"
+SPLIT_CMDS[group_disjoint_IP]='
+python3 '"$WDMPNN_GEN"' \
+    --split_types group_disjoint \
+    --folds 0,1,2,3,4 \
+    --targets "IP vs SHE (eV)"'
+
+# pair_disjoint EA
+SPLIT_CONFIGS[pair_disjoint_EA]="wDMPNN__pdis__EA"
+SPLIT_CMDS[pair_disjoint_EA]='
 python3 '"$WDMPNN_GEN"' \
     --split_types pair_disjoint \
     --folds 0,1,2,3,4 \
-    --targets "EA vs SHE (eV),IP vs SHE (eV)"'
+    --targets "EA vs SHE (eV)"'
+
+# pair_disjoint IP
+SPLIT_CONFIGS[pair_disjoint_IP]="wDMPNN__pdis__IP"
+SPLIT_CMDS[pair_disjoint_IP]='
+python3 '"$WDMPNN_GEN"' \
+    --split_types pair_disjoint \
+    --folds 0,1,2,3,4 \
+    --targets "IP vs SHE (eV)"'
 
 # ── Generate jobs ───────────────────────────────────────────────────
 generate_job() {
@@ -200,9 +219,22 @@ EOJOB
 mkdir -p "$PROJECT_ROOT/logs"
 
 # Generate selected splits
-SPLITS_TO_RUN=(a_held_out group_disjoint pair_disjoint)
+ALL_JOBS=(a_held_out_EA a_held_out_IP group_disjoint_EA group_disjoint_IP pair_disjoint_EA pair_disjoint_IP)
+
 if [ -n "$SPLIT_FILTER" ]; then
-    SPLITS_TO_RUN=("$SPLIT_FILTER")
+    # Filter matches both EA and IP for the given split type
+    SPLITS_TO_RUN=()
+    for j in "${ALL_JOBS[@]}"; do
+        if [[ "$j" == "${SPLIT_FILTER}_"* ]]; then
+            SPLITS_TO_RUN+=("$j")
+        fi
+    done
+    if [ ${#SPLITS_TO_RUN[@]} -eq 0 ]; then
+        echo "Warning: No jobs matched filter '$SPLIT_FILTER'"
+        exit 1
+    fi
+else
+    SPLITS_TO_RUN=("${ALL_JOBS[@]}")
 fi
 
 for split in "${SPLITS_TO_RUN[@]}"; do
