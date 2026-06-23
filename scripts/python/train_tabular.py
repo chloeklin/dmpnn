@@ -1,3 +1,23 @@
+"""
+Tabular model training script for molecular property prediction.
+
+Trains sklearn-based models (Linear, RF, XGBoost) on molecular descriptor features
+for regression and classification tasks. Supports homopolymer and copolymer datasets.
+
+Key capabilities:
+  - Models: Linear regression, Random Forest, XGBoost
+  - Feature types: RDKit descriptors, custom CSV descriptors, AB-block features
+  - Split strategies: random, a_held_out (GroupKFold on monomer A identity)
+  - Leakage-free preprocessing: per-fold imputation, correlated feature removal
+  - Copolymer support: mix/interact modes with composition-weighted features
+
+Usage:
+    python train_tabular.py --dataset_name ea_ip --polymer_type copolymer \\
+        --split_type a_held_out --incl_rdkit
+
+    python train_tabular.py --dataset_name insulator --incl_desc
+"""
+
 import argparse
 import logging
 import numpy as np
@@ -45,7 +65,9 @@ def train(df, y, target_name, descriptor_columns, replicates, seed, out_dir, arg
         seed: Random seed
         out_dir: Output directory for results
         args: Command line arguments
+        smiles_column: Name of the SMILES column in df (default "smiles")
         existing_results: Dict of existing results to skip completed experiments
+        poly_type_array: Optional array of polymer type labels for stratified splitting
         
     Returns:
         List of dictionaries containing evaluation metrics

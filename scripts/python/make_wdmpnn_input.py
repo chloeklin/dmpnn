@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-bigsmiles_to_wdmpnn.py
+make_wdmpnn_input.py
 
 Reads a CSV with columns:
   smiles_A, smiles_B, fracA, fracB, BigSMILES   (optional: Xn and others)
@@ -15,7 +15,7 @@ Heuristics supported:
 - Bond block: symmetric 0.25 weights; includes self, within, between pairs
 
 Usage:
-  python bigsmiles_to_wdmpnn.py input.csv output.csv
+  python make_wdmpnn_input.py input.csv output.csv
 """
 
 import argparse

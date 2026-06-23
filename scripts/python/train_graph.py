@@ -1,3 +1,23 @@
+"""
+Graph neural network training script for molecular property prediction.
+
+Supports homopolymer and copolymer datasets with multiple GNN architectures
+(DMPNN, wDMPNN, GAT, GIN, AttentiveFP) and optional descriptor fusion.
+
+Key capabilities:
+  - Homopolymer and copolymer (mix/interact/stage2d_*) training modes
+  - Split strategies: random, a_held_out (GroupKFold on monomer A identity)
+  - Descriptor integration: RDKit, custom descriptors, with leakage-free preprocessing
+  - Stage 2D architecture-aware variants (frac, 2d0_*, 2d1_*) for copolymers
+  - Embedding export, checkpoint saving/resumption, learning curve support
+
+Usage:
+    python train_graph.py --dataset_name ea_ip --polymer_type copolymer \\
+        --copolymer_mode stage2d_2d1_arch --split_type a_held_out --model_name DMPNN
+
+    python train_graph.py --dataset_name insulator --model_name wDMPNN --incl_rdkit
+"""
+
 import logging
 import numpy as np
 import pandas as pd

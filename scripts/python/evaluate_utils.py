@@ -1,3 +1,12 @@
+"""
+Evaluation utility functions for model assessment.
+
+Provides helper functions for:
+  - Fitting and scoring baseline models (RF, XGB) on GNN embeddings
+  - Computing regression/classification metrics (R², MAE, RMSE, accuracy, AUC)
+  - Loading trained models and running inference
+"""
+
 import logging
 import numpy as np
 import torch

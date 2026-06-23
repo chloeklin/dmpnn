@@ -1,4 +1,17 @@
 #!/usr/bin/env python
+"""
+Model evaluation script for trained GNN checkpoints.
+
+Loads saved checkpoints and preprocessing objects, reconstructs the exact
+data splits and feature pipelines used during training, and evaluates
+model performance on test folds. Ensures evaluation consistency by
+reapplying the same imputer, scaler, and feature masks from training.
+
+Usage:
+    python evaluate_model.py --dataset_name insulator --model_name DMPNN \\
+        --experiment_name insulator__rdkit__batch_norm
+"""
+
 from __future__ import annotations
 import logging
 from pathlib import Path

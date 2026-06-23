@@ -1,12 +1,31 @@
 """Utility functions for model training and data processing.
 
-This module provides various utility functions for:
-- Configuration management
-- Data preprocessing and loading
-- Model building and training
-- Feature selection and processing
-- File I/O operations
-- Argument parsing for training scripts
+This module provides shared infrastructure for train_graph.py, train_tabular.py,
+and related scripts. Key capabilities:
+
+- **Argument parsing**: create_base_argument_parser(), add_model_specific_args()
+  Supports --split_type (random, a_held_out), --polymer_type, --copolymer_mode
+  (mix, interact, stage2d_*), --train_size, --fusion_mode, etc.
+
+- **Data loading**: setup_training_environment(), load_and_preprocess_data()
+  Handles homopolymer and copolymer CSV formats with automatic target detection.
+
+- **Split generation**: determine_split_strategy(), generate_data_splits(),
+  generate_a_held_out_splits(), save_fold_assignments()
+  GroupKFold on canonicalized monomer A for a_held_out splits.
+
+- **Model building**: build_model_and_trainer(), build_copolymer_model_and_trainer(),
+  build_sklearn_models()
+  Configures DMPNN/wDMPNN/GAT/GIN with optional descriptor fusion (late_concat, film).
+
+- **Preprocessing**: manage_preprocessing_cache(), leakage-free per-fold imputation
+  and correlated feature removal.
+
+- **Results I/O**: save_model_results(), save_predictions(), save_aggregate_results(),
+  build_experiment_paths()
+  Handles path suffixes for split_type, train_size, and results_subdir.
+
+- **Utilities**: set_seed(), canonicalize_smiles(), process_data(), get_metric_list()
 """
 
 # Standard library imports

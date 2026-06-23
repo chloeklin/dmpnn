@@ -1,4 +1,17 @@
 #!/usr/bin/env python
+"""
+AttentiveFP training script for molecular property prediction.
+
+Trains the AttentiveFP graph attention model using DGL, following the same
+data loading, splitting, and evaluation patterns as train_graph.py.
+
+Supports regression and classification tasks on homopolymer datasets.
+
+Usage:
+    python train_attentivefp.py --dataset_name insulator --task_type reg
+    python train_attentivefp.py --dataset_name opv_camb3lyp --incl_rdkit
+"""
+
 import json
 from pathlib import Path
 from typing import List
