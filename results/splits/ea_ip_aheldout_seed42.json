@@ -218176,5 +218176,6 @@
         "OB(O)c1ccc(B(O)O)cc1"
       ]
     }
-  ]
+  ],
+  "protocol": "groupkfold"
 }
