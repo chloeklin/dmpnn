@@ -1814,7 +1814,7 @@ experiments:
     copolymer_mode: stage2d_frac
     split_type: a_held_out
     a_held_out_protocol: leave_one_A_out
-    walltime: "8:00:00"
+    walltime: "24:00:00"
     targets: *eaip_targets
     results_subdir: HPG2Stage_LOMAO
 
@@ -1823,7 +1823,7 @@ experiments:
     model: wDMPNN
     split_type: a_held_out
     a_held_out_protocol: leave_one_A_out
-    walltime: "8:00:00"
+    walltime: "24:00:00"
     targets: *eaip_targets
     results_subdir: HPG2Stage_LOMAO
 
@@ -1833,7 +1833,7 @@ experiments:
     copolymer_mode: stage2d_2d0_arch
     split_type: a_held_out
     a_held_out_protocol: leave_one_A_out
-    walltime: "8:00:00"
+    walltime: "24:00:00"
     targets: *eaip_targets
     results_subdir: HPG2Stage_LOMAO
 
@@ -1843,7 +1843,7 @@ experiments:
     copolymer_mode: stage2d_2d1_arch
     split_type: a_held_out
     a_held_out_protocol: leave_one_A_out
-    walltime: "8:00:00"
+    walltime: "24:00:00"
     targets: *eaip_targets
     results_subdir: HPG2Stage_LOMAO
 

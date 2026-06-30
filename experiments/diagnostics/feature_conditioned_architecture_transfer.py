@@ -845,8 +845,10 @@ def generate_visualizations(
                         f"{val:.4f}", va='center', ha=ha, fontsize=8, fontweight='bold')
             
             fig.tight_layout()
-            fig.savefig(out_dir / f"comparison_barplot_{target}_core4.png", dpi=150, bbox_inches="tight")
-            fig.savefig(out_dir / f"comparison_barplot_{target}_core4.pdf", bbox_inches="tight")
+            # Add extra padding to prevent text from hovering on border
+            plt.subplots_adjust(left=0.3, right=0.95, top=0.95, bottom=0.05)
+            fig.savefig(out_dir / f"comparison_barplot_{target}_core4.png", dpi=150, bbox_inches="tight", pad_inches=0.2)
+            fig.savefig(out_dir / f"comparison_barplot_{target}_core4.pdf", bbox_inches="tight", pad_inches=0.2)
             plt.close(fig)
 
     # 3. Predicted vs true for best model

@@ -113,8 +113,8 @@ plt.rcParams.update({
 COLORS = {
     'wDMPNN': '#7f7f7f',
     'Frac': '#1f77b4',
-    '2D0-arch': '#ff7f0e',
-    '2D1-arch': '#2ca02c',
+    '2D0': '#ff7f0e',
+    '2D1': '#2ca02c',
 }
 
 # ══════════════════════════════════════════════════════════════════════
@@ -810,12 +810,12 @@ def figure_D_overall_vs_architecture_recovery(df):
     """Figure D: 2×2 combined overall and architecture-recovery comparison."""
     print("\n  Figure D: Overall vs architecture-recovery comparison")
 
-    model_order = ['Frac', 'wDMPNN', '2D0-arch', '2D1-arch']
+    model_order = ['Frac', 'wDMPNN', '2D0', '2D1']
     loaders = {
         'Frac': lambda tkey: load_hpg2stage_predictions('frac', tkey),
         'wDMPNN': lambda tkey: load_wdmpnn_predictions(tkey),
-        '2D0-arch': lambda tkey: load_hpg2stage_predictions('2d0_arch', tkey),
-        '2D1-arch': lambda tkey: load_hpg2stage_predictions('2d1_arch', tkey),
+        '2D0': lambda tkey: load_hpg2stage_predictions('2d0_arch', tkey),
+        '2D1': lambda tkey: load_hpg2stage_predictions('2d1_arch', tkey),
     }
 
     fig, axes = plt.subplots(2, 2, figsize=(8, 7), constrained_layout=False)
@@ -848,7 +848,7 @@ def figure_D_overall_vs_architecture_recovery(df):
 
         for bar, m, s in zip(bars, means, stds):
             if not np.isnan(m):
-                offset = max(s * 1.2, 0.002)
+                offset = max(s * 0.8, 0.001)
                 ax.text(bar.get_x() + bar.get_width()/2, m + s + offset,
                         f'{m:.4f}', ha='center', va='bottom', fontsize=5)
 
@@ -883,10 +883,15 @@ def figure_D_overall_vs_architecture_recovery(df):
 
         for k, (bar, m, s) in enumerate(zip(bars, means, stds)):
             if not np.isnan(m):
-                offset = max(s * 1.2, 0.02)
+                offset = max(s * 0.6, 0.01)
                 # stagger every other label vertically to avoid crowding
-                stagger = 0.04 if k % 2 == 1 else 0.0
-                label_y = max(m + s + offset + stagger, 0.03)
+                stagger = 0.02 if k % 2 == 1 else 0.0
+                label_y = max(m + s + offset + stagger, 0.02)
+                
+                # Special case for subplot D (IP architecture recovery) - prevent text from going too high
+                if i == 1 and k == 3:  # IP subplot (i=1), 4th bar (k=3, which is 2D1)
+                    label_y = min(label_y, 0.95)  # Cap at 0.95 to stay within plot bounds
+                
                 ax.text(bar.get_x() + bar.get_width()/2, label_y,
                         f'{m:.3f}', ha='center', va='bottom', fontsize=5)
 
@@ -900,7 +905,7 @@ def figure_F_generalization(df):
 
     splits = ['group_disjoint', 'pair_disjoint', 'a_held_out']
     split_labels = ['Group-disjoint', 'Pair-disjoint', 'A-held-out']
-    model_names = ['Frac', 'wDMPNN', '2D0-arch', '2D1-arch']
+    model_names = ['Frac', 'wDMPNN', '2D0', '2D1']
     model_suffixes = ['frac', None, '2d0_arch', '2d1_arch']
 
     fig, axes = plt.subplots(1, 2, figsize=(8, 4))
@@ -933,8 +938,15 @@ def figure_F_generalization(df):
                     vals.append(0)
 
             offset = (j - 1.5) * width
-            ax.bar(x + offset, vals, width, label=mname,
-                   color=COLORS[mname], alpha=0.85, edgecolor='white')
+            bars = ax.bar(x + offset, vals, width, label=mname,
+                         color=COLORS[mname], alpha=0.85, edgecolor='white')
+            
+            # Add text labels above bars
+            for bar, val in zip(bars, vals):
+                if val > 0.01:  # Only show label if value is meaningful
+                    text_height = val + 0.02
+                    ax.text(bar.get_x() + bar.get_width()/2, text_height,
+                           f'{val:.3f}', ha='center', va='bottom', fontsize=5)
 
         ax.set_xticks(x)
         ax.set_xticklabels(split_labels, fontsize=8)
@@ -959,7 +971,7 @@ def figure_G_learning_curve(df):
     print("\n  Figure G: Learning curve")
 
     fracs = [25, 50, 75, 100]
-    model_names = ['2D0-arch', '2D1-arch']
+    model_names = ['2D0', '2D1']
     model_suffixes = ['2d0_arch', '2d1_arch']
 
     fig, axes = plt.subplots(1, 2, figsize=(8, 3.5))

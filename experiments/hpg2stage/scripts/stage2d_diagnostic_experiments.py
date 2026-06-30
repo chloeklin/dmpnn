@@ -412,6 +412,7 @@ def experiment3():
 
                 for frac in fractions:
                     r2_devs = []
+                    r2_originals = []
                     n_iter = n_bootstraps if frac < 1.0 else 1
                     for _ in range(n_iter):
                         if frac < 1.0:
@@ -424,18 +425,29 @@ def experiment3():
                         if len(sub) < 20:
                             continue
 
+                        # Original R score
+                        if sub['y_true'].std() < 1e-10:
+                            continue
+                        r2_original = r2_score(sub['y_true'], sub['y_pred'])
+                        
+                        # Delta y deviation R score
                         gm_true = sub.groupby('group')['y_true'].transform('mean')
                         gm_pred = sub.groupby('group')['y_pred'].transform('mean')
                         dt = sub['y_true'] - gm_true
                         dp = sub['y_pred'] - gm_pred
                         if dt.std() < 1e-10:
                             continue
-                        r2_devs.append(r2_score(dt, dp))
+                        r2_dev = r2_score(dt, dp)
+                        
+                        r2_originals.append(r2_original)
+                        r2_devs.append(r2_dev)
 
-                    if r2_devs:
+                    if r2_devs and r2_originals:
                         all_results.append({
                             'variant': variant, 'target': tgt_short,
                             'split': split_idx, 'fraction': frac,
+                            'r2_original_mean': np.mean(r2_originals),
+                            'r2_original_std': np.std(r2_originals),
                             'r2_dev_mean': np.mean(r2_devs),
                             'r2_dev_std': np.std(r2_devs),
                             'n_groups': len(multi_groups),
@@ -449,10 +461,10 @@ def experiment3():
     results_df = pd.DataFrame(all_results)
     results_df.to_csv(OUT / 'stage2d_learning_curve_results.csv', index=False)
 
-    # Plot
+    # Plot Variant 1: Original R Score
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
     colors = {'2d0_arch': '#4C72B0', '2d1_arch': '#DD8452'}
-    labels_map = {'2d0_arch': '2D0-arch', '2d1_arch': '2D1-arch'}
+    labels_map = {'2d0_arch': '2D0', '2d1_arch': '2D1'}
 
     for i, tgt_short in enumerate(TARGETS.keys()):
         ax = axes[i]
@@ -462,13 +474,57 @@ def experiment3():
             if sub.empty:
                 continue
             agg = sub.groupby('fraction').agg(
-                mean_r2=('r2_dev_mean', 'mean'),
-                std_r2=('r2_dev_mean', 'std')
+                mean_r2=('r2_original_mean', 'mean'),
+                std_r2=('r2_original_mean', 'std'),
+                n_splits=('r2_original_mean', 'count')
             ).reset_index()
+            # Calculate standard error of the mean
+            agg['sem_r2'] = agg['std_r2'] / np.sqrt(agg['n_splits'])
 
-            ax.errorbar(agg['fraction'], agg['mean_r2'], yerr=agg['std_r2'],
-                       marker='o', linewidth=2, capsize=4,
-                       color=colors[variant], label=labels_map[variant])
+            # Add slight horizontal offset to prevent overlapping
+            offset = 0.02 if variant == '2d1_arch' else -0.02
+            ax.errorbar(agg['fraction'] + offset, agg['mean_r2'], yerr=agg['sem_r2'],
+                       marker='o', linewidth=2, capsize=3, elinewidth=1.5,
+                       color=colors[variant], label=labels_map[variant], alpha=0.8)
+
+        ax.set_xlabel('Fraction of test matched groups evaluated')
+        ax.set_ylabel('R²')
+        ax.set_title(f'{tgt_short} Original R²')
+        ax.legend()
+        ax.set_xlim(0.2, 1.05)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+    fig.suptitle('Original R² Stability Across Test Group Subsets',
+                 fontsize=13, fontweight='bold', y=1.02)
+    fig.tight_layout()
+    fig.savefig(OUT / 'fig_stage2d_learning_curve_original.png')
+    fig.savefig(OUT / 'fig_stage2d_learning_curve_original.pdf')
+    plt.close(fig)
+
+    # Plot Variant 2: Delta y Deviation R Score
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+    
+    for i, tgt_short in enumerate(TARGETS.keys()):
+        ax = axes[i]
+        for variant in variants:
+            sub = results_df[(results_df['variant'] == variant) &
+                            (results_df['target'] == tgt_short)]
+            if sub.empty:
+                continue
+            agg = sub.groupby('fraction').agg(
+                mean_r2=('r2_dev_mean', 'mean'),
+                std_r2=('r2_dev_mean', 'std'),
+                n_splits=('r2_dev_mean', 'count')
+            ).reset_index()
+            # Calculate standard error of the mean
+            agg['sem_r2'] = agg['std_r2'] / np.sqrt(agg['n_splits'])
+
+            # Add slight horizontal offset to prevent overlapping
+            offset = 0.02 if variant == '2d1_arch' else -0.02
+            ax.errorbar(agg['fraction'] + offset, agg['mean_r2'], yerr=agg['sem_r2'],
+                       marker='o', linewidth=2, capsize=3, elinewidth=1.5,
+                       color=colors[variant], label=labels_map[variant], alpha=0.8)
 
         ax.set_xlabel('Fraction of test matched groups evaluated')
         ax.set_ylabel('R²(Δy)')
@@ -478,7 +534,7 @@ def experiment3():
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
 
-    fig.suptitle('Arch-Dev Metric Stability Across Test Group Subsets',
+    fig.suptitle('Architecture-Deviation R² Stability Across Test Group Subsets',
                  fontsize=13, fontweight='bold', y=1.02)
     fig.tight_layout()
     fig.savefig(OUT / 'fig_stage2d_learning_curve_archdev.png')
@@ -518,6 +574,7 @@ def experiment3():
 
     (OUT / 'stage2d_learning_curve_summary.md').write_text(md)
     print(f"  → stage2d_learning_curve_results.csv")
+    print(f"  → fig_stage2d_learning_curve_original.png/pdf")
     print(f"  → fig_stage2d_learning_curve_archdev.png/pdf")
     print(f"  → stage2d_learning_curve_summary.md")
 
