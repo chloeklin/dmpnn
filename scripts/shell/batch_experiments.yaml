@@ -1787,23 +1787,23 @@ experiments:
 
   # -- Stage2D: 2D-1 fixed alpha (a_held_out) --
   # RERUN: Dead initialization fixed (alpha_init changed from 0.0 to 0.1)
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: stage2d_2d1_fixed
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-    results_subdir: HPG2Stage
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: stage2d_2d1_fixed
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  #   results_subdir: HPG2Stage
 
-  # -- Stage2D: 2D-1 per-arch alpha (a_held_out) --
-  # RERUN: Dead initialization fixed (alpha_init changed from 0.0 to 0.1)
-  - <<: *eaip_base
-    model: DMPNN
-    copolymer_mode: stage2d_2d1_arch
-    split_type: a_held_out
-    walltime: "5:30:00"
-    targets: *eaip_targets
-    results_subdir: HPG2Stage
+  # # -- Stage2D: 2D-1 per-arch alpha (a_held_out) --
+  # # RERUN: Dead initialization fixed (alpha_init changed from 0.0 to 0.1)
+  # - <<: *eaip_base
+  #   model: DMPNN
+  #   copolymer_mode: stage2d_2d1_arch
+  #   split_type: a_held_out
+  #   walltime: "5:30:00"
+  #   targets: *eaip_targets
+  #   results_subdir: HPG2Stage
 
 # ─── LOMAO Protocol Experiments (Leave-One-Monomer-A-Out) ──────────────────────────────────────────────────────
 # Type: regression | Polymer: copolymer | Features: monomer | Architecture-aware evaluation
