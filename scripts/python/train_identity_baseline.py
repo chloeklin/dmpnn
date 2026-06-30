@@ -612,7 +612,7 @@ def main():
             sA_col = "smilesA" if "smilesA" in df_valid.columns else "smiles_A"
             valid_smiles_A = df_valid[sA_col].astype(str).values
             n_splits = 5  # enforce 5-fold for a_held_out
-            train_indices, val_indices, test_indices = generate_a_held_out_splits(
+            train_indices, val_indices, test_indices, _ = generate_a_held_out_splits(
                 valid_smiles_A, len(y_valid), SEED, n_splits=n_splits, logger=logger,
             )
             save_fold_assignments(

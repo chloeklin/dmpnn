@@ -11,7 +11,7 @@ def test_splits_no_overlap():
     unique_A = [f'C{i}CC' for i in range(10)]
     smiles_A = np.array([unique_A[i % 10] for i in range(100)], dtype=str)
 
-    train_idx, val_idx, test_idx = generate_a_held_out_splits(
+    train_idx, val_idx, test_idx, _ = generate_a_held_out_splits(
         smiles_A, n_datapoints=100, seed=42, n_splits=5
     )
 
@@ -69,7 +69,7 @@ def test_save_fold_assignments():
     unique_A = [f'C{i}CC' for i in range(10)]
     smiles_A = np.array([unique_A[i % 10] for i in range(100)], dtype=str)
 
-    train_idx, val_idx, test_idx = generate_a_held_out_splits(
+    train_idx, val_idx, test_idx, _ = generate_a_held_out_splits(
         smiles_A, 100, seed=42, n_splits=5
     )
 

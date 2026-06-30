@@ -2610,6 +2610,15 @@ def load_and_preprocess_data(args, setup_info):
                 # internal helper col
                 "group_key"
             }
+            # poly_type is kept in the DataFrame for architecture encoding
+            # (stage2d, archGraph, incl_poly_type) but is never a prediction target
+            _needs_poly_type = (
+                getattr(args, 'copolymer_mode', '').startswith('stage2d_')
+                or getattr(args, 'hpg_variant', '') == 'archGraph'
+                or getattr(args, 'incl_poly_type', False)
+            )
+            if _needs_poly_type:
+                exclude_cols.add("poly_type")
             target_columns = [c for c in df_input.columns if c not in exclude_cols]
 
     else:

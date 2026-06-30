@@ -785,19 +785,33 @@ def generate_visualizations(
     for target in sorted(summary_df["target"].unique()):
         sub = summary_df[summary_df["target"] == target]
         best_per_feat = sub.groupby("feature_set")["mean_R2"].max().sort_values(ascending=True)
+        
+        # Clean feature set names (remove [model] suffix)
+        clean_labels = [label.split(' [')[0] for label in best_per_feat.index]
 
         fig, ax = plt.subplots(figsize=(8, max(3, len(best_per_feat) * 0.5)))
         colors = [COLORS.get(fs, "#999999") for fs in best_per_feat.index]
         bars = ax.barh(range(len(best_per_feat)), best_per_feat.values, color=colors, alpha=0.85)
         ax.set_yticks(range(len(best_per_feat)))
-        ax.set_yticklabels(best_per_feat.index, fontsize=9)
+        ax.set_yticklabels(clean_labels, fontsize=9)
         ax.set_xlabel("Mean R² (best model)", fontsize=11)
         ax.set_title(f"Δ{target} — Feature set comparison", fontweight="bold")
         ax.axvline(0, color="k", linewidth=0.5)
-        # Add value labels
+        
+        # Add value labels with better positioning - account for axis limits
+        x_min, x_max = ax.get_xlim()
+        x_range = x_max - x_min
         for bar, val in zip(bars, best_per_feat.values):
-            ax.text(bar.get_width() + 0.005, bar.get_y() + bar.get_height() / 2,
-                    f"{val:.4f}", va="center", fontsize=8)
+            # Position text with dynamic offset based on value range
+            if val >= 0:
+                x_offset = x_range * 0.02  # 2% of axis range
+                ha = 'left'
+            else:
+                x_offset = x_range * 0.02  # 2% of axis range
+                ha = 'right'
+            ax.text(bar.get_width() + x_offset, bar.get_y() + bar.get_height() / 2,
+                    f"{val:.4f}", va='center', ha=ha, fontsize=8, fontweight='bold')
+        
         fig.tight_layout()
         fig.savefig(out_dir / f"comparison_barplot_{target}.png", dpi=150, bbox_inches="tight")
         fig.savefig(out_dir / f"comparison_barplot_{target}.pdf", bbox_inches="tight")

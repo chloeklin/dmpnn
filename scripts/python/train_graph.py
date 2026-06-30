@@ -513,7 +513,7 @@ if args.model_name == "HPG":
         if is_copolymer and args.split_type == "a_held_out":
             valid_smiles_A = [smis_A[i] for i in valid_indices]
             n_splits = 5
-            train_indices_hpg, val_indices_hpg, test_indices_hpg = generate_a_held_out_splits(
+            train_indices_hpg, val_indices_hpg, test_indices_hpg, _ = generate_a_held_out_splits(
                 valid_smiles_A, n_samples, SEED, n_splits=n_splits, logger=logger
             )
         else:
@@ -883,7 +883,7 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
                 f"smiles_A length ({len(valid_smiles_A)}) != n_datapoints ({n_datapoints})"
 
             n_splits = 5
-            train_indices, val_indices, test_indices = generate_a_held_out_splits(
+            train_indices, val_indices, test_indices, _ = generate_a_held_out_splits(
                 valid_smiles_A, n_datapoints, SEED, n_splits=n_splits, logger=logger
             )
 
