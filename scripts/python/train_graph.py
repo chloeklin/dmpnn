@@ -512,9 +512,11 @@ if args.model_name == "HPG":
 
         if is_copolymer and args.split_type == "a_held_out":
             valid_smiles_A = [smis_A[i] for i in valid_indices]
-            n_splits = 5
+            # Get protocol configuration (default to leave_one_A_out for new behavior)
+            protocol = getattr(args, 'a_held_out_protocol', 'leave_one_A_out')
+            n_splits = getattr(args, 'n_splits', 5)  # Only used for groupkfold protocol
             train_indices_hpg, val_indices_hpg, test_indices_hpg, _ = generate_a_held_out_splits(
-                valid_smiles_A, n_samples, SEED, n_splits=n_splits, logger=logger
+                valid_smiles_A, n_samples, SEED, n_splits=n_splits, protocol=protocol, logger=logger
             )
         else:
             # Flatten y values for stratified splitting (each dp.y is a 1D array)
@@ -882,9 +884,11 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
             assert len(valid_smiles_A) == n_datapoints, \
                 f"smiles_A length ({len(valid_smiles_A)}) != n_datapoints ({n_datapoints})"
 
-            n_splits = 5
+            # Get protocol configuration (default to leave_one_A_out for new behavior)
+            protocol = getattr(args, 'a_held_out_protocol', 'leave_one_A_out')
+            n_splits = getattr(args, 'n_splits', 5)  # Only used for groupkfold protocol
             train_indices, val_indices, test_indices, _ = generate_a_held_out_splits(
-                valid_smiles_A, n_datapoints, SEED, n_splits=n_splits, logger=logger
+                valid_smiles_A, n_datapoints, SEED, n_splits=n_splits, protocol=protocol, logger=logger
             )
 
             # Save fold assignments for reproducibility
@@ -1460,11 +1464,40 @@ for target in target_columns:
             held_out_monomers=held_out_monomers, logger=logger
         )
     else:
-        if n_splits > 1:
-            logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
+        # Check if we need to use LOMAO protocol for a_held_out splits
+        if getattr(args, 'split_type', 'random') == 'a_held_out' and any(col in df_input.columns for col in ['smiles_A', 'smilesA', 'smiles_A canonical', 'smilesA canonical']):
+            # Find the appropriate smiles_A column
+            possible_cols = ['smilesA', 'smiles_A', 'smilesA canonical', 'smiles_A canonical']
+            sA_col = None
+            for col in possible_cols:
+                if col in df_input.columns:
+                    sA_col = col
+                    break
+            if sA_col is None:
+                raise ValueError(f"No smiles_A column found for LOMAO protocol. Available columns: {list(df_input.columns)}")
+            valid_smiles_A = df_input[sA_col].astype(str).tolist()
+            
+            # Get protocol configuration (default to leave_one_A_out for new behavior)
+            protocol = getattr(args, 'a_held_out_protocol', 'leave_one_A_out')
+            n_splits_local = getattr(args, 'n_splits', 5)  # Only used for groupkfold protocol
+            
+            logger.info(f"Using A-held-out {protocol} CV (group by {sA_col})")
+            train_indices, val_indices, test_indices, held_out_monomers = generate_a_held_out_splits(
+                valid_smiles_A, len(all_data), SEED, n_splits=n_splits_local, protocol=protocol, logger=logger
+            )
+            
+            # Save fold assignments with held-out monomer information
+            save_fold_assignments(
+                train_indices, val_indices, test_indices,
+                valid_smiles_A, args.dataset_name, SEED, results_dir, 
+                held_out_monomers=held_out_monomers, logger=logger
+            )
         else:
-            logger.info(f"Using holdout validation with {local_reps} replicate(s)")
-        train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+            if n_splits > 1:
+                logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
+            else:
+                logger.info(f"Using holdout validation with {local_reps} replicate(s)")
+            train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
     
     # Apply train_size subsampling if specified
     if args.train_size is not None and args.train_size.lower() != "full":

@@ -11,16 +11,19 @@ Models: ['Ridge', 'GBM', 'MLP']
 Architecture encoding: ordinal
 Random seed: 42
 
-Embeddings found: False
+Embeddings found: True
+Embedding dimensionality: 128
+Rows retained after embedding merge: 42966
 
 delta_EA variance: 0.00352703
 delta_IP variance: 0.00338699
 
-WARNINGS:
-  - No embeddings found — arch_chem* feature sets skipped.
-
 
 FEATURE SETS:
+  arch_chem: 257 features
+  arch_chem_frac: 259 features
+  arch_chem_symmetric: 385 features
+  arch_chem_symmetric_frac: 387 features
   arch_frac: 3 features
   arch_only: 1 features
 
@@ -28,55 +31,94 @@ FEATURE SETS:
 TRANSFER METRICS (sorted by R²):
 
   ΔEA:
-target feature_set model  mean_R2   std_R2  mean_RMSE  std_RMSE  mean_MAE  mean_pearson_r
-    EA   arch_frac   GBM 0.335773 0.035147   0.048317  0.002269  0.032221        0.581337
-    EA   arch_frac   MLP 0.334776 0.036099   0.048351  0.002260  0.032287        0.580841
-    EA   arch_only   GBM 0.276871 0.032214   0.050421  0.002327  0.033965        0.528046
-    EA   arch_only Ridge 0.276749 0.032434   0.050425  0.002328  0.034033        0.527985
-    EA   arch_frac Ridge 0.276749 0.032434   0.050425  0.002328  0.034033        0.527985
-    EA   arch_only   MLP 0.276062 0.034405   0.050446  0.002340  0.034034        0.527501
+target              feature_set model  mean_R2   std_R2  mean_RMSE  std_RMSE  mean_MAE  mean_pearson_r
+    EA           arch_chem_frac   MLP 0.608218 0.041385   0.037039  0.001623  0.025716        0.792204
+    EA arch_chem_symmetric_frac   MLP 0.601069 0.043004   0.037371  0.001507  0.025643        0.786476
+    EA           arch_chem_frac   GBM 0.507020 0.033997   0.041602  0.001738  0.027909        0.714213
+    EA arch_chem_symmetric_frac   GBM 0.505338 0.021731   0.041708  0.002085  0.027836        0.713854
+    EA                arch_chem   GBM 0.445852 0.025044   0.044129  0.001804  0.030046        0.670379
+    EA      arch_chem_symmetric   MLP 0.445495 0.062009   0.044063  0.001969  0.031210        0.683677
+    EA      arch_chem_symmetric   GBM 0.439468 0.019571   0.044398  0.002032  0.030158        0.665045
+    EA                arch_chem   MLP 0.379095 0.062618   0.046655  0.002459  0.033641        0.648746
+    EA                arch_frac   GBM 0.335773 0.035147   0.048317  0.002269  0.032221        0.581337
+    EA                arch_frac   MLP 0.334776 0.036099   0.048351  0.002260  0.032287        0.580841
+    EA                arch_only   GBM 0.276871 0.032214   0.050421  0.002327  0.033965        0.528046
+    EA           arch_chem_frac Ridge 0.276749 0.032434   0.050425  0.002328  0.034033        0.527985
+    EA      arch_chem_symmetric Ridge 0.276749 0.032434   0.050425  0.002328  0.034033        0.527985
+    EA                arch_chem Ridge 0.276749 0.032434   0.050425  0.002328  0.034033        0.527985
+    EA arch_chem_symmetric_frac Ridge 0.276749 0.032434   0.050425  0.002328  0.034033        0.527985
+    EA                arch_only Ridge 0.276749 0.032434   0.050425  0.002328  0.034033        0.527985
+    EA                arch_frac Ridge 0.276749 0.032434   0.050425  0.002328  0.034033        0.527985
+    EA                arch_only   MLP 0.276062 0.034405   0.050446  0.002340  0.034034        0.527501
 
   ΔIP:
-target feature_set model  mean_R2   std_R2  mean_RMSE  std_RMSE  mean_MAE  mean_pearson_r
-    IP   arch_frac   GBM 0.398714 0.032208   0.045037  0.001808  0.029982        0.633660
-    IP   arch_frac   MLP 0.394639 0.030504   0.045192  0.001800  0.030060        0.632652
-    IP   arch_only   GBM 0.339710 0.027900   0.047207  0.001930  0.031817        0.584933
-    IP   arch_only Ridge 0.338826 0.027845   0.047238  0.001931  0.031610        0.584200
-    IP   arch_frac Ridge 0.338826 0.027845   0.047238  0.001931  0.031610        0.584200
-    IP   arch_only   MLP 0.336281 0.023818   0.047336  0.001989  0.031801        0.584705
+target              feature_set model  mean_R2   std_R2  mean_RMSE  std_RMSE  mean_MAE  mean_pearson_r
+    IP arch_chem_symmetric_frac   MLP 0.731903 0.017328   0.030111  0.002225  0.020042        0.859128
+    IP           arch_chem_frac   MLP 0.722031 0.031664   0.030621  0.002472  0.021038        0.855176
+    IP           arch_chem_frac   GBM 0.621107 0.010844   0.035788  0.002008  0.024019        0.791341
+    IP arch_chem_symmetric_frac   GBM 0.606990 0.016326   0.036448  0.002157  0.024419        0.782553
+    IP      arch_chem_symmetric   MLP 0.560826 0.033949   0.038452  0.000947  0.026504        0.753626
+    IP                arch_chem   MLP 0.546309 0.059287   0.039014  0.001516  0.027521        0.750062
+    IP                arch_chem   GBM 0.543570 0.010379   0.039276  0.002074  0.026759        0.739767
+    IP      arch_chem_symmetric   GBM 0.531408 0.009555   0.039794  0.002038  0.027036        0.731850
+    IP                arch_frac   GBM 0.398714 0.032208   0.045037  0.001808  0.029982        0.633660
+    IP                arch_frac   MLP 0.394639 0.030504   0.045192  0.001800  0.030060        0.632652
+    IP                arch_only   GBM 0.339710 0.027900   0.047207  0.001930  0.031817        0.584933
+    IP      arch_chem_symmetric Ridge 0.338826 0.027845   0.047238  0.001931  0.031610        0.584200
+    IP           arch_chem_frac Ridge 0.338826 0.027845   0.047238  0.001931  0.031610        0.584200
+    IP                arch_chem Ridge 0.338826 0.027845   0.047238  0.001931  0.031610        0.584200
+    IP arch_chem_symmetric_frac Ridge 0.338826 0.027845   0.047238  0.001931  0.031610        0.584200
+    IP                arch_only Ridge 0.338826 0.027845   0.047238  0.001931  0.031610        0.584200
+    IP                arch_frac Ridge 0.338826 0.027845   0.047238  0.001931  0.031610        0.584200
+    IP                arch_only   MLP 0.336281 0.023818   0.047336  0.001989  0.031801        0.584705
 
 
 CHEMISTRY GAIN:
 
   ΔEA:
     Best baseline R²: 0.3358
+    Best chem R²: 0.6082 (arch_chem_frac)
+    Chemistry gain: +0.2724
 
   ΔIP:
     Best baseline R²: 0.3987
+    Best chem R²: 0.7319 (arch_chem_symmetric_frac)
+    Chemistry gain: +0.3332
 
 ======================================================================
 INTERPRETATION — Stage 2D-1 Feasibility
 ======================================================================
 
-  ⚠️  WARNING: No monomer embeddings found.
-  Chemistry-conditioned feature sets (arch_chem*) were NOT evaluated.
-  Provide embeddings via --embedding-file or inline hA_*/hB_* columns.
-
-
   EA:
     arch_only                      best R² = 0.2769
     arch_frac                      best R² = 0.3358
+    arch_chem                      best R² = 0.4459
+    arch_chem_symmetric            best R² = 0.4455
+    arch_chem_frac                 best R² = 0.6082
+    arch_chem_symmetric_frac       best R² = 0.6011
 
     Best baseline (arch_only/arch_frac): R² = 0.3358
-    Chemistry-conditioned: NOT EVALUATED (no embeddings)
+    Best chemistry-conditioned:          R² = 0.6082 (arch_chem_frac)
+    Chemistry gain:                      ΔR² = +0.2724
+
+    ✅ Monomer chemistry provides meaningful transferable architecture signal.
+    → Stage 2D-1 is JUSTIFIED.
 
   IP:
     arch_only                      best R² = 0.3397
     arch_frac                      best R² = 0.3987
+    arch_chem                      best R² = 0.5463
+    arch_chem_symmetric            best R² = 0.5608
+    arch_chem_frac                 best R² = 0.7220
+    arch_chem_symmetric_frac       best R² = 0.7319
 
     Best baseline (arch_only/arch_frac): R² = 0.3987
-    Chemistry-conditioned: NOT EVALUATED (no embeddings)
+    Best chemistry-conditioned:          R² = 0.7319 (arch_chem_symmetric_frac)
+    Chemistry gain:                      ΔR² = +0.3332
+
+    ✅ Monomer chemistry provides meaningful transferable architecture signal.
+    → Stage 2D-1 is JUSTIFIED.
 
   --------------------------------------------------
   OVERALL RECOMMENDATION:
-    INCONCLUSIVE — no embeddings available for chemistry test.
+    GO — Stage 2D-1 is justified.

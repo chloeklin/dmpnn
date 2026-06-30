@@ -816,6 +816,38 @@ def generate_visualizations(
         fig.savefig(out_dir / f"comparison_barplot_{target}.png", dpi=150, bbox_inches="tight")
         fig.savefig(out_dir / f"comparison_barplot_{target}.pdf", bbox_inches="tight")
         plt.close(fig)
+        
+        # 2b. Core4 comparison barplot (exclude symmetric feature sets)
+        core4_features = ["arch_only", "arch_frac", "arch_chem", "arch_chem_frac"]
+        core4_sub = best_per_feat[best_per_feat.index.isin(core4_features)]
+        
+        if len(core4_sub) > 0:
+            fig, ax = plt.subplots(figsize=(8, max(3, len(core4_sub) * 0.5)))
+            colors = [COLORS.get(fs, "#999999") for fs in core4_sub.index]
+            bars = ax.barh(range(len(core4_sub)), core4_sub.values, color=colors, alpha=0.85)
+            ax.set_yticks(range(len(core4_sub)))
+            ax.set_yticklabels([label.split(' [')[0] for label in core4_sub.index], fontsize=9)
+            ax.set_xlabel("Mean R² (best model)", fontsize=11)
+            ax.set_title(f"Δ{target} — Feature set comparison", fontweight="bold")
+            ax.axvline(0, color="k", linewidth=0.5)
+            
+            # Add value labels with better positioning
+            x_min, x_max = ax.get_xlim()
+            x_range = x_max - x_min
+            for bar, val in zip(bars, core4_sub.values):
+                if val >= 0:
+                    x_offset = x_range * 0.02
+                    ha = 'left'
+                else:
+                    x_offset = x_range * 0.02
+                    ha = 'right'
+                ax.text(bar.get_width() + x_offset, bar.get_y() + bar.get_height() / 2,
+                        f"{val:.4f}", va='center', ha=ha, fontsize=8, fontweight='bold')
+            
+            fig.tight_layout()
+            fig.savefig(out_dir / f"comparison_barplot_{target}_core4.png", dpi=150, bbox_inches="tight")
+            fig.savefig(out_dir / f"comparison_barplot_{target}_core4.pdf", bbox_inches="tight")
+            plt.close(fig)
 
     # 3. Predicted vs true for best model
     for target in sorted(summary_df["target"].unique()):
