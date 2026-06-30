@@ -156,6 +156,11 @@ def create_base_argument_parser(description="Train a graph model"):
     parser.add_argument('--split_type', type=str, default='random',
                         choices=['random', 'a_held_out'],
                         help='Split strategy: "random" (default) or "a_held_out" (group by smiles_A for copolymer datasets)')
+    parser.add_argument('--a_held_out_protocol', type=str, default='leave_one_A_out',
+                        choices=['groupkfold', 'leave_one_A_out'],
+                        help='Protocol for a_held_out splits: "groupkfold" (5-fold default) or "leave_one_A_out" (LOMAO)')
+    parser.add_argument('--n_splits', type=int, default=5,
+                        help='Number of folds for groupkfold protocol (ignored for leave_one_A_out)')
 
     # Training arguments
     parser.add_argument('--train_size', type=str, default=None,
@@ -2698,12 +2703,10 @@ def generate_a_held_out_splits(
     n_datapoints: int,
     seed: int,
     n_splits: int = 5,
+    protocol: str = "groupkfold",
     logger: Optional[logging.Logger] = None,
-) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
-    """Generate A-held-out splits: all samples with the same smiles_A stay in the same fold.
-
-    Uses GroupKFold with groups = canonicalized smiles_A.
-    Carves 10 % of the train-val chunk (by group) as validation.
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray], Optional[List[str]]]:
+    """Generate A-held-out splits with configurable protocol.
 
     Parameters
     ----------
@@ -2714,23 +2717,111 @@ def generate_a_held_out_splits(
     seed : int
         Random seed (used for the train/val sub-split within each fold).
     n_splits : int
-        Number of folds (default 5).
+        Number of folds (only used for groupkfold protocol).
+    protocol : str
+        Either "groupkfold" (default 5-fold) or "leave_one_A_out" (LOMAO).
     logger : optional Logger
 
     Returns
     -------
-    (train_indices, val_indices, test_indices) – each a list of numpy arrays.
+    (train_indices, val_indices, test_indices, held_out_monomers) – 
+    train/val/test are lists of numpy arrays, held_out_monomers is list of SMILES
+    (None for groupkfold protocol).
     """
     if logger is None:
         logger = logging.getLogger(__name__)
 
-    from sklearn.model_selection import GroupKFold
-
     # Canonicalize smiles_A for consistent grouping
     groups = np.array([canonicalize_smiles(s) for s in smiles_A], dtype=str)
     unique_groups = np.unique(groups)
-    logger.info(f"A-held-out split: {len(unique_groups)} unique smiles_A groups across {n_datapoints} samples")
+    logger.info(f"A-held-out split ({protocol}): {len(unique_groups)} unique smiles_A groups across {n_datapoints} samples")
 
+    if protocol == "leave_one_A_out":
+        return _generate_lomao_splits(groups, n_datapoints, seed, logger)
+    elif protocol == "groupkfold":
+        return _generate_groupkfold_splits(groups, n_datapoints, seed, n_splits, logger)
+    else:
+        raise ValueError(f"Unknown protocol: {protocol}. Use 'groupkfold' or 'leave_one_A_out'")
+
+
+def _generate_lomao_splits(
+    groups: np.ndarray,
+    n_datapoints: int,
+    seed: int,
+    logger: logging.Logger,
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray], List[str]]:
+    """Generate Leave-One-Monomer-A-Out (LOMAO) splits.
+    
+    Creates one fold per unique monomer A identity.
+    """
+    unique_groups = np.unique(groups)
+    n_folds = len(unique_groups)
+    
+    logger.info(f"LOMAO: Creating {n_folds} folds, one per unique monomer A")
+    
+    train_indices: List[np.ndarray] = []
+    val_indices: List[np.ndarray] = []
+    test_indices: List[np.ndarray] = []
+    held_out_monomers: List[str] = []
+    
+    idx_all = np.arange(n_datapoints)
+    
+    for fold_i, held_out_group in enumerate(unique_groups):
+        # Test set = all samples with this monomer A
+        test_mask = groups == held_out_group
+        test_idx = idx_all[test_mask]
+        
+        # Train+val = all other samples
+        train_val_idx = idx_all[~test_mask]
+        train_val_groups = groups[~test_mask]
+        train_val_unique = np.unique(train_val_groups)
+        
+        # Sub-split train/val by group (10% of groups for validation)
+        rng = np.random.default_rng(seed + fold_i)
+        n_val_groups = max(1, int(round(0.1 * len(train_val_unique))))
+        val_group_set = set(rng.choice(train_val_unique, size=n_val_groups, replace=False))
+        
+        val_mask = np.array([g in val_group_set for g in train_val_groups])
+        val_idx = train_val_idx[val_mask]
+        train_idx = train_val_idx[~val_mask]
+        
+        train_indices.append(train_idx)
+        val_indices.append(val_idx)
+        test_indices.append(test_idx)
+        held_out_monomers.append(held_out_group)
+        
+        # --- Sanity checks ---
+        train_groups = set(groups[train_idx])
+        val_groups = set(groups[val_idx])
+        test_groups = {held_out_group}
+        
+        assert not (train_groups & val_groups), \
+            f"Fold {fold_i}: train/val monomer A overlap: {train_groups & val_groups}"
+        assert not (train_groups & test_groups), \
+            f"Fold {fold_i}: train/test monomer A overlap: {train_groups & test_groups}"
+        assert not (val_groups & test_groups), \
+            f"Fold {fold_i}: val/test monomer A overlap: {val_groups & test_groups}"
+        
+        logger.info(f"  Fold {fold_i}: Held-out {held_out_group} | "
+                   f"Train {len(train_idx)} ({len(train_groups)} groups) | "
+                   f"Val {len(val_idx)} ({len(val_groups)} groups) | "
+                   f"Test {len(test_idx)} (1 group)")
+    
+    return train_indices, val_indices, test_indices, held_out_monomers
+
+
+def _generate_groupkfold_splits(
+    groups: np.ndarray,
+    n_datapoints: int,
+    seed: int,
+    n_splits: int,
+    logger: logging.Logger,
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray], None]:
+    """Generate standard GroupKFold A-held-out splits (5-fold default)."""
+    from sklearn.model_selection import GroupKFold
+
+    unique_groups = np.unique(groups)
+    
     if len(unique_groups) < n_splits:
         raise ValueError(
             f"Only {len(unique_groups)} unique smiles_A groups but {n_splits} folds requested. "
@@ -2772,14 +2863,8 @@ def generate_a_held_out_splits(
             f"Fold {fold_i}: train/test smiles_A overlap: {train_groups & test_groups}"
         assert not (val_groups & test_groups), \
             f"Fold {fold_i}: val/test smiles_A overlap: {val_groups & test_groups}"
-
-        logger.info(
-            f"  Fold {fold_i}: train={len(tr_idx)} ({len(train_groups)} groups), "
-            f"val={len(va_idx)} ({len(val_groups)} groups), "
-            f"test={len(test_idx)} ({len(test_groups)} groups)"
-        )
-
-    return train_indices, val_indices, test_indices
+    
+    return train_indices, val_indices, test_indices, None
 
 
 def save_fold_assignments(
@@ -2790,12 +2875,14 @@ def save_fold_assignments(
     dataset_name: str,
     seed: int,
     results_dir: Path,
+    held_out_monomers: Optional[List[str]] = None,
     logger: Optional[logging.Logger] = None,
 ) -> Path:
     """Save A-held-out fold assignments to a JSON file for reproducibility.
 
     File: results/splits/{dataset}_aheldout_seed{seed}.json
     Contains per-fold: train/val/test indices + unique smiles_A per split.
+    For LOMAO protocol, also includes held_out_monomer per fold.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -2808,7 +2895,7 @@ def save_fold_assignments(
 
     folds = []
     for i, (tr, va, te) in enumerate(zip(train_indices, val_indices, test_indices)):
-        folds.append({
+        fold_data = {
             "fold": i,
             "train_indices": tr.tolist(),
             "val_indices": va.tolist(),
@@ -2816,7 +2903,13 @@ def save_fold_assignments(
             "train_smiles_A": sorted(set(groups[tr].tolist())),
             "val_smiles_A": sorted(set(groups[va].tolist())),
             "test_smiles_A": sorted(set(groups[te].tolist())),
-        })
+        }
+        
+        # Add held-out monomer for LOMAO protocol
+        if held_out_monomers is not None and i < len(held_out_monomers):
+            fold_data["held_out_monomer"] = held_out_monomers[i]
+        
+        folds.append(fold_data)
 
     payload = {
         "dataset": dataset_name,
@@ -2827,6 +2920,13 @@ def save_fold_assignments(
         "n_unique_smiles_A": len(np.unique(groups)),
         "folds": folds,
     }
+    
+    # Add protocol information
+    if held_out_monomers is not None:
+        payload["protocol"] = "leave_one_A_out"
+        payload["held_out_monomers"] = held_out_monomers
+    else:
+        payload["protocol"] = "groupkfold"
 
     with open(out_path, "w") as f:
         json.dump(payload, f, indent=2)

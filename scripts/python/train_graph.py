@@ -1443,14 +1443,21 @@ for target in target_columns:
     if getattr(args, 'split_type', 'random') == 'a_held_out':
         sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
         valid_smiles_A = df_input[sA_col].astype(str).tolist()
-        n_splits = 5
-        logger.info(f"Using A-held-out 5-fold CV (group by {sA_col})")
-        train_indices, val_indices, test_indices = generate_a_held_out_splits(
-            valid_smiles_A, len(all_data), SEED, n_splits=n_splits, logger=logger
+        
+        # Get protocol configuration (default to leave_one_A_out for new behavior)
+        protocol = getattr(args, 'a_held_out_protocol', 'leave_one_A_out')
+        n_splits = getattr(args, 'n_splits', 5)  # Only used for groupkfold
+        
+        logger.info(f"Using A-held-out {protocol} CV (group by {sA_col})")
+        train_indices, val_indices, test_indices, held_out_monomers = generate_a_held_out_splits(
+            valid_smiles_A, len(all_data), SEED, n_splits=n_splits, protocol=protocol, logger=logger
         )
+        
+        # Save fold assignments with held-out monomer information
         save_fold_assignments(
             train_indices, val_indices, test_indices,
-            valid_smiles_A, args.dataset_name, SEED, results_dir, logger=logger
+            valid_smiles_A, args.dataset_name, SEED, results_dir, 
+            held_out_monomers=held_out_monomers, logger=logger
         )
     else:
         if n_splits > 1:

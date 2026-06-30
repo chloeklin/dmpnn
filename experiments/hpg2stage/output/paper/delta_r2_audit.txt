@@ -1,0 +1,195 @@
+======================================================================
+DELTA-R² AUDIT
+======================================================================
+Group means are computed from predictions within the test set only.
+Metrics: R2_mean, ArchR2_mean, true Δ mean/std, pred Δ mean/std.
+For Frac, max within-group prediction spread is also reported.
+
+Frac     | a_held_out     | EA
+  R2_mean                      = 0.9741
+  ArchR2_mean                  = 0.0000
+  true Δ mean ± std            = 0.000000 ± 0.059328
+  pred Δ mean ± std            = -0.000000 ± 0.000000
+  max within-group pred spread = 0.000000
+  [test_id check] EA: 0/42966 mismatches across all folds
+
+  -- Correcting test indices using both EA and IP y_true --
+  Corrected index matches: 42966/42966
+
+  Worst-case Frac group for EA (canonical_group_key): spread=0.000000 eV
+  group_key = CC1(C)c2cc(B(O)O)ccc2-c2ccc(B(O)O)cc21||CCCCCCCCc1cc(Br)sc1Br||0.25||0.75
+  canonical smilesA = CC1(C)c2cc(B(O)O)ccc2-c2ccc(B(O)O)cc21
+  canonical smilesB = CCCCCCCCc1cc(Br)sc1Br
+  canonical fracA   = 0.250000
+  canonical fracB   = 0.750000
+  Rows:
+    arch=block        idx= 39438 y_true= -2.8463 y_pred= -2.8062
+      raw_smiles_A = CC1(C)c2cc(B(O)O)ccc2-c2ccc(B(O)O)cc21
+      raw_smiles_B = CCCCCCCCc1cc(Br)sc1Br
+      WDMPNN_Input = [*:1]c1ccc2c(c1)C(C)(C)c1cc([*:2])ccc1-2.[*:3]c1sc([*:4])cc1CCCCCCCC|0.25|0.75|<1-2:0.375:0.375<1-1:0.375:0.375<2-2:0.375:0.375<3-4:0.375:0.375<3-3:0.375:0.375<4-4:0.125:0.125<1-3:0.125:0.125<1-4:0.125:0.125<2-3:0.125:0.125<2-4:0.125:0.125
+    arch=random       idx= 39439 y_true= -2.8043 y_pred= -2.8062
+      raw_smiles_A = CC1(C)c2cc(B(O)O)ccc2-c2ccc(B(O)O)cc21
+      raw_smiles_B = CCCCCCCCc1cc(Br)sc1Br
+      WDMPNN_Input = [*:1]c1ccc2c(c1)C(C)(C)c1cc([*:2])ccc1-2.[*:3]c1sc([*:4])cc1CCCCCCCC|0.25|0.75|<1-3:0.25:0.25<1-4:0.25:0.25<2-3:0.25:0.25<2-4:0.25:0.25<1-2:0.25:0.25<3-4:0.25:0.25<1-1:0.25:0.25<2-2:0.25:0.25<3-3:0.25:0.25<4-4:0.25:0.25
+
+  Worst-case Frac group for EA (raw_group_key): spread=0.000000 eV
+  group_key = CC1(C)c2cc(B(O)O)ccc2-c2ccc(B(O)O)cc21||CCCCCCCCc1cc(Br)sc1Br||0.250000||0.750000
+  canonical smilesA = CC1(C)c2cc(B(O)O)ccc2-c2ccc(B(O)O)cc21
+  canonical smilesB = CCCCCCCCc1cc(Br)sc1Br
+  canonical fracA   = 0.250000
+  canonical fracB   = 0.750000
+  Rows:
+    arch=block        idx= 39438 y_true= -2.8463 y_pred= -2.8062
+      raw_smiles_A = CC1(C)c2cc(B(O)O)ccc2-c2ccc(B(O)O)cc21
+      raw_smiles_B = CCCCCCCCc1cc(Br)sc1Br
+      WDMPNN_Input = [*:1]c1ccc2c(c1)C(C)(C)c1cc([*:2])ccc1-2.[*:3]c1sc([*:4])cc1CCCCCCCC|0.25|0.75|<1-2:0.375:0.375<1-1:0.375:0.375<2-2:0.375:0.375<3-4:0.375:0.375<3-3:0.375:0.375<4-4:0.125:0.125<1-3:0.125:0.125<1-4:0.125:0.125<2-3:0.125:0.125<2-4:0.125:0.125
+    arch=random       idx= 39439 y_true= -2.8043 y_pred= -2.8062
+      raw_smiles_A = CC1(C)c2cc(B(O)O)ccc2-c2ccc(B(O)O)cc21
+      raw_smiles_B = CCCCCCCCc1cc(Br)sc1Br
+      WDMPNN_Input = [*:1]c1ccc2c(c1)C(C)(C)c1cc([*:2])ccc1-2.[*:3]c1sc([*:4])cc1CCCCCCCC|0.25|0.75|<1-3:0.25:0.25<1-4:0.25:0.25<2-3:0.25:0.25<2-4:0.25:0.25<1-2:0.25:0.25<3-4:0.25:0.25<1-1:0.25:0.25<2-2:0.25:0.25<3-3:0.25:0.25<4-4:0.25:0.25
+
+Frac     | a_held_out     | IP
+  R2_mean                      = 0.9642
+  ArchR2_mean                  = -0.0000
+  true Δ mean ± std            = -0.000000 ± 0.058139
+  pred Δ mean ± std            = -0.000000 ± 0.000000
+  max within-group pred spread = 0.000000
+
+Frac     | group_disjoint | EA
+  R2_mean                      = 0.9879
+  ArchR2_mean                  = -0.0000
+  true Δ mean ± std            = 0.000000 ± 0.059368
+  pred Δ mean ± std            = 0.000000 ± 0.000000
+  max within-group pred spread = 0.000000
+
+Frac     | group_disjoint | IP
+  R2_mean                      = 0.9838
+  ArchR2_mean                  = -0.0000
+  true Δ mean ± std            = -0.000000 ± 0.058195
+  pred Δ mean ± std            = -0.000000 ± 0.000000
+  max within-group pred spread = 0.000000
+
+Frac     | pair_disjoint  | EA
+  R2_mean                      = 0.9878
+  ArchR2_mean                  = 0.0000
+  true Δ mean ± std            = 0.000000 ± 0.059389
+  pred Δ mean ± std            = 0.000000 ± 0.000000
+  max within-group pred spread = 0.000292
+
+Frac     | pair_disjoint  | IP
+  R2_mean                      = 0.9831
+  ArchR2_mean                  = -0.0000
+  true Δ mean ± std            = -0.000000 ± 0.058198
+  pred Δ mean ± std            = 0.000000 ± 0.000000
+  max within-group pred spread = 0.000000
+
+wDMPNN   | a_held_out     | EA
+  R2_mean                      = 0.9700
+  ArchR2_mean                  = 0.6736
+  true Δ mean ± std            = 0.000000 ± 0.059328
+  pred Δ mean ± std            = -0.000000 ± 0.057200
+
+wDMPNN   | a_held_out     | IP
+  R2_mean                      = 0.9523
+  ArchR2_mean                  = 0.7092
+  true Δ mean ± std            = -0.000000 ± 0.058139
+  pred Δ mean ± std            = -0.000000 ± 0.057023
+
+wDMPNN   | group_disjoint | EA
+  R2_mean                      = 0.9087
+  ArchR2_mean                  = 0.4585
+  true Δ mean ± std            = 0.000000 ± 0.059368
+  pred Δ mean ± std            = -0.000000 ± 0.045794
+
+wDMPNN   | group_disjoint | IP
+  R2_mean                      = 0.8664
+  ArchR2_mean                  = 0.4942
+  true Δ mean ± std            = -0.000000 ± 0.058195
+  pred Δ mean ± std            = 0.000000 ± 0.044510
+[WARNING] wDMPNN pair-disjoint fold 5 missing. Using duplicated fold 4 as temporary placeholder.
+
+wDMPNN   | pair_disjoint  | EA
+  R2_mean                      = 0.9322
+  ArchR2_mean                  = 0.7170
+  true Δ mean ± std            = 0.000000 ± 0.059453
+  pred Δ mean ± std            = 0.000000 ± 0.051238
+
+wDMPNN   | pair_disjoint  | IP
+  R2_mean                      = 0.8965
+  ArchR2_mean                  = 0.7377
+  true Δ mean ± std            = -0.000000 ± 0.058198
+  pred Δ mean ± std            = 0.000000 ± 0.048139
+
+2D0-arch | a_held_out     | EA
+  R2_mean                      = 0.9810
+  ArchR2_mean                  = 0.8467
+  true Δ mean ± std            = 0.000000 ± 0.059328
+  pred Δ mean ± std            = 0.000000 ± 0.052412
+
+2D0-arch | a_held_out     | IP
+  R2_mean                      = 0.9789
+  ArchR2_mean                  = 0.9077
+  true Δ mean ± std            = -0.000000 ± 0.058139
+  pred Δ mean ± std            = 0.000000 ± 0.054087
+
+2D0-arch | group_disjoint | EA
+  R2_mean                      = 0.9971
+  ArchR2_mean                  = 0.8868
+  true Δ mean ± std            = 0.000000 ± 0.059368
+  pred Δ mean ± std            = -0.000000 ± 0.052420
+
+2D0-arch | group_disjoint | IP
+  R2_mean                      = 0.9980
+  ArchR2_mean                  = 0.9423
+  true Δ mean ± std            = -0.000000 ± 0.058195
+  pred Δ mean ± std            = -0.000000 ± 0.053504
+
+2D0-arch | pair_disjoint  | EA
+  R2_mean                      = 0.9968
+  ArchR2_mean                  = 0.8862
+  true Δ mean ± std            = 0.000000 ± 0.059389
+  pred Δ mean ± std            = -0.000000 ± 0.052665
+
+2D0-arch | pair_disjoint  | IP
+  R2_mean                      = 0.9976
+  ArchR2_mean                  = 0.9406
+  true Δ mean ± std            = -0.000000 ± 0.058198
+  pred Δ mean ± std            = 0.000000 ± 0.053650
+
+2D1-arch | a_held_out     | EA
+  R2_mean                      = 0.9820
+  ArchR2_mean                  = 0.8655
+  true Δ mean ± std            = 0.000000 ± 0.059328
+  pred Δ mean ± std            = -0.000000 ± 0.053254
+
+2D1-arch | a_held_out     | IP
+  R2_mean                      = 0.9794
+  ArchR2_mean                  = 0.9167
+  true Δ mean ± std            = -0.000000 ± 0.058139
+  pred Δ mean ± std            = -0.000000 ± 0.054398
+
+2D1-arch | group_disjoint | EA
+  R2_mean                      = 0.9984
+  ArchR2_mean                  = 0.9381
+  true Δ mean ± std            = 0.000000 ± 0.059368
+  pred Δ mean ± std            = 0.000000 ± 0.057289
+
+2D1-arch | group_disjoint | IP
+  R2_mean                      = 0.9987
+  ArchR2_mean                  = 0.9649
+  true Δ mean ± std            = -0.000000 ± 0.058195
+  pred Δ mean ± std            = 0.000000 ± 0.056575
+
+2D1-arch | pair_disjoint  | EA
+  R2_mean                      = 0.9979
+  ArchR2_mean                  = 0.9346
+  true Δ mean ± std            = 0.000000 ± 0.059389
+  pred Δ mean ± std            = 0.000000 ± 0.056888
+
+2D1-arch | pair_disjoint  | IP
+  R2_mean                      = 0.9981
+  ArchR2_mean                  = 0.9637
+  true Δ mean ± std            = -0.000000 ± 0.058198
+  pred Δ mean ± std            = 0.000000 ± 0.057089
+
+======================================================================

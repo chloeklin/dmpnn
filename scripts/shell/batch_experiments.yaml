@@ -1805,6 +1805,48 @@ experiments:
     targets: *eaip_targets
     results_subdir: HPG2Stage
 
+# ─── LOMAO Protocol Experiments (Leave-One-Monomer-A-Out) ──────────────────────────────────────────────────────
+# Type: regression | Polymer: copolymer | Features: monomer | Architecture-aware evaluation
+
+  # -- Frac (baseline) with LOMAO --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_frac
+    split_type: a_held_out
+    a_held_out_protocol: leave_one_A_out
+    walltime: "8:00:00"
+    targets: *eaip_targets
+    results_subdir: HPG2Stage_LOMAO
+
+  # -- wDMPNN with LOMAO --
+  - <<: *eaip_base
+    model: wDMPNN
+    split_type: a_held_out
+    a_held_out_protocol: leave_one_A_out
+    walltime: "8:00:00"
+    targets: *eaip_targets
+    results_subdir: HPG2Stage_LOMAO
+
+  # -- Stage2D: 2D-0 per-arch alpha with LOMAO --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_2d0_arch
+    split_type: a_held_out
+    a_held_out_protocol: leave_one_A_out
+    walltime: "8:00:00"
+    targets: *eaip_targets
+    results_subdir: HPG2Stage_LOMAO
+
+  # -- Stage2D: 2D-1 per-arch alpha with LOMAO --
+  - <<: *eaip_base
+    model: DMPNN
+    copolymer_mode: stage2d_2d1_arch
+    split_type: a_held_out
+    a_held_out_protocol: leave_one_A_out
+    walltime: "8:00:00"
+    targets: *eaip_targets
+    results_subdir: HPG2Stage_LOMAO
+
   # -- Stage2D: 2D-1 gated (a_held_out) --
   # Already validated — no retraining required (R²=0.981 EA, 0.979 IP)
   # - <<: *eaip_base

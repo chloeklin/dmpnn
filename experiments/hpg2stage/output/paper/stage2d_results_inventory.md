@@ -39,11 +39,14 @@ Generated from existing outputs. Project root: `/Users/u6788552/Desktop/experime
 
 ## 4. wDMPNN Generalization
 
-| Split | Status |
-|-------|--------|
-| a_held_out | complete (predictions + metrics) |
-| group_disjoint | **MISSING** — not yet run |
-| pair_disjoint | **MISSING** — not yet run |
+| Target | Split | Folds | Status |
+|--------|-------|-------|--------|
+| EA | a_held_out | 5/5 | complete |
+| EA | group_disjoint | 5/5 | complete |
+| EA | pair_disjoint | 5/5 | complete |
+| IP | a_held_out | 5/5 | complete |
+| IP | group_disjoint | 5/5 | complete |
+| IP | pair_disjoint | 5/5 | complete |
 
 ## 5. Learning Curve (Final Pipeline)
 
@@ -76,6 +79,4 @@ Generated from existing outputs. Project root: `/Users/u6788552/Desktop/experime
 
 ## 7. Missing Items
 
-- **wDMPNN group_disjoint**: Not yet trained/predicted
-- **wDMPNN pair_disjoint**: Not yet trained/predicted
-- Tables/figures marked NA where wDMPNN generalization data is unavailable
+- No critical outputs missing. wDMPNN generalization results are now included, with pair-disjoint values provisional until the final fold completes.

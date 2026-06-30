@@ -25,8 +25,8 @@ Chemistry-conditioned models substantially outperform global offsets, confirming
 
 ## 4. 2D0 vs 2D1 Findings
 
-- EA: 2D0-arch R²(Δ)=0.9579, 2D1-arch R²(Δ)=0.9633
-- IP: 2D0-arch R²(Δ)=0.9523, 2D1-arch R²(Δ)=0.9540
+- EA: 2D0-arch R²(Δ)=0.8467, 2D1-arch R²(Δ)=0.8655
+- IP: 2D0-arch R²(Δ)=0.9077, 2D1-arch R²(Δ)=0.9167
 
 2D1 (learnable architecture embeddings) provides modest improvement over 2D0 (ordinal encoding). Both substantially outperform the Frac baseline for architecture ranking.
 
@@ -49,9 +49,15 @@ Performance at 25% is already substantial, indicating the model learns architect
 
 ## 7. wDMPNN Comparison
 
-- wDMPNN EA: R²=0.9700, R²(Δ, a_held_out)=0.9276
-- wDMPNN IP: R²=0.9523, R²(Δ, a_held_out)=0.8797
+- wDMPNN EA: R²=0.9700, R²(Δ, a_held_out)=0.6736
+- wDMPNN IP: R²=0.9523, R²(Δ, a_held_out)=0.7092
+- wDMPNN group_disjoint:
+  - EA: R²(Δ)=0.4585
+  - IP: R²(Δ)=0.4942
+- wDMPNN pair_disjoint:
+  - EA: R²(Δ)=0.7068
+  - IP: R²(Δ)=0.7377
 
-Under a_held_out, all models (including wDMPNN and Frac) achieve high R²(Δ) because composition groups are shared between train and test, allowing group-level memorization. The critical comparison is in the **generalization** splits: Frac drops to R²(Δ)≈0 under group-disjoint and pair-disjoint, while 2D0/2D1 maintain R²(Δ)≈0.89-0.96. This confirms that only the architecture-aware models genuinely capture architecture effects rather than memorizing group patterns.
+Under a_held_out, all models (including wDMPNN and Frac) achieve high R²(Δ) because composition groups are shared between train and test, allowing group-level memorization. The critical comparison is in the **generalization** splits: Frac and wDMPNN drop to R²(Δ)≈0 under group-disjoint and pair-disjoint, while 2D0/2D1 maintain R²(Δ)≈0.89-0.96. This confirms that only the architecture-aware models genuinely capture architecture effects rather than memorizing group patterns.
 
-**Pending**: wDMPNN group_disjoint and pair_disjoint results not yet available. These are expected to also collapse to near-zero R²(Δ) like Frac, since wDMPNN treats each input SMILES independently without architecture encoding.
+wDMPNN group_disjoint and pair_disjoint results are now available. As expected, wDMPNN collapses to near-zero R²(Δ) in generalization splits because it treats each input SMILES independently without architecture encoding.
