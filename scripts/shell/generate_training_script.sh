@@ -71,6 +71,7 @@ AUX_TASK=""
 AUX_DESCRIPTOR_COLS=""
 LAMBDA_AUX=""
 SPLIT_TYPE=""
+A_HELD_OUT_PROTOCOL=""
 HPG_VARIANT=""
 RESULTS_SUBDIR=""
 
@@ -112,6 +113,7 @@ for arg in "${@:4}"; do
     aux_descriptor_cols=*) AUX_DESCRIPTOR_COLS="${arg#aux_descriptor_cols=}" ;;
     lambda_aux=*)       LAMBDA_AUX="${arg#lambda_aux=}" ;;
     split_type=*)       SPLIT_TYPE="${arg#split_type=}" ;;
+    a_held_out_protocol=*) A_HELD_OUT_PROTOCOL="${arg#a_held_out_protocol=}" ;;
     hpg_variant=*)      HPG_VARIANT="${arg#hpg_variant=}" ;;
     results_subdir=*)   RESULTS_SUBDIR="${arg#results_subdir=}" ;;
     *)
@@ -169,6 +171,7 @@ fi
 [ -n "$COPOLYMER_MODE" ]     && ARGS="$ARGS --copolymer_mode $COPOLYMER_MODE"
 [ -n "$FUSION_TYPE" ]        && ARGS="$ARGS --fusion_type $FUSION_TYPE"
 [ -n "$SPLIT_TYPE" ]         && ARGS="$ARGS --split_type $SPLIT_TYPE"
+[ -n "$A_HELD_OUT_PROTOCOL" ] && ARGS="$ARGS --a_held_out_protocol $A_HELD_OUT_PROTOCOL"
 [ -n "$HPG_VARIANT" ]        && ARGS="$ARGS --hpg_variant $HPG_VARIANT"
 [ -n "$RESULTS_SUBDIR" ]     && ARGS="$ARGS --results_subdir $RESULTS_SUBDIR"
 [ -n "$TRAIN_SIZE" ]         && ARGS="$ARGS --train_size $TRAIN_SIZE"
