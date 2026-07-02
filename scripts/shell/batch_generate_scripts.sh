@@ -255,6 +255,11 @@ try:
         if split_type:
             args.append(f'split_type={split_type}')
         
+        # Add a_held_out_protocol if specified (groupkfold | leave_one_A_out)
+        a_held_out_protocol = exp.get('a_held_out_protocol')
+        if a_held_out_protocol:
+            args.append(f'a_held_out_protocol={a_held_out_protocol}')
+        
         # Add hpg_variant if specified (baseline | frac | frac_polytype)
         hpg_variant = exp.get('hpg_variant')
         if hpg_variant:

@@ -1464,11 +1464,11 @@ for target in target_columns:
             held_out_monomers=held_out_monomers, logger=logger
         )
     else:
-            if n_splits > 1:
-                logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
-            else:
-                logger.info(f"Using holdout validation with {local_reps} replicate(s)")
-            train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
+        if n_splits > 1:
+            logger.info(f"Using {n_splits}-fold cross-validation with {local_reps} replicate(s)")
+        else:
+            logger.info(f"Using holdout validation with {local_reps} replicate(s)")
+        train_indices, val_indices, test_indices = generate_data_splits(args, ys, n_splits, local_reps, SEED)
     
     # Apply train_size subsampling if specified
     if args.train_size is not None and args.train_size.lower() != "full":
