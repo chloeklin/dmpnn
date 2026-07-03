@@ -368,8 +368,10 @@ if args.model_name == "HPG":
 
     # ── Parse SMILES into HPG format ──
     if is_copolymer:
-        sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
-        sB_col = "smilesB" if "smilesB" in df_input.columns else "smiles_B"
+        # Use original (pre-canonicalization) monomer columns for LOMAO splits;
+        # the canonicalized smilesA/smilesB columns may swap A/B for consistent pairing.
+        sA_col = "smiles_A" if "smiles_A" in df_input.columns else "smilesA"
+        sB_col = "smiles_B" if "smiles_B" in df_input.columns else "smilesB"
         smis_A = df_input[sA_col].astype(str).tolist()
         smis_B = df_input[sB_col].astype(str).tolist()
         fracA_arr = df_input["fracA"].values.astype(float)
@@ -1445,7 +1447,11 @@ for target in target_columns:
     n_splits, local_reps = determine_split_strategy(len(ys), REPLICATES)
 
     if getattr(args, 'split_type', 'random') == 'a_held_out':
-        sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
+        # Use the *original* monomer A column for LOMAO grouping.  Preprocessing
+        # canonicalizes the A/B pair (smilesA column) by swapping A/B when B < A
+        # lexicographically; grouping by that canonical column would hold out a
+        # mixture of original A and B monomers instead of the intended A monomer.
+        sA_col = "smiles_A" if "smiles_A" in df_input.columns else "smilesA"
         valid_smiles_A = df_input[sA_col].astype(str).tolist()
         
         # Get protocol configuration (default to leave_one_A_out for new behavior)
