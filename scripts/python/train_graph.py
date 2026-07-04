@@ -753,9 +753,13 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
         smiles_B_lists = df_input["smilesB_list"].tolist()
         frac_B_lists = df_input["fracB_list"].tolist()
     else:
-        # Single-monomer: extract scalar SMILES columns
-        sA_col = "smilesA" if "smilesA" in df_input.columns else "smiles_A"
-        sB_col = "smilesB" if "smilesB" in df_input.columns else "smiles_B"
+        # Single-monomer: extract scalar SMILES columns.
+        # Use the *original* smiles_A/smiles_B columns (pre-canonicalization) so
+        # that LOMAO split grouping reflects the intended monomer A identity.
+        # load_and_preprocess_data may swap A/B in the canonical smilesA/smilesB
+        # columns (when B < A lexicographically); we must NOT use those for splits.
+        sA_col = "smiles_A" if "smiles_A" in df_input.columns else "smilesA"
+        sB_col = "smiles_B" if "smiles_B" in df_input.columns else "smilesB"
         smis_A = df_input[sA_col].astype(str).tolist()
         smis_B = df_input[sB_col].astype(str).tolist()
         fracA_arr = df_input["fracA"].values.astype(float)
