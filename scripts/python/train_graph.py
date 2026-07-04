@@ -2019,6 +2019,7 @@ for target in target_columns:
                 y_pred = y_pred.cpu().numpy()
             
             # Save predictions with IDs and training configuration metadata
+            split_type_sfx = f"__{args.split_type}" if getattr(args, 'split_type', 'random') != 'random' else ""
             save_predictions(
                 y_true, y_pred, predictions_dir, args.dataset_name, target, output_model_name,
                 desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,
@@ -2027,7 +2028,8 @@ for target in target_columns:
                 polymer_type=getattr(args, 'polymer_type', None),
                 task_type=args.task_type,
                 fusion_mode=getattr(args, 'fusion_mode', None),
-                aux_task=getattr(args, 'aux_task', None)
+                aux_task=getattr(args, 'aux_task', None),
+                split_type_suffix=split_type_sfx
             )
         
         # Export embeddings if requested
