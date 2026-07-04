@@ -59,7 +59,11 @@
 #   stage2d_2d1_fixed  h_poly = h_mix + alpha * MLP(z) (interaction MLP, fixed alpha)
 #   stage2d_2d1_arch   h_poly = h_mix + alpha_arch * MLP(z) (per-arch alpha)
 #   stage2d_2d1_gate   h_poly = h_mix + sigmoid(gate(z)) * MLP(z) (fully gated)
+#   stage2d_2d1_film   h_poly = h_mix + γ⊙(α_arch·r_arch) + β  (FiLM modulation)
+#   stage2d_2d1_nlmix  h_mix += f_A·f_B·g(h_A,h_B) then 2d1_arch fusion  (nonlinear pooling)
+#   stage2d_2d1_film_nlmix  both FiLM + nonlinear pooling combined
 #   Note: Stage2D modes auto-encode poly_type as ordinal X_d; no incl_poly_type needed.
+#   Note: Ablation variants (film/nlmix) use run_stage2d_ablation.py for LOMAO evaluation.
 #
 # DATASET FEATURE AVAILABILITY
 # -----------------------------

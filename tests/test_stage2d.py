@@ -316,5 +316,112 @@ class TestCopolymerIntegration:
             "Normalized and unscaled predictions must differ (regression test for the unscale bug)"
 
 
+# ────────────────────────────────────────────────────────────────
+#  Ablation Variant Tests (FiLM, NonlinearMix, Combined)
+# ────────────────────────────────────────────────────────────────
+
+class TestAblationVariants:
+    """Tests specific to the ablation variants: 2d1_film, 2d1_nlmix, 2d1_film_nlmix."""
+
+    @pytest.mark.parametrize("variant", ["2d1_film", "2d1_nlmix", "2d1_film_nlmix"])
+    def test_ablation_shape(self, variant, batch_data):
+        """Ablation variants produce correct output shapes."""
+        h_A, h_B, f_A, f_B, arch, B, d = batch_data
+        agg = Stage2Aggregator(d=d, variant=variant, n_targets=2)
+        preds, aux = agg(h_A, h_B, f_A, f_B, arch)
+        assert preds.shape == (B, 2)
+        assert aux["h_poly"].shape == (B, d)
+
+    @pytest.mark.parametrize("variant", ["2d1_film", "2d1_nlmix", "2d1_film_nlmix"])
+    def test_ablation_starts_near_2d1_arch(self, variant, batch_data):
+        """With zero-init MLPs and alpha_init=0, ablation variants ≈ 2d1_arch at init."""
+        h_A, h_B, f_A, f_B, arch, B, d = batch_data
+        agg = Stage2Aggregator(d=d, variant=variant, alpha_init=0.0, n_targets=2)
+        _, aux = agg(h_A, h_B, f_A, f_B, arch)
+        h_mix = f_A.unsqueeze(1) * h_A + f_B.unsqueeze(1) * h_B
+        # All new MLPs are zero-init, so output should be very close to h_mix
+        diff = (aux["h_poly"] - h_mix).abs().max().item()
+        assert diff < 1e-5, f"{variant} not close to h_mix at init: max_diff={diff}"
+
+    def test_film_gamma_beta_in_aux(self, batch_data):
+        """FiLM variants should report gamma_mean and beta_norm in aux."""
+        h_A, h_B, f_A, f_B, arch, B, d = batch_data
+        for variant in ("2d1_film", "2d1_film_nlmix"):
+            agg = Stage2Aggregator(d=d, variant=variant, n_targets=2)
+            _, aux = agg(h_A, h_B, f_A, f_B, arch)
+            assert "gamma_mean" in aux, f"gamma_mean missing for {variant}"
+            assert "beta_norm" in aux, f"beta_norm missing for {variant}"
+
+    def test_film_gamma_init_one(self, batch_data):
+        """At init, FiLM gamma should be ≈ 1.0."""
+        h_A, h_B, f_A, f_B, arch, B, d = batch_data
+        agg = Stage2Aggregator(d=d, variant="2d1_film", n_targets=2)
+        _, aux = agg(h_A, h_B, f_A, f_B, arch)
+        # gamma_mean should be close to 1.0 at init
+        assert abs(aux["gamma_mean"].item() - 1.0) < 0.01
+
+    def test_nlmix_differs_from_linear_mix(self, batch_data):
+        """After one gradient step, nlmix should differ from linear mix."""
+        h_A, h_B, f_A, f_B, arch, B, d = batch_data
+        agg = Stage2Aggregator(d=d, variant="2d1_nlmix", alpha_init=0.5, n_targets=2)
+        # Forward + backward to update nlmix_mlp
+        preds, _ = agg(h_A, h_B, f_A, f_B, arch)
+        loss = preds.sum()
+        loss.backward()
+        opt = torch.optim.SGD(agg.parameters(), lr=0.1)
+        opt.step()
+        # After update, nlmix contribution should be nonzero
+        with torch.no_grad():
+            _, aux_after = agg(h_A, h_B, f_A, f_B, arch)
+        h_mix_linear = f_A.unsqueeze(1) * h_A + f_B.unsqueeze(1) * h_B
+        # h_poly should differ from pure linear h_mix
+        diff = (aux_after["h_poly"] - h_mix_linear).abs().max().item()
+        assert diff > 1e-6, "nlmix should diverge from linear mix after gradient step"
+
+    def test_nlmix_has_mlp(self, batch_data):
+        """nlmix variants should have nlmix_mlp, others should not."""
+        _, _, _, _, _, _, d = batch_data
+        for variant in ("2d1_nlmix", "2d1_film_nlmix"):
+            agg = Stage2Aggregator(d=d, variant=variant, n_targets=2)
+            assert agg.nlmix_mlp is not None, f"{variant} should have nlmix_mlp"
+        for variant in ("2d1_arch", "2d1_film"):
+            agg = Stage2Aggregator(d=d, variant=variant, n_targets=2)
+            assert agg.nlmix_mlp is None, f"{variant} should not have nlmix_mlp"
+
+    def test_film_has_mlp(self, batch_data):
+        """film variants should have film_mlp, others should not."""
+        _, _, _, _, _, _, d = batch_data
+        for variant in ("2d1_film", "2d1_film_nlmix"):
+            agg = Stage2Aggregator(d=d, variant=variant, n_targets=2)
+            assert agg.film_mlp is not None, f"{variant} should have film_mlp"
+        for variant in ("2d1_arch", "2d1_nlmix"):
+            agg = Stage2Aggregator(d=d, variant=variant, n_targets=2)
+            assert agg.film_mlp is None, f"{variant} should not have film_mlp"
+
+    @pytest.mark.parametrize("variant", ["2d1_film", "2d1_nlmix", "2d1_film_nlmix"])
+    def test_ablation_gradient_flow(self, variant, batch_data):
+        """Gradients should flow through all ablation-specific parameters."""
+        h_A, h_B, f_A, f_B, arch, B, d = batch_data
+        agg = Stage2Aggregator(d=d, variant=variant, n_targets=2)
+        preds, _ = agg(h_A, h_B, f_A, f_B, arch)
+        loss = preds.sum()
+        loss.backward()
+        # Check that ablation-specific params have gradients (any, not all,
+        # because zero-init output layers block gradient to input layers at init)
+        if agg.film_mlp is not None:
+            assert any(p.grad is not None and p.grad.abs().sum() > 0
+                       for p in agg.film_mlp.parameters())
+        if agg.nlmix_mlp is not None:
+            assert any(p.grad is not None and p.grad.abs().sum() > 0
+                       for p in agg.nlmix_mlp.parameters())
+
+    @pytest.mark.parametrize("variant", ["2d1_film", "2d1_nlmix", "2d1_film_nlmix"])
+    def test_ablation_copolymer_mode_accepted(self, variant):
+        """CopolymerMPNN should accept stage2d_{variant}."""
+        from chemprop.models.copolymer import CopolymerMPNN
+        mode = f"stage2d_{variant}"
+        assert mode in CopolymerMPNN.VALID_MODES
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

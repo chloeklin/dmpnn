@@ -39,6 +39,9 @@ VALID_STAGE2_VARIANTS = (
     "2d1_fixed",
     "2d1_arch",
     "2d1_gate",
+    "2d1_film",
+    "2d1_nlmix",
+    "2d1_film_nlmix",
 )
 
 
@@ -65,6 +68,15 @@ class Stage2Aggregator(nn.Module):
         the zero-gradient symmetry with zero-initialized residual MLPs.
     n_targets : int
         Number of prediction targets (typically 2 for EA + IP).
+
+    Ablation variants (extend 2d1_arch)
+    ------------------------------------
+    2d1_film      : FiLM architecture modulation.
+                    γ, β = MLP(e_arch); h_poly = h_mix + γ ⊙ (α_arch · r_arch) + β
+    2d1_nlmix     : Nonlinear composition pooling.
+                    h_mix_nl = f_A·h_A + f_B·h_B + f_A·f_B·g([h_A,h_B,|h_A-h_B|,h_A⊙h_B])
+                    h_poly = h_mix_nl + α_arch · r_arch
+    2d1_film_nlmix: Both modifications combined.
     """
 
     def __init__(
@@ -109,7 +121,7 @@ class Stage2Aggregator(nn.Module):
         if variant in ("2d0_fixed", "2d1_fixed"):
             # Single learnable scalar alpha
             self.alpha = nn.Parameter(torch.tensor(alpha_init))
-        elif variant in ("2d0_arch", "2d1_arch"):
+        elif variant in ("2d0_arch", "2d1_arch", "2d1_film", "2d1_nlmix", "2d1_film_nlmix"):
             # Per-architecture alpha: [NUM_ARCHITECTURES]
             self.alpha = nn.Parameter(
                 torch.full((NUM_ARCHITECTURES,), alpha_init)
@@ -160,6 +172,40 @@ class Stage2Aggregator(nn.Module):
             nn.init.zeros_(self.mlp_2d1[-1].bias)
         else:
             self.mlp_2d1 = None
+
+        # ── FiLM modulation MLP (for 2d1_film and 2d1_film_nlmix) ──
+        if variant in ("2d1_film", "2d1_film_nlmix"):
+            # Maps e_arch [B, d] → (γ, β) each [B, d]
+            self.film_mlp = nn.Sequential(
+                nn.Linear(d, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, 2 * d),  # first d = γ, second d = β
+            )
+            # Init γ ≈ 1 (no scaling), β ≈ 0 (no shift)
+            nn.init.zeros_(self.film_mlp[-1].weight)
+            # bias: first d dims → 1.0 (γ), last d dims → 0.0 (β)
+            with torch.no_grad():
+                bias = torch.zeros(2 * d)
+                bias[:d] = 1.0  # γ init = 1
+                self.film_mlp[-1].bias.copy_(bias)
+        else:
+            self.film_mlp = None
+
+        # ── Nonlinear composition MLP (for 2d1_nlmix and 2d1_film_nlmix) ──
+        if variant in ("2d1_nlmix", "2d1_film_nlmix"):
+            # g([h_A, h_B, |h_A-h_B|, h_A⊙h_B]) → [B, d]
+            self.nlmix_mlp = nn.Sequential(
+                nn.Linear(4 * d, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, d),
+            )
+            # Zero-init output → starts as linear h_mix
+            nn.init.zeros_(self.nlmix_mlp[-1].weight)
+            nn.init.zeros_(self.nlmix_mlp[-1].bias)
+        else:
+            self.nlmix_mlp = None
 
         # ── Prediction heads: separate MLP for each target ──
         self.heads = nn.ModuleList([
@@ -262,6 +308,14 @@ class Stage2Aggregator(nn.Module):
             e_arch = self._get_arch_emb(arch)  # [B, d]
             aux["emb_norm"] = e_arch.detach().norm(dim=1)
 
+            # ── Nonlinear composition pooling (nlmix variants) ──
+            if self.nlmix_mlp is not None:
+                nlmix_input = torch.cat([
+                    h_A, h_B, (h_A - h_B).abs(), h_A * h_B,
+                ], dim=1)  # [B, 4d]
+                g_AB = self.nlmix_mlp(nlmix_input)  # [B, d]
+                h_mix = h_mix + (f_A * f_B) * g_AB
+
             # Build interaction feature z
             z = torch.cat([
                 h_A,
@@ -280,10 +334,21 @@ class Stage2Aggregator(nn.Module):
                 h_poly = h_mix + alpha * r_arch
                 aux["alpha"] = alpha.detach().expand(h_mix.size(0))
 
-            elif self.variant == "2d1_arch":
+            elif self.variant in ("2d1_arch", "2d1_nlmix"):
                 alpha = self.alpha[arch]  # [B]
                 h_poly = h_mix + alpha.unsqueeze(1) * r_arch
                 aux["alpha"] = alpha.detach()
+
+            elif self.variant in ("2d1_film", "2d1_film_nlmix"):
+                # FiLM: γ, β from architecture embedding
+                film_out = self.film_mlp(e_arch)  # [B, 2d]
+                gamma = film_out[:, :self.d]       # [B, d]
+                beta = film_out[:, self.d:]        # [B, d]
+                alpha = self.alpha[arch]           # [B]
+                h_poly = h_mix + gamma * (alpha.unsqueeze(1) * r_arch) + beta
+                aux["alpha"] = alpha.detach()
+                aux["gamma_mean"] = gamma.detach().mean()
+                aux["beta_norm"] = beta.detach().norm(dim=1).mean()
 
             else:  # 2d1_gate
                 alpha = torch.sigmoid(self.gate_mlp(z))  # [B, 1]
@@ -322,4 +387,8 @@ class Stage2Aggregator(nn.Module):
                 metrics[f"{prefix}/alpha_std"] = alpha_val.std().item()
         if "emb_norm" in aux:
             metrics[f"{prefix}/emb_norm_mean"] = aux["emb_norm"].mean().item()
+        if "gamma_mean" in aux:
+            metrics[f"{prefix}/gamma_mean"] = aux["gamma_mean"].item()
+        if "beta_norm" in aux:
+            metrics[f"{prefix}/beta_norm"] = aux["beta_norm"].item()
         return metrics

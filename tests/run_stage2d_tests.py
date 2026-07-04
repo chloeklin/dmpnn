@@ -123,6 +123,53 @@ for v in VALID_STAGE2_VARIANTS:
     check("stage2d/alpha_mean" in diag, f"{v}: alpha_mean logged")
 
 # ═══════════════════════════════════════════════════════════════
+print("\n=== 10. Ablation variants: alpha=0 → h_poly ≈ h_mix ===")
+for v in ["2d1_film", "2d1_nlmix", "2d1_film_nlmix"]:
+    agg = Stage2Aggregator(d=d, variant=v, alpha_init=0.0, n_targets=n_targets)
+    _, aux = agg(h_A, h_B, f_A, f_B, arch)
+    diff = (aux["h_poly"] - h_mix).abs().max().item()
+    check(diff < 1e-5, f"{v}: alpha=0 → h_poly ≈ h_mix (diff={diff:.2e})")
+
+# ═══════════════════════════════════════════════════════════════
+print("\n=== 11. FiLM: gamma_mean ≈ 1.0 at init ===")
+for v in ["2d1_film", "2d1_film_nlmix"]:
+    agg = Stage2Aggregator(d=d, variant=v, n_targets=n_targets)
+    _, aux = agg(h_A, h_B, f_A, f_B, arch)
+    check("gamma_mean" in aux, f"{v}: gamma_mean in aux")
+    check("beta_norm" in aux, f"{v}: beta_norm in aux")
+    check(abs(aux["gamma_mean"].item() - 1.0) < 0.01, f"{v}: gamma ≈ 1.0 at init")
+
+# ═══════════════════════════════════════════════════════════════
+print("\n=== 12. nlmix_mlp / film_mlp presence ===")
+for v in ["2d1_nlmix", "2d1_film_nlmix"]:
+    agg = Stage2Aggregator(d=d, variant=v, n_targets=n_targets)
+    check(agg.nlmix_mlp is not None, f"{v}: has nlmix_mlp")
+for v in ["2d1_film", "2d1_film_nlmix"]:
+    agg = Stage2Aggregator(d=d, variant=v, n_targets=n_targets)
+    check(agg.film_mlp is not None, f"{v}: has film_mlp")
+for v in ["2d1_arch", "2d1_film"]:
+    agg = Stage2Aggregator(d=d, variant=v, n_targets=n_targets)
+    check(agg.nlmix_mlp is None, f"{v}: no nlmix_mlp")
+for v in ["2d1_arch", "2d1_nlmix"]:
+    agg = Stage2Aggregator(d=d, variant=v, n_targets=n_targets)
+    check(agg.film_mlp is None, f"{v}: no film_mlp")
+
+# ═══════════════════════════════════════════════════════════════
+print("\n=== 13. Ablation gradient flow to new MLPs ===")
+# Note: with zero-init output layers, only the output layer params get gradients
+# at init (hidden→input gradient is zero because W_out=0). Check any() not all().
+for v in ["2d1_film", "2d1_nlmix", "2d1_film_nlmix"]:
+    agg = Stage2Aggregator(d=d, variant=v, n_targets=n_targets)
+    preds, _ = agg(h_A.clone(), h_B.clone(), f_A, f_B, arch)
+    preds.sum().backward()
+    if agg.film_mlp is not None:
+        film_grad = any(p.grad is not None and p.grad.abs().sum() > 0 for p in agg.film_mlp.parameters())
+        check(film_grad, f"{v}: film_mlp has gradients")
+    if agg.nlmix_mlp is not None:
+        nlmix_grad = any(p.grad is not None and p.grad.abs().sum() > 0 for p in agg.nlmix_mlp.parameters())
+        check(nlmix_grad, f"{v}: nlmix_mlp has gradients")
+
+# ═══════════════════════════════════════════════════════════════
 print("\n" + "=" * 60)
 if failures:
     print(f"FAILED: {len(failures)} test(s)")

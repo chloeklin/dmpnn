@@ -96,7 +96,8 @@ def create_base_argument_parser(description="Train a graph model"):
                                  "interact", "interact_meta",
                                  "stage2d_frac", "stage2d_2d0_fixed", "stage2d_2d0_arch",
                                  "stage2d_2d0_gate", "stage2d_2d1_fixed", "stage2d_2d1_arch",
-                                 "stage2d_2d1_gate"],
+                                 "stage2d_2d1_gate",
+                                 "stage2d_2d1_film", "stage2d_2d1_nlmix", "stage2d_2d1_film_nlmix"],
                         default="mix",
                         help='Copolymer integration mode: '
                              '"mean" = (z_A+z_B)/2, '
@@ -997,7 +998,7 @@ def build_copolymer_model_and_trainer(
 
     gpu = torch.cuda.is_available()
     trainer_kwargs.setdefault("accelerator", "gpu" if gpu else "cpu")
-    trainer_kwargs.setdefault("devices", 1 if gpu else None)
+    trainer_kwargs.setdefault("devices", 1)
     trainer_kwargs.setdefault("precision", "16-mixed" if gpu else 32)
     trainer_kwargs.setdefault("deterministic", True)
     trainer_kwargs.setdefault("benchmark", False)
@@ -1335,7 +1336,7 @@ def build_model_and_trainer(
 
     # Provide defaults only if caller didn't specify them via **trainer_kwargs
     trainer_kwargs.setdefault("accelerator", "gpu" if gpu else "cpu")
-    trainer_kwargs.setdefault("devices", 1 if gpu else None)
+    trainer_kwargs.setdefault("devices", 1)
     # V100s: "16-mixed" is fine; A100/H100: you can switch to "bf16-mixed"
     trainer_kwargs.setdefault("precision", "16-mixed" if gpu else 32)
     # Determinism vs speed: if you care about speed, set deterministic=False and allow cudnn.benchmark
