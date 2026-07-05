@@ -13,6 +13,9 @@ data/
 !/chemprop/data/
 checkpoints/
 *.zip
+experiments/*
+paper_figures/*
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
