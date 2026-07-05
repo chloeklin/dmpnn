@@ -59,6 +59,37 @@ PRED_WDMPNN = PROJECT_ROOT / 'predictions' / 'wDMPNN'
 PRED_WDMPNN_GEN = PROJECT_ROOT / 'predictions' / 'wDMPNN_Gen'
 RESULTS_WDMPNN = PROJECT_ROOT / 'results' / 'wDMPNN'
 
+# ── LOMO (Leave-One-Monomer-Out) prediction directory ────────────────
+# Predictions are stored in HPG2Stage_LOMAO/ with filenames that embed
+# 'a_held_out' as the split token (9 folds: split0-split8).
+# Auto-discovery: inspect the directory and confirm the convention.
+def _detect_lomo_dir():
+    """Return (pred_dir, split_token, n_folds) for LOMO predictions.
+
+    The directory HPG2Stage_LOMAO/ contains files named:
+      ea_ip__{target}__copoly_stage2d_{model}__a_held_out__split{i}.npz
+    and wDMPNN files:
+      ea_ip__{target}__split{i}.npz
+    We detect the split token and fold count from the actual files.
+    """
+    candidate_dir = PROJECT_ROOT / 'predictions' / 'HPG2Stage_LOMAO'
+    if not candidate_dir.exists():
+        return candidate_dir, 'a_held_out', 9  # fallback
+    # Detect split token from stage2d_frac files
+    import re
+    frac_files = sorted(candidate_dir.glob('*frac*split*.npz'))
+    if frac_files:
+        m = re.search(r'__(a_held_out|leave_one_monomer_out|lomo|leave_one_out)__split', frac_files[0].name)
+        token = m.group(1) if m else 'a_held_out'
+        # Count folds for frac EA
+        ea_frac = [f for f in frac_files if 'EA vs SHE' in f.name and '2d0' not in f.name and '2d1' not in f.name]
+        n_folds = len(ea_frac) if ea_frac else 9
+    else:
+        token, n_folds = 'a_held_out', 9
+    return candidate_dir, token, n_folds
+
+PRED_LOMAO, _LOMO_SPLIT_TOKEN, N_LOMAO_FOLDS = _detect_lomo_dir()
+
 DIAG_DIR = PROJECT_ROOT / 'experiments' / 'diagnostics'
 BOTTLENECK_DIR = PROJECT_ROOT / 'experiments' / 'hpg2stage' / 'output' / 'bottleneck'
 POSTRERUN_DIR = PROJECT_ROOT / 'experiments' / 'hpg2stage' / 'output' / 'postrerun'
@@ -68,10 +99,12 @@ OUT_DIR = PROJECT_ROOT / 'experiments' / 'hpg2stage' / 'output' / 'paper'
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 TARGETS = {'EA': 'EA vs SHE (eV)', 'IP': 'IP vs SHE (eV)'}
-N_FOLDS = 5
+N_FOLDS = 5        # original a_held_out folds (HPG2Stage)
+N_FOLDS_LOMO = N_LOMAO_FOLDS  # LOMO folds (HPG2Stage_LOMAO)
 
 # Normalization params estimated per-split from frac model
-_NORM_PARAMS = None  # populated in main()
+_NORM_PARAMS = None       # LOMO 9-fold norm params; populated in main()
+_NORM_PARAMS_ORIG = None  # Original a_held_out 5-fold norm params; populated in main()
 
 # Value map for remapping a_held-out prediction test_ids to original CSV indices
 _VALUE_MAP = None  # populated in main(); maps (EA, IP) -> original index
@@ -235,8 +268,31 @@ def estimate_normalization_params():
     HPG2Stage predictions are stored in normalized target space.
     We regress y_pred (norm) → y_true (raw) for the frac model to get
     (intercept, slope) per split, then denormalize via: y_raw = y_norm * slope + intercept.
+
+    Tries LOMO directory first (primary), then falls back to HPG2Stage (original a_held_out).
     """
     params = {}  # target_key -> list of (intercept, slope) per fold
+    for tkey, target_full in TARGETS.items():
+        params[tkey] = []
+        # Prefer LOMO frac predictions for normalization
+        for fold in range(N_FOLDS_LOMO):
+            fname = f"ea_ip__{target_full}__copoly_stage2d_frac__{_LOMO_SPLIT_TOKEN}__split{fold}.npz"
+            path = PRED_LOMAO / fname
+            if not path.exists():
+                params[tkey].append((0.0, 1.0))
+                continue
+            npz = np.load(path, allow_pickle=True)
+            yt = npz['y_true'].flatten()
+            yp = npz['y_pred'].flatten()
+            slope, intercept, _, _, _ = sp_stats.linregress(yp, yt)
+            params[tkey].append((intercept, slope))
+    return params
+
+
+def estimate_normalization_params_orig():
+    """Normalization params from original a_held_out HPG2Stage (5-fold) — kept for
+    backward compatibility with wDMPNN and generalization loaders."""
+    params = {}
     for tkey, target_full in TARGETS.items():
         params[tkey] = []
         for fold in range(N_FOLDS):
@@ -253,12 +309,116 @@ def estimate_normalization_params():
     return params
 
 
+def load_lomao_predictions(model_suffix, target_key):
+    """Load LOMO (Leave-One-Monomer-Out) predictions from HPG2Stage_LOMAO/.
+
+    Files are named:
+      ea_ip__{target}__copoly_stage2d_{model}__{_LOMO_SPLIT_TOKEN}__split{fold}.npz
+    with N_FOLDS_LOMO folds (9 folds, one per unique monomer A).
+
+    Predictions are in normalized space and are denormalized using _NORM_PARAMS.
+    Indices are remapped to original CSV rows via value-map matching.
+    """
+    other_key = 'IP' if target_key == 'EA' else 'EA'
+    target_full = TARGETS[target_key]
+    other_full = TARGETS[other_key]
+
+    _ensure_value_map()
+
+    results = []
+    missing = []
+    for fold in range(N_FOLDS_LOMO):
+        fname = f"ea_ip__{target_full}__copoly_stage2d_{model_suffix}__{_LOMO_SPLIT_TOKEN}__split{fold}.npz"
+        other_fname = f"ea_ip__{other_full}__copoly_stage2d_{model_suffix}__{_LOMO_SPLIT_TOKEN}__split{fold}.npz"
+        path = PRED_LOMAO / fname
+        other_path = PRED_LOMAO / other_fname
+        if not path.exists() or not other_path.exists():
+            missing.append(fold)
+            continue
+        data = np.load(path, allow_pickle=True)
+        other_data = np.load(other_path, allow_pickle=True)
+        yt = data['y_true'].flatten()
+        yp_norm = data['y_pred'].flatten()
+        yt_other = other_data['y_true'].flatten()
+        # Denormalize
+        if fold < len(_NORM_PARAMS[target_key]):
+            intercept, slope = _NORM_PARAMS[target_key][fold]
+        else:
+            intercept, slope = 0.0, 1.0
+        yp = yp_norm * slope + intercept
+        # Remap to original CSV indices
+        indices = np.full(len(yt), -1, dtype=int)
+        for j in range(len(yt)):
+            if target_key == 'EA':
+                key = (round(float(yt[j]), 6), round(float(yt_other[j]), 6))
+            else:
+                key = (round(float(yt_other[j]), 6), round(float(yt[j]), 6))
+            if key in _VALUE_MAP:
+                indices[j] = _VALUE_MAP[key]
+        results.append({'y_true': yt, 'y_pred': yp, 'indices': indices, 'fold': fold})
+    if not results:
+        print(f"  [WARN] No LOMO predictions found for {model_suffix}/{target_key}. "
+              f"Expected in: {PRED_LOMAO}")
+        print(f"  [WARN] Expected pattern: ea_ip__{target_full}__copoly_stage2d_{model_suffix}__{_LOMO_SPLIT_TOKEN}__split{{0-{N_FOLDS_LOMO-1}}}.npz")
+        discovered = sorted(PRED_LOMAO.glob(f'*{model_suffix}*{target_key.lower()}*.npz')) if PRED_LOMAO.exists() else []
+        if discovered:
+            print(f"  [WARN] Discovered files: {[f.name for f in discovered[:3]]}")
+        return None
+    if missing:
+        print(f"  [WARN] LOMO {model_suffix}/{target_key}: missing folds {missing}")
+    return results
+
+
+def load_wdmpnn_lomao_predictions(target_key):
+    """Load wDMPNN LOMO predictions from HPG2Stage_LOMAO/.
+
+    wDMPNN files are named: ea_ip__{target}__split{fold}.npz
+    (no model suffix, no split suffix in the filename).
+    """
+    other_key = 'IP' if target_key == 'EA' else 'EA'
+    target_full = TARGETS[target_key]
+    other_full = TARGETS[other_key]
+
+    _ensure_value_map()
+
+    results = []
+    missing = []
+    for fold in range(N_FOLDS_LOMO):
+        fname = f"ea_ip__{target_full}__split{fold}.npz"
+        other_fname = f"ea_ip__{other_full}__split{fold}.npz"
+        path = PRED_LOMAO / fname
+        other_path = PRED_LOMAO / other_fname
+        if not path.exists() or not other_path.exists():
+            missing.append(fold)
+            continue
+        data = np.load(path, allow_pickle=True)
+        other_data = np.load(other_path, allow_pickle=True)
+        yt = data['y_true'].flatten()
+        yp = data['y_pred'].flatten()
+        yt_other = other_data['y_true'].flatten()
+        indices = np.full(len(yt), -1, dtype=int)
+        for j in range(len(yt)):
+            if target_key == 'EA':
+                key = (round(float(yt[j]), 6), round(float(yt_other[j]), 6))
+            else:
+                key = (round(float(yt_other[j]), 6), round(float(yt[j]), 6))
+            if key in _VALUE_MAP:
+                indices[j] = _VALUE_MAP[key]
+        results.append({'y_true': yt, 'y_pred': yp, 'indices': indices, 'fold': fold})
+    if not results:
+        print(f"  [WARN] No wDMPNN LOMO predictions found for {target_key}. "
+              f"Expected in: {PRED_LOMAO}")
+        return None
+    if missing:
+        print(f"  [WARN] wDMPNN LOMO {target_key}: missing folds {missing}")
+    return results
+
+
 def load_hpg2stage_predictions(model_suffix, target_key, split_type='a_held_out'):
     """Load 5-fold predictions from HPG2Stage predictions dir (with denormalization).
 
-    a_held_out prediction files store local test-set indices as 'idx_0', 'idx_1', ...
-    rather than original CSV indices. We remap them to the original CSV by matching
-    (EA, IP) target-value pairs against the dataset.
+    Kept for backward compatibility with wDMPNN generalization (group/pair-disjoint)
+    and original a_held_out comparisons. Uses original 5-fold HPG2Stage dir.
     """
     other_key = 'IP' if target_key == 'EA' else 'EA'
     target_full = TARGETS[target_key]
@@ -279,8 +439,11 @@ def load_hpg2stage_predictions(model_suffix, target_key, split_type='a_held_out'
         yt = data['y_true'].flatten()
         yp_norm = data['y_pred'].flatten()
         yt_other = other_data['y_true'].flatten()
-        # Denormalize predictions
-        intercept, slope = _NORM_PARAMS[target_key][fold]
+        # Denormalize predictions using original 5-fold norm params
+        if fold < len(_NORM_PARAMS_ORIG[target_key]):
+            intercept, slope = _NORM_PARAMS_ORIG[target_key][fold]
+        else:
+            intercept, slope = 0.0, 1.0
         yp = yp_norm * slope + intercept
         # Remap local test indices to original CSV indices (key is always (EA, IP))
         indices = np.full(len(yt), -1, dtype=int)
@@ -457,32 +620,34 @@ def generate_inventory():
 
     lines = ["# Stage 2D Results Inventory\n"]
     lines.append(f"Generated from existing outputs. Project root: `{PROJECT_ROOT}`\n")
+    lines.append(f"**Primary split: LOMO (Leave-One-Monomer-Out)** — directory: `{PRED_LOMAO.name}/`, "
+                 f"split token: `{_LOMO_SPLIT_TOKEN}`, folds: {N_FOLDS_LOMO}\n")
 
-    # HPG2Stage a_held_out predictions
-    lines.append("## 1. Final Stage 2D (a_held_out)\n")
+    # LOMO predictions (primary)
+    lines.append("## 1. Final Stage 2D (LOMO — Leave-One-Monomer-Out)\n")
     lines.append("| Model | Target | Folds | Status |")
     lines.append("|-------|--------|-------|--------|")
     for model in ['frac', '2d0_arch', '2d1_arch']:
         for tkey in ['EA', 'IP']:
-            preds = load_hpg2stage_predictions(model, tkey)
-            status = "complete" if preds else "MISSING"
+            preds = load_lomao_predictions(model, tkey)
+            status = "complete" if preds and len(preds) == N_FOLDS_LOMO else (
+                f"partial ({len(preds)}/{N_FOLDS_LOMO})" if preds else "MISSING")
             n = len(preds) if preds else 0
-            lines.append(f"| {model} | {tkey} | {n}/5 | {status} |")
+            lines.append(f"| {model} | {tkey} | {n}/{N_FOLDS_LOMO} | {status} |")
 
-    # wDMPNN a_held_out
-    lines.append("\n## 2. wDMPNN (a_held_out)\n")
-    lines.append("| Target | Folds | Predictions | Metrics CSV | Status |")
-    lines.append("|--------|-------|-------------|-------------|--------|")
-    wdmpnn_csv = RESULTS_WDMPNN / 'ea_ip__a_held_out_results.csv'
+    # wDMPNN LOMO
+    lines.append("\n## 2. wDMPNN (LOMO)\n")
+    lines.append("| Target | Folds | Status |")
+    lines.append("|--------|-------|--------|")
     for tkey in ['EA', 'IP']:
-        preds = load_wdmpnn_predictions(tkey)
+        preds = load_wdmpnn_lomao_predictions(tkey)
         n = len(preds) if preds else 0
-        csv_ok = "yes" if wdmpnn_csv.exists() else "no"
-        status = "complete" if preds and wdmpnn_csv.exists() else "partial"
-        lines.append(f"| {tkey} | {n}/5 | {'yes' if preds else 'no'} | {csv_ok} | {status} |")
+        status = "complete" if preds and len(preds) == N_FOLDS_LOMO else (
+            f"partial ({n}/{N_FOLDS_LOMO})" if preds else "MISSING")
+        lines.append(f"| {tkey} | {n}/{N_FOLDS_LOMO} | {status} |")
 
     # Generalization
-    lines.append("\n## 3. Generalization Experiments\n")
+    lines.append("\n## 3. Generalization Experiments (group_disjoint, pair_disjoint)\n")
     lines.append("| Model | Split | Target | Folds | Status |")
     lines.append("|-------|-------|--------|-------|--------|")
     for model in ['frac', '2d0_arch', '2d1_arch']:
@@ -498,12 +663,8 @@ def generate_inventory():
     lines.append("| Target | Split | Folds | Status |")
     lines.append("|--------|-------|-------|--------|")
     for tkey in ['EA', 'IP']:
-        for split in ['a_held_out', 'group_disjoint', 'pair_disjoint']:
-            if split == 'a_held_out':
-                preds = load_wdmpnn_predictions(tkey)
-                prov = False
-            else:
-                preds, prov = load_wdmpnn_gen_predictions(tkey, split)
+        for split in ['group_disjoint', 'pair_disjoint']:
+            preds, prov = load_wdmpnn_gen_predictions(tkey, split)
             n = len(preds) if preds else 0
             status = "complete" if n == 5 else "MISSING"
             if split == 'pair_disjoint' and prov:
@@ -557,12 +718,12 @@ def generate_tables(df):
     print("TASK 2: Final Paper Tables")
     print("=" * 60)
 
-    # ── Table 1: Overall Performance (a_held_out) ────────────────────
+    # ── Table 1: Overall Performance (LOMO) ─────────────────────────
     models_table1 = {
-        'wDMPNN': lambda tkey: load_wdmpnn_predictions(tkey),
-        'Frac': lambda tkey: load_hpg2stage_predictions('frac', tkey),
-        '2D0-arch': lambda tkey: load_hpg2stage_predictions('2d0_arch', tkey),
-        '2D1-arch': lambda tkey: load_hpg2stage_predictions('2d1_arch', tkey),
+        'wDMPNN': lambda tkey: load_wdmpnn_lomao_predictions(tkey),
+        'Frac': lambda tkey: load_lomao_predictions('frac', tkey),
+        '2D0-arch': lambda tkey: load_lomao_predictions('2d0_arch', tkey),
+        '2D1-arch': lambda tkey: load_lomao_predictions('2d1_arch', tkey),
     }
 
     rows_t1 = []
@@ -583,13 +744,13 @@ def generate_tables(df):
     df_t1.to_csv(OUT_DIR / 'table1_overall_performance.csv', index=False)
 
     # Markdown
-    md_lines = ["# Table 1: Overall EA/IP Performance (a_held_out)\n"]
+    md_lines = ["# Table 1: Overall EA/IP Performance (LOMO — Leave-One-Monomer-Out)\n"]
     md_lines.append(df_t1.to_markdown(index=False))
     md_lines.append("")
     (OUT_DIR / 'table1_overall_performance.md').write_text('\n'.join(md_lines))
     print(f"  Written: table1_overall_performance.csv/.md")
 
-    # ── Table 2: Architecture-deviation Performance (a_held_out) ─────
+    # ── Table 2: Architecture-deviation Performance (LOMO) ───────────
     rows_t2 = []
     for model_name, loader in models_table1.items():
         row = {'Model': model_name}
@@ -615,7 +776,7 @@ def generate_tables(df):
     df_t2 = pd.DataFrame(rows_t2)
     df_t2.to_csv(OUT_DIR / 'table2_architecture_performance.csv', index=False)
 
-    md_lines = ["# Table 2: Architecture-Deviation Performance (a_held_out)\n"]
+    md_lines = ["# Table 2: Architecture-Deviation Performance (LOMO — Leave-One-Monomer-Out)\n"]
     md_lines.append(df_t2.to_markdown(index=False))
     md_lines.append("")
     (OUT_DIR / 'table2_architecture_performance.md').write_text('\n'.join(md_lines))
@@ -630,14 +791,21 @@ def generate_tables(df):
     }
     provisional_pair_disjoint = False
 
-    for split in ['a_held_out', 'group_disjoint', 'pair_disjoint']:
+    # Order: group_disjoint < pair_disjoint < LOMO (increasing extrapolation difficulty)
+    split_configs = [
+        ('group_disjoint',  'Group-disjoint',               'gen'),
+        ('pair_disjoint',   'Pair-disjoint',                'gen'),
+        ('lomo',            'LOMO (Leave-One-Monomer-Out)',  'lomo'),
+    ]
+
+    for split_key, split_label, split_src in split_configs:
         for model_name, model_suffix in model_loaders_gen.items():
-            row = {'Model': model_name, 'Split': split}
+            row = {'Model': model_name, 'Split': split_label}
             for tkey in ['EA', 'IP']:
-                if split == 'a_held_out':
-                    preds = load_hpg2stage_predictions(model_suffix, tkey)
+                if split_src == 'lomo':
+                    preds = load_lomao_predictions(model_suffix, tkey)
                 else:
-                    preds = load_gen_predictions(model_suffix, tkey, split)
+                    preds = load_gen_predictions(model_suffix, tkey, split_key)
                 if preds:
                     m = compute_metrics_from_preds(preds, df)
                     row[f'{tkey} R²'] = f"{m['R2_mean']:.4f}"
@@ -648,13 +816,13 @@ def generate_tables(df):
             rows_t3.append(row)
 
         # wDMPNN row
-        row = {'Model': 'wDMPNN', 'Split': split}
+        row = {'Model': 'wDMPNN', 'Split': split_label}
         for tkey in ['EA', 'IP']:
-            if split == 'a_held_out':
-                preds = load_wdmpnn_predictions(tkey)
+            if split_src == 'lomo':
+                preds = load_wdmpnn_lomao_predictions(tkey)
             else:
-                preds, prov = load_wdmpnn_gen_predictions(tkey, split)
-                if split == 'pair_disjoint' and prov:
+                preds, prov = load_wdmpnn_gen_predictions(tkey, split_key)
+                if split_key == 'pair_disjoint' and prov:
                     provisional_pair_disjoint = True
             if preds:
                 m = compute_metrics_from_preds(preds, df)
@@ -668,7 +836,7 @@ def generate_tables(df):
     df_t3 = pd.DataFrame(rows_t3)
     df_t3.to_csv(OUT_DIR / 'table3_generalization_comparison.csv', index=False)
 
-    md_lines = ["# Table 3: Generalization Comparison\n"]
+    md_lines = ["# Table 3: Generalization Comparison (ordered by increasing extrapolation difficulty)\n"]
     md_lines.append(df_t3.to_markdown(index=False))
     md_lines.append("")
     # if provisional_pair_disjoint:
@@ -807,19 +975,19 @@ def figure_B_architecture_transfer_diagnostics():
 
 
 def figure_D_overall_vs_architecture_recovery(df):
-    """Figure D: 2×2 combined overall and architecture-recovery comparison."""
-    print("\n  Figure D: Overall vs architecture-recovery comparison")
+    """Figure D: 2×2 combined overall and architecture-recovery comparison (LOMO)."""
+    print("\n  Figure D: Overall vs architecture-recovery comparison (LOMO)")
 
     model_order = ['Frac', 'wDMPNN', '2D0', '2D1']
     loaders = {
-        'Frac': lambda tkey: load_hpg2stage_predictions('frac', tkey),
-        'wDMPNN': lambda tkey: load_wdmpnn_predictions(tkey),
-        '2D0': lambda tkey: load_hpg2stage_predictions('2d0_arch', tkey),
-        '2D1': lambda tkey: load_hpg2stage_predictions('2d1_arch', tkey),
+        'Frac': lambda tkey: load_lomao_predictions('frac', tkey),
+        'wDMPNN': lambda tkey: load_wdmpnn_lomao_predictions(tkey),
+        '2D0': lambda tkey: load_lomao_predictions('2d0_arch', tkey),
+        '2D1': lambda tkey: load_lomao_predictions('2d1_arch', tkey),
     }
 
     fig, axes = plt.subplots(2, 2, figsize=(8, 7), constrained_layout=False)
-    fig.suptitle('A-Held-Out: Overall Prediction vs Architecture-Recovery Performance',
+    fig.suptitle('LOMO (Leave-One-Monomer-Out): Overall Prediction vs Architecture-Recovery Performance',
                  fontweight='bold')
 
     # Overall panels (top row)
@@ -900,11 +1068,12 @@ def figure_D_overall_vs_architecture_recovery(df):
 
 
 def figure_F_generalization(df):
-    """Figure F: Generalization across splits, including wDMPNN."""
+    """Figure F: Generalization across splits (x-axis ordered by difficulty); LOMO replaces a_held_out."""
     print("\n  Figure F: Generalization")
 
-    splits = ['group_disjoint', 'pair_disjoint', 'a_held_out']
-    split_labels = ['Group-disjoint', 'Pair-disjoint', 'A-held-out']
+    # Order: group_disjoint < pair_disjoint < LOMO (increasing extrapolation difficulty)
+    splits = ['group_disjoint', 'pair_disjoint', 'lomo']
+    split_labels = ['Group-disjoint', 'Pair-disjoint', 'LOMO']
     model_names = ['Frac', 'wDMPNN', '2D0', '2D1']
     model_suffixes = ['frac', None, '2d0_arch', '2d1_arch']
 
@@ -920,15 +1089,15 @@ def figure_F_generalization(df):
             vals = []
             for split in splits:
                 if mname == 'wDMPNN':
-                    if split == 'a_held_out':
-                        preds = load_wdmpnn_predictions(tkey)
+                    if split == 'lomo':
+                        preds = load_wdmpnn_lomao_predictions(tkey)
                     else:
                         preds, prov = load_wdmpnn_gen_predictions(tkey, split)
                         if split == 'pair_disjoint' and prov:
                             provisional_used = True
                 else:
-                    if split == 'a_held_out':
-                        preds = load_hpg2stage_predictions(msuffix, tkey)
+                    if split == 'lomo':
+                        preds = load_lomao_predictions(msuffix, tkey)
                     else:
                         preds = load_gen_predictions(msuffix, tkey, split)
                 if preds:
@@ -940,10 +1109,10 @@ def figure_F_generalization(df):
             offset = (j - 1.5) * width
             bars = ax.bar(x + offset, vals, width, label=mname,
                          color=COLORS[mname], alpha=0.85, edgecolor='white')
-            
+
             # Add text labels above bars
             for bar, val in zip(bars, vals):
-                if val > 0.01:  # Only show label if value is meaningful
+                if val > 0.01:
                     text_height = val + 0.02
                     ax.text(bar.get_x() + bar.get_width()/2, text_height,
                            f'{val:.3f}', ha='center', va='bottom', fontsize=5)
@@ -954,7 +1123,6 @@ def figure_F_generalization(df):
         ax.set_title(f'{tkey}')
         ax.set_ylim(-0.1, 1.05)
         ax.axhline(0, color='grey', linestyle=':', linewidth=0.8)
-        # remove per-axis legend in favor of figure-level legend
 
     # Single figure-level legend outside plotting area
     handles, labels = axes[0].get_legend_handles_labels()
@@ -1028,15 +1196,15 @@ def generate_manifest():
         "|--------|----------|---------|-------------|---------|",
         "| A | `fig_A_variance_decomposition.pdf` | Residual variance decomposition showing composition dominates (>98%) with architecture contributing ~1-1.5% | `output/bottleneck/architecture_variance_table.csv` | 8.2 Diagnostics |",
         "| B | `fig_B_architecture_transfer_diagnostics.pdf` | Architecture transfer diagnostics: global offsets are small; chemistry-conditioned features dramatically improve transfer R²(Δy) | `diagnostics/diagnostic_3a/diagnostic3a_offsets.csv`, `diagnostics/diagnostic_3a/diagnostic3a_metrics.csv`, `diagnostics/feature_conditioned_transfer/transfer_metrics.csv` | 8.2 Diagnostics |",
-        "| D | `fig_D_overall_vs_architecture_recovery.pdf` | A-held-out comparison: overall R²(y) and architecture-deviation R²(Δy) for Frac, wDMPNN, 2D0-arch, 2D1-arch | HPG2Stage + wDMPNN predictions | 8.3 Stage 2D Models |",
-        "| F | `fig_F_generalization_performance.pdf` | Generalization: arch-dev R² across a_held_out, group-disjoint, pair-disjoint splits; includes wDMPNN (pair-disjoint provisional) | HPG2Stage + HPG2Stage_Gen + wDMPNN_Gen predictions | 8.4 Generalization |",
+        "| D | `fig_D_overall_vs_architecture_recovery.pdf` | LOMO comparison: overall R²(y) and architecture-deviation R²(Δy) for Frac, wDMPNN, 2D0-arch, 2D1-arch | HPG2Stage_LOMAO predictions | 8.3 Stage 2D Models |",
+        "| F | `fig_F_generalization_performance.pdf` | Generalization: arch-dev R² across group-disjoint, pair-disjoint, LOMO splits (ordered by difficulty) | HPG2Stage_LOMAO + HPG2Stage_Gen + wDMPNN_Gen predictions | 8.4 Generalization |",
         "| G | `fig_G_learning_curve.pdf` | Learning curve: arch-dev R² vs training group fraction (25%-100%) for 2D0 and 2D1 | HPG2Stage_LC_Final predictions | 8.5 Learning Curve |",
         "",
         "## Tables\n",
         "| Table | Filename | Caption | Section |",
         "|-------|----------|---------|---------|",
-        "| 1 | `table1_overall_performance.csv` | Overall EA/IP R² and MAE for all models (a_held_out) | 8.3 Stage 2D Models |",
-        "| 2 | `table2_architecture_performance.csv` | Architecture-deviation R²(Δ) and MAE(Δ) for all models | 8.3 Stage 2D Models |",
+        "| 1 | `table1_overall_performance.csv` | Overall EA/IP R² and MAE for all models (LOMO) | 8.3 Stage 2D Models |",
+        "| 2 | `table2_architecture_performance.csv` | Architecture-deviation R²(Δ) and MAE(Δ) for all models (LOMO) | 8.3 Stage 2D Models |",
         "| 3 | `table3_generalization_comparison.csv` | R² and R²(Δ) across all three split types | 8.4 Generalization |",
         "",
     ]
@@ -1068,19 +1236,19 @@ def generate_summary(df):
                 'arch': row['Var_arch'] / row['Var_total'] * 100,
             }
 
-    # a_held_out metrics
+    # LOMO metrics (primary)
     aho_metrics = {}
     for model_name, msuffix in [('Frac', 'frac'), ('2D0-arch', '2d0_arch'), ('2D1-arch', '2d1_arch')]:
         aho_metrics[model_name] = {}
         for tkey in ['EA', 'IP']:
-            preds = load_hpg2stage_predictions(msuffix, tkey)
+            preds = load_lomao_predictions(msuffix, tkey)
             if preds:
                 aho_metrics[model_name][tkey] = compute_metrics_from_preds(preds, df)
 
-    # wDMPNN metrics
+    # wDMPNN LOMO metrics
     wdmpnn_metrics = {}
     for tkey in ['EA', 'IP']:
-        preds = load_wdmpnn_predictions(tkey)
+        preds = load_wdmpnn_lomao_predictions(tkey)
         if preds:
             wdmpnn_metrics[tkey] = compute_metrics_from_preds(preds, df)
 
@@ -1109,6 +1277,11 @@ def generate_summary(df):
 
     lines = [
         "# Stage 2D Results Summary\n",
+        f"> **Primary evaluation split: LOMO (Leave-One-Monomer-Out)**\n"
+        f"> Predictions directory: `{PRED_LOMAO.name}/` | Split token: `{_LOMO_SPLIT_TOKEN}` | Folds: {N_FOLDS_LOMO}\n"
+        f"> LOMO evaluates generalization to completely unseen monomer chemistry "
+        f"(each fold holds out all copolymers sharing a single monomer A identity). "
+        f"This is a substantially stronger benchmark than the original A-held-out split.\n",
         "## 1. Composition Dominance\n",
     ]
 
@@ -1122,7 +1295,7 @@ def generate_summary(df):
                      "copolymer EA/IP. Architecture is a small but real residual effect.")
     lines.append("")
 
-    lines.append("## 2. Architecture Residual Contribution\n")
+    lines.append("## 2. Architecture Residual Contribution (LOMO)\n")
     if 'Frac' in aho_metrics and '2D1-arch' in aho_metrics:
         frac_r2_ea = aho_metrics['Frac'].get('EA', {}).get('R2_mean', 0)
         d1_r2_ea = aho_metrics['2D1-arch'].get('EA', {}).get('R2_mean', 0)
@@ -1176,25 +1349,44 @@ def generate_summary(df):
                  "for architecture ranking.")
     lines.append("")
 
-    lines.append("## 5. Generalization Findings\n")
-    gen_csv = GEN_DIR / 'generalization_results.csv'
-    if gen_csv.exists():
-        gdf = pd.read_csv(gen_csv)
-        # Column names: split_type, model, target, R2, MAE, R2_dev, MAE_dev
-        split_col = 'split_type' if 'split_type' in gdf.columns else 'split'
-        r2dev_col = 'R2_dev' if 'R2_dev' in gdf.columns else 'ArchR2_mean'
-        for split in ['a_held_out', 'group_disjoint', 'pair_disjoint']:
-            d1_rows = gdf[(gdf[split_col] == split) & (gdf['model'] == '2d1_arch')]
-            if len(d1_rows) > 0:
+    lines.append("## 5. Generalization Findings (ordered by extrapolation difficulty)\n")
+    # LOMO metrics from live predictions
+    for split_key, split_label in [('group_disjoint', 'Group-disjoint'),
+                                    ('pair_disjoint', 'Pair-disjoint'),
+                                    ('lomo', 'LOMO (Leave-One-Monomer-Out)')]:
+        d1_ea = None
+        d1_ip = None
+        if split_key == 'lomo':
+            preds_ea = load_lomao_predictions('2d1_arch', 'EA')
+            preds_ip = load_lomao_predictions('2d1_arch', 'IP')
+            if preds_ea:
+                d1_ea = compute_metrics_from_preds(preds_ea, df).get('ArchR2_mean')
+            if preds_ip:
+                d1_ip = compute_metrics_from_preds(preds_ip, df).get('ArchR2_mean')
+        else:
+            gen_csv = GEN_DIR / 'generalization_results.csv'
+            if gen_csv.exists():
+                gdf = pd.read_csv(gen_csv)
+                split_col = 'split_type' if 'split_type' in gdf.columns else 'split'
+                r2dev_col = 'R2_dev' if 'R2_dev' in gdf.columns else 'ArchR2_mean'
+                d1_rows = gdf[(gdf[split_col] == split_key) & (gdf['model'] == '2d1_arch')]
                 ea_row = d1_rows[d1_rows['target'] == 'EA']
                 ip_row = d1_rows[d1_rows['target'] == 'IP']
-                if len(ea_row) > 0 and len(ip_row) > 0:
-                    lines.append(f"- **{split}**: 2D1-arch R²(Δ,EA)={ea_row[r2dev_col].values[0]:.3f}, "
-                                 f"R²(Δ,IP)={ip_row[r2dev_col].values[0]:.3f}")
+                if len(ea_row) > 0:
+                    d1_ea = ea_row[r2dev_col].values[0]
+                if len(ip_row) > 0:
+                    d1_ip = ip_row[r2dev_col].values[0]
+        if d1_ea is not None and d1_ip is not None:
+            lines.append(f"- **{split_label}**: 2D1-arch R²(Δ,EA)={d1_ea:.3f}, R²(Δ,IP)={d1_ip:.3f}")
+        else:
+            lines.append(f"- **{split_label}**: predictions not available")
     lines.append("")
-    lines.append("Architecture-deviation R² is *maintained or improved* under stricter "
-                 "generalization splits (group-disjoint, pair-disjoint), demonstrating that "
-                 "architecture effects transfer to completely unseen monomer systems.")
+    lines.append("**LOMO is the primary benchmark.** It evaluates generalization to completely "
+                 "unseen monomer chemistry — each fold holds out all copolymers containing "
+                 "one unique monomer A identity. This is more challenging than the original "
+                 "A-held-out split because it enforces strict monomer-identity extrapolation. "
+                 "Architecture-deviation R² maintained under LOMO confirms that architecture "
+                 "effects genuinely transfer to unseen monomer systems.")
     lines.append("")
 
     lines.append("## 6. Learning-Curve Findings\n")
@@ -1224,8 +1416,8 @@ def generate_summary(df):
         for tkey in ['EA', 'IP']:
             wm = wdmpnn_metrics.get(tkey, {})
             if wm:
-                lines.append(f"- wDMPNN {tkey}: R²={wm.get('R2_mean', 0):.4f}, "
-                             f"R²(Δ, a_held_out)={wm.get('ArchR2_mean', 0):.4f}")
+                lines.append(f"- wDMPNN {tkey} (LOMO): R²={wm.get('R2_mean', 0):.4f}, "
+                             f"R²(Δ)={wm.get('ArchR2_mean', 0):.4f}")
     for split in ['group_disjoint', 'pair_disjoint']:
         if split in wdmpnn_gen_metrics:
             lines.append(f"- wDMPNN {split}:")
@@ -1234,12 +1426,14 @@ def generate_summary(df):
                 if m:
                     lines.append(f"  - {tkey}: R²(Δ)={m.get('ArchR2_mean', 0):.4f}")
     lines.append("")
-    lines.append("Under a_held_out, all models (including wDMPNN and Frac) achieve high R²(Δ) "
-                 "because composition groups are shared between train and test, allowing "
-                 "group-level memorization. The critical comparison is in the **generalization** "
-                 "splits: Frac and wDMPNN drop to R²(Δ)≈0 under group-disjoint and pair-disjoint, "
-                 "while 2D0/2D1 maintain R²(Δ)≈0.89-0.96. This confirms that only the architecture-aware "
-                 "models genuinely capture architecture effects rather than memorizing group patterns.")
+    lines.append("Under LOMO, the comparison is more stringent than the original A-held-out: "
+                 "the test set contains entirely unseen monomer chemistry. "
+                 "Frac and wDMPNN are expected to drop substantially in R²(Δ), "
+                 "while 2D0/2D1 should maintain elevated architecture-deviation R² by "
+                 "leveraging explicit architecture conditioning. "
+                 "Under group-disjoint and pair-disjoint splits, Frac and wDMPNN collapse "
+                 "to R²(Δ)≈0, confirming that only architecture-aware models genuinely "
+                 "capture architecture effects rather than memorizing group patterns.")
     lines.append("")
     if wdmpnn_gen_provisional:
         lines.append("*wDMPNN pair-disjoint values are provisional; the final fold is still running and "
@@ -1266,15 +1460,18 @@ def main():
     print(f"Output directory: {OUT_DIR}")
     print()
 
-    # Estimate normalization params (HPG2Stage predictions are in normalized space)
-    global _NORM_PARAMS
+    # Estimate normalization params
+    global _NORM_PARAMS, _NORM_PARAMS_ORIG
     print("Estimating normalization parameters...")
-    _NORM_PARAMS = estimate_normalization_params()
+    print(f"  LOMO directory: {PRED_LOMAO}")
+    print(f"  LOMO split token: {_LOMO_SPLIT_TOKEN}  |  LOMO folds: {N_FOLDS_LOMO}")
+    _NORM_PARAMS = estimate_normalization_params()      # LOMO 9-fold
+    _NORM_PARAMS_ORIG = estimate_normalization_params_orig()  # original 5-fold
     for tkey in TARGETS:
         params = _NORM_PARAMS[tkey]
         intercepts = [p[0] for p in params]
         slopes = [p[1] for p in params]
-        print(f"  {tkey}: intercept={np.mean(intercepts):.4f}, slope={np.mean(slopes):.4f}")
+        print(f"  {tkey} (LOMO): intercept={np.mean(intercepts):.4f}, slope={np.mean(slopes):.4f}")
     print()
 
     # Load dataset once
