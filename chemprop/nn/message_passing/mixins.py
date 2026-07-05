@@ -40,8 +40,11 @@ class _WeightedBondMessagePassingMixin:
         rev_msg = H[b2revb] * w_bonds[b2revb].unsqueeze(-1)         # [num_bonds, hidden]
         msg     = a_msg[b2a] - rev_msg                               # [num_bonds, hidden]
 
-        # mirror your base class: if base applies W_h here, keep it; else leave raw
-        return self.W_h(msg)                        
+        # Return the raw aggregated message. W_h is applied once in
+        # _MessagePassingBase.update() -> h = tau(h0 + W_h * m), matching
+        # paper eq. (2) and the standard (unweighted) BondMessagePassing path.
+        # (Previously this returned self.W_h(msg), which double-applied W_h.)
+        return msg
 
     def forward(self, bmg: BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         bmg = self.graph_transform(bmg)

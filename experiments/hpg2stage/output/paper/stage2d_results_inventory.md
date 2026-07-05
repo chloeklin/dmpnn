@@ -2,25 +2,27 @@
 
 Generated from existing outputs. Project root: `/Users/u6788552/Desktop/experiments/dmpnn`
 
-## 1. Final Stage 2D (a_held_out)
+**Primary split: LOMO (Leave-One-Monomer-Out)** — directory: `HPG2Stage_LOMAO/`, split token: `a_held_out`, folds: 9
+
+## 1. Final Stage 2D (LOMO — Leave-One-Monomer-Out)
 
 | Model | Target | Folds | Status |
 |-------|--------|-------|--------|
-| frac | EA | 5/5 | complete |
-| frac | IP | 5/5 | complete |
-| 2d0_arch | EA | 5/5 | complete |
-| 2d0_arch | IP | 5/5 | complete |
-| 2d1_arch | EA | 5/5 | complete |
-| 2d1_arch | IP | 5/5 | complete |
+| frac | EA | 9/9 | complete |
+| frac | IP | 9/9 | complete |
+| 2d0_arch | EA | 9/9 | complete |
+| 2d0_arch | IP | 9/9 | complete |
+| 2d1_arch | EA | 9/9 | complete |
+| 2d1_arch | IP | 9/9 | complete |
 
-## 2. wDMPNN (a_held_out)
+## 2. wDMPNN (LOMO)
 
-| Target | Folds | Predictions | Metrics CSV | Status |
-|--------|-------|-------------|-------------|--------|
-| EA | 5/5 | yes | yes | complete |
-| IP | 5/5 | yes | yes | complete |
+| Target | Folds | Status |
+|--------|-------|--------|
+| EA | 9/9 | complete |
+| IP | 9/9 | complete |
 
-## 3. Generalization Experiments
+## 3. Generalization Experiments (group_disjoint, pair_disjoint)
 
 | Model | Split | Target | Folds | Status |
 |-------|-------|--------|-------|--------|
@@ -41,10 +43,8 @@ Generated from existing outputs. Project root: `/Users/u6788552/Desktop/experime
 
 | Target | Split | Folds | Status |
 |--------|-------|-------|--------|
-| EA | a_held_out | 5/5 | complete |
 | EA | group_disjoint | 5/5 | complete |
 | EA | pair_disjoint | 5/5 | complete |
-| IP | a_held_out | 5/5 | complete |
 | IP | group_disjoint | 5/5 | complete |
 | IP | pair_disjoint | 5/5 | complete |
 
