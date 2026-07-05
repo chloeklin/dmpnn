@@ -316,6 +316,11 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
     # Build filename with consistent naming
     filename_parts = [args.dataset_name]
     
+    # When saving to a shared subdir, embed the actual model name so files are distinct
+    _actual_model = getattr(args, 'model_name', None)
+    if _actual_model and getattr(args, 'results_subdir', None) and _actual_model != subdir:
+        filename_parts.append(_actual_model)
+    
     # Add descriptors suffix
     if getattr(args, 'incl_desc', False):
         filename_parts.append("desc")
@@ -348,7 +353,8 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
     # Add copolymer mode suffix
     polymer_type = getattr(args, 'polymer_type', 'homo')
     if polymer_type == 'copolymer':
-        if model_name in ['HPG', 'wDMPNN']:
+        _actual_model = getattr(args, 'model_name', model_name)
+        if _actual_model in ['HPG', 'wDMPNN']:
             # HPG and wDMPNN don't use copolymer modes
             # wDMPNN reads directly from WDMPNN_Input column
             pass
@@ -2049,7 +2055,16 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
     split_type = getattr(args, 'split_type', 'random')
     split_suffix = f"__{split_type}" if split_type != 'random' else ""
 
-    base_name = f"{args.dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{copoly_suffix}{split_suffix}{size_suffix}__rep{i}"
+    # When results_subdir is set, embed the actual model name so checkpoints from
+    # different models sharing the same subdir (e.g. HPG2Stage_LOMAO) don't collide.
+    _ckpt_model_token = ""
+    if getattr(args, 'results_subdir', None):
+        _actual = getattr(args, 'model_name', '')
+        _subdir = args.results_subdir
+        if _actual and _actual != _subdir:
+            _ckpt_model_token = f"__{_actual}"
+
+    base_name = f"{args.dataset_name}{_ckpt_model_token}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{fusion_suffix}{aux_suffix}{copoly_suffix}{split_suffix}{size_suffix}__rep{i}"
     
     # Checkpoint path is model-specific
     checkpoint_path = checkpoint_dir / base_name
@@ -3319,7 +3334,7 @@ def select_features_remove_constant_and_correlated(
 def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, model_name, 
                     desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, split_idx, logger,
                     test_ids=None, copolymer_mode=None, polymer_type=None, task_type=None,
-                    fusion_mode=None, aux_task=None, split_type_suffix=""):
+                    fusion_mode=None, aux_task=None, split_type_suffix="", actual_model_name=None):
     """Save predictions for learning curve analysis.
     
     Args:
@@ -3351,7 +3366,10 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
     model_pred_dir.mkdir(parents=True, exist_ok=True)
     
     # Build filename with all relevant identifiers including copolymer mode
-    filename = f"{dataset_name}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{copoly_suffix}{split_type_suffix}{size_suffix}__split{split_idx}.npz"
+    # When model_name is a shared subdir alias (e.g. HPG2Stage_LOMAO), embed
+    # actual_model_name in the filename so different models don't collide.
+    _model_token = f"__{actual_model_name}" if actual_model_name and actual_model_name != model_name else ""
+    filename = f"{dataset_name}{_model_token}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{copoly_suffix}{split_type_suffix}{size_suffix}__split{split_idx}.npz"
     pred_file = model_pred_dir / filename
     
     # Prepare metadata with model-specific training configuration

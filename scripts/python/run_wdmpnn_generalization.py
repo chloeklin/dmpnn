@@ -70,8 +70,8 @@ logger = logging.getLogger(__name__)
 
 def build_wdmpnn_model(n_targets=1):
     """Build a wDMPNN model with standard configuration."""
-    mp = nn.BondMessagePassing()
-    agg = nn.MeanAggregation()
+    mp = nn.WeightedBondMessagePassing()
+    agg = nn.WeightedMeanAggregation()
     ffn = nn.RegressionFFN(input_dim=mp.output_dim)
     mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)
     return mpnn
@@ -111,9 +111,9 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     # Metrics
     metric_list = get_metric_list('reg', target=target)
 
-    # Build model
-    mp = nn.BondMessagePassing()
-    agg = nn.MeanAggregation()
+    # Build model (wDMPNN uses weighted message passing and aggregation)
+    mp = nn.WeightedBondMessagePassing()
+    agg = nn.WeightedMeanAggregation()
     output_transform = nn.UnscaleTransform.from_standard_scaler(scaler)
     ffn = nn.RegressionFFN(input_dim=mp.output_dim, output_transform=output_transform)
     mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)

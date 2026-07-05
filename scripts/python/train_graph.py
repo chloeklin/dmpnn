@@ -1286,7 +1286,8 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
                     task_type=args.task_type,
                     fusion_mode=getattr(args, 'fusion_mode', None),
                     aux_task=getattr(args, 'aux_task', None),
-                    split_type_suffix=split_type_sfx
+                    split_type_suffix=split_type_sfx,
+                    actual_model_name=args.model_name if getattr(args, 'results_subdir', None) else None,
                 )
 
             # Export embeddings if requested

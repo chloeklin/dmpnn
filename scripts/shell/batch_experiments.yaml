@@ -1811,6 +1811,12 @@ experiments:
 
 # ─── LOMAO Protocol Experiments (Leave-One-Monomer-A-Out) ──────────────────────────────────────────────────────
 # Type: regression | Polymer: copolymer | Features: monomer | Architecture-aware evaluation
+#
+# NOTE: group_disjoint and pair_disjoint wDMPNN runs are NOT managed here.
+# They run via: scripts/shell/submit_wdmpnn_generalization.sh
+# which calls: scripts/python/run_wdmpnn_generalization.py
+# Configs:     configs/wdmpnn_group_disjoint.yaml
+#              configs/wdmpnn_pair_disjoint.yaml
 
   # -- Frac (baseline) with LOMAO --
   # - <<: *eaip_base
