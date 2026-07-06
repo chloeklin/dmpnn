@@ -2536,6 +2536,7 @@ def load_and_preprocess_data(args, setup_info):
                 all_smiles_col_names | all_frac_col_names |
                 {"smilesA", "smilesB", "fracA", "fracB",
                  "smilesA_list", "fracA_list", "smilesB_list", "fracB_list",
+                 setup_info.get('smiles_column', 'smiles'),
                  *setup_info.get('DATASET_DESCRIPTORS', []),
                  *setup_info.get('ignore_columns', []),
                  "group_key"}
@@ -2622,6 +2623,8 @@ def load_and_preprocess_data(args, setup_info):
                 "smilesA", "smilesB", "fracA", "fracB",
                 sA_col, sB_col, "frac_A", "frac_B",
                 "smilesA_list", "fracA_list", "smilesB_list", "fracB_list",
+                # model's own smiles input column (e.g. WDMPNN_Input for wDMPNN)
+                setup_info.get('smiles_column', 'smiles'),
                 # descriptors & ignores
                 *setup_info.get('DATASET_DESCRIPTORS', []),
                 *setup_info.get('ignore_columns', []),
