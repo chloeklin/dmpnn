@@ -1,0 +1,24 @@
+% Fusion Ablation Manuscript Table
+% Generated from fusion_per_fold_metrics.csv and fusion_significance_tests.csv
+% Median R² = actual fold median. * = Wilcoxon p < 0.05 vs Additive (2D1).
+% Bold = best in column.
+
+\begin{table*}[t]
+\centering
+\caption{Summary of fusion ablation under leave-one-monomer-out evaluation. Median $R^2$ is reported across the nine folds. ``Wins'' denotes the number of folds in which each variant outperformed the additive formulation. Statistical significance was assessed using a paired Wilcoxon signed-rank test against Additive (Stage~2D1).}
+\label{tab:fusion_ablation}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l c c c c c c c c c c c c}
+\toprule
+ & \multicolumn{3}{c}{\textbf{Overall EA $R^2$}} & \multicolumn{3}{c}{\textbf{Overall IP $R^2$}} & \multicolumn{3}{c}{\textbf{EA Arch-Dev $R^2$}} & \multicolumn{3}{c}{\textbf{IP Arch-Dev $R^2$}} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}\cmidrule(lr){11-13}
+\textbf{Model} & Median & Wins & $p$ & Median & Wins & $p$ & Median & Wins & $p$ & Median & Wins & $p$ \\
+\midrule
+Additive (Stage 2D1) & 0.692 & -- & -- & 0.497 & -- & -- & \textbf{0.924} & -- & -- & \textbf{0.896} & -- & -- \\
+FiLM & \textbf{0.788} & 7/9 & 0.0547 & \textbf{0.871} & 7/9 & 0.0195$^*$ & 0.630 & 1/9 & 0.0195$^*$ & 0.779 & 1/9 & 0.0742 \\
+NLMix & 0.743 & 6/9 & 0.1289 & 0.770 & 6/9 & 0.2031 & 0.759 & 2/9 & 0.0391$^*$ & 0.793 & 2/9 & 0.1289 \\
+FiLM$+$NLMix & 0.725 & 4/9 & 0.4258 & 0.799 & 8/9 & 0.0117$^*$ & 0.614 & 1/9 & 0.0195$^*$ & 0.818 & 1/9 & 0.0977 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}

@@ -77,42 +77,27 @@ COLORS = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_additive_fold(target_key: str, fold: int):
-    """Load 2D1-arch (Additive) from HPG2Stage_LOMAO — needs denormalization."""
+    """Load 2D1-arch (Additive) from HPG2Stage_LOMAO — predictions already in real scale."""
     target_full = TARGETS[target_key]
-    other_key   = 'IP' if target_key == 'EA' else 'EA'
-    other_full  = TARGETS[other_key]
+    fname = f"ea_ip__{target_full}__copoly_stage2d_2d1_arch__a_held_out__split{fold}.npz"
+    path  = PRED_LOMAO / fname
 
-    fname       = f"ea_ip__{target_full}__copoly_stage2d_2d1_arch__a_held_out__split{fold}.npz"
-    other_fname = f"ea_ip__{other_full}__copoly_stage2d_2d1_arch__a_held_out__split{fold}.npz"
-    path        = PRED_LOMAO / fname
-    other_path  = PRED_LOMAO / other_fname
-
-    if not path.exists() or not other_path.exists():
+    if not path.exists():
         return None
 
-    data       = np.load(path,       allow_pickle=True)
-    other_data = np.load(other_path, allow_pickle=True)
+    data = np.load(path, allow_pickle=True)
+    yt   = data['y_true'].flatten()
+    yp   = data['y_pred'].flatten()
 
-    yt        = data['y_true'].flatten()
-    yp_norm   = data['y_pred'].flatten()
-    yt_other  = other_data['y_true'].flatten()
-
-    norm = g2d._NORM_PARAMS.get(target_key, [])
-    if fold < len(norm):
-        intercept, slope = norm[fold]
+    # test_ids stores strings like 'idx_0', 'idx_1' — the integer suffix is the df row index
+    if 'test_ids' in data:
+        ids = data['test_ids']
+        try:
+            indices = np.array([int(str(tid).split('_')[-1]) for tid in ids], dtype=int)
+        except (ValueError, IndexError):
+            indices = np.full(len(yt), -1, dtype=int)
     else:
-        intercept, slope = 0.0, 1.0
-    yp = yp_norm * slope + intercept
-
-    g2d._ensure_value_map()
-    indices = np.full(len(yt), -1, dtype=int)
-    for j in range(len(yt)):
-        if target_key == 'EA':
-            key = (round(float(yt[j]), 6), round(float(yt_other[j]), 6))
-        else:
-            key = (round(float(yt_other[j]), 6), round(float(yt[j]), 6))
-        if key in g2d._VALUE_MAP:
-            indices[j] = g2d._VALUE_MAP[key]
+        indices = np.full(len(yt), -1, dtype=int)
 
     return {'y_true': yt, 'y_pred': yp, 'indices': indices,
             'fold': fold, 'pred_file': str(path)}
@@ -174,8 +159,8 @@ def fold_metrics(p, df):
 def aggregate(metric_list, key):
     vals = [m[key] for m in metric_list if not np.isnan(m.get(key, np.nan))]
     if not vals:
-        return np.nan, np.nan
-    return float(np.mean(vals)), float(np.std(vals))
+        return np.nan, np.nan, np.nan
+    return float(np.mean(vals)), float(np.std(vals)), float(np.median(vals))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -262,10 +247,13 @@ def task2_summary(preds, df):
                 'ArchDev_R2': m['ArchR2'], 'ArchDev_MAE': m['ArchMAE'],
             })
 
-        def fmt(mean, std):
+        def fmt(mean, std, median):
             if np.isnan(mean):
                 return 'N/A'
-            return f"{mean:.4f}±{std:.4f}"
+            return f"{mean:.4f}±{std:.4f} (med={median:.4f})"
+
+        def fmt_median(median):
+            return 'N/A' if np.isnan(median) else f"{median:.4f}"
 
         row = {'Model': vname}
         for key, mlist in [('EA', fold_metrics_ea), ('IP', fold_metrics_ip)]:
@@ -273,33 +261,43 @@ def task2_summary(preds, df):
                 col = f"{key}_ArchDev_R2" if metric == 'ArchR2' else \
                       f"{key}_ArchDev_MAE" if metric == 'ArchMAE' else \
                       f"{key}_{metric}"
-                m, s = aggregate(mlist, metric)
-                row[col]           = m   # numeric mean
-                row[col + '_std']  = s
-                row[col + '_fmt']  = fmt(m, s)
+                m, s, med = aggregate(mlist, metric)
+                row[col]              = m    # numeric mean
+                row[col + '_std']     = s
+                row[col + '_median']  = med
+                row[col + '_fmt']     = fmt(m, s, med)
+                row[col + '_medfmt']  = fmt_median(med)
         summary_rows.append(row)
 
     df_fold = pd.DataFrame(fold_rows)
     df_fold.to_csv(OUT_DIR / 'fusion_fold_metrics.csv', index=False)
     print("  Saved: fusion_fold_metrics.csv")
 
-    # Build readable summary CSV (means only)
+    # Build readable summary CSV (means + medians)
     cols_csv = ['Model',
-                'EA_R2','EA_RMSE','EA_MAE','EA_ArchDev_R2','EA_ArchDev_MAE',
-                'IP_R2','IP_RMSE','IP_MAE','IP_ArchDev_R2','IP_ArchDev_MAE']
+                'EA_R2','EA_R2_median','EA_RMSE','EA_RMSE_median','EA_MAE','EA_MAE_median',
+                'EA_ArchDev_R2','EA_ArchDev_R2_median','EA_ArchDev_MAE','EA_ArchDev_MAE_median',
+                'IP_R2','IP_R2_median','IP_RMSE','IP_RMSE_median','IP_MAE','IP_MAE_median',
+                'IP_ArchDev_R2','IP_ArchDev_R2_median','IP_ArchDev_MAE','IP_ArchDev_MAE_median']
     df_sum = pd.DataFrame([{c: r.get(c, np.nan) for c in cols_csv} for r in summary_rows])
     df_sum.to_csv(OUT_DIR / 'fusion_ablation_summary.csv', index=False)
     print("  Saved: fusion_ablation_summary.csv")
 
-    # Markdown table
-    cols_md = ['Model',
-               'EA_R2_fmt','EA_RMSE_fmt','EA_MAE_fmt','EA_ArchDev_R2_fmt','EA_ArchDev_MAE_fmt',
-               'IP_R2_fmt','IP_RMSE_fmt','IP_MAE_fmt','IP_ArchDev_R2_fmt','IP_ArchDev_MAE_fmt']
+    # Markdown table — show mean±std and median separately
     header_labels = ['Model',
-                     'EA R²','EA RMSE','EA MAE','EA ΔR²','EA ΔMAE',
-                     'IP R²','IP RMSE','IP MAE','IP ΔR²','IP ΔMAE']
+                     'EA R² (mean±std)','EA R² median','EA MAE (mean±std)',
+                     'EA ΔR² (mean±std)','EA ΔR² median',
+                     'IP R² (mean±std)','IP R² median','IP MAE (mean±std)',
+                     'IP ΔR² (mean±std)','IP ΔR² median']
+    cols_md = ['Model',
+               'EA_R2_fmt','EA_R2_medfmt','EA_MAE_fmt',
+               'EA_ArchDev_R2_fmt','EA_ArchDev_R2_medfmt',
+               'IP_R2_fmt','IP_R2_medfmt','IP_MAE_fmt',
+               'IP_ArchDev_R2_fmt','IP_ArchDev_R2_medfmt']
     md_lines = [
-        "# Fusion Ablation Summary (mean ± std across 9 LOMAO folds)\n\n",
+        "# Fusion Ablation Summary (LOMAO, 9 folds)\n\n",
+        "> Note: fold 6 (held-out monomer OB(O)c1ccc(B(O)O)c2nsnc12) causes catastrophic "
+        "failure for all models (EA R²≈−12 to −17). Median is more robust than mean here.\n\n",
         "| " + " | ".join(header_labels) + " |\n",
         "|" + "|".join(["---"] * len(header_labels)) + "|\n",
     ]
@@ -370,31 +368,35 @@ def task4_figures(summary_rows):
     print("Task 4: Figures")
     vnames = [r['Model'] for r in summary_rows]
 
-    def _get(col, col_std):
-        means = np.array([r.get(col, np.nan) for r in summary_rows])
-        stds  = np.array([r.get(col_std, 0.0) for r in summary_rows])
-        return means, stds
+    def _get_median(col):
+        medians = np.array([r.get(col + '_median', np.nan) for r in summary_rows])
+        # IQR-based spread: compute per-model from fold_metrics is unavailable here;
+        # use std/2 as an approximate spread bar (visually honest for median plots)
+        stds = np.array([r.get(col + '_std', 0.0) for r in summary_rows])
+        return medians, stds
 
-    # Figure 1 — Overall R²
+    # Figure 1 — Overall R² (median, more robust than mean due to fold-6 outlier)
     fig, axes = plt.subplots(1, 2, figsize=(9, 4))
     for ax, tkey in zip(axes, ['EA', 'IP']):
-        means, stds = _get(f'{tkey}_R2', f'{tkey}_R2_std')
-        _bar_panel(ax, vnames, means, stds, 'R²', COLORS)
+        medians, stds = _get_median(f'{tkey}_R2')
+        _bar_panel(ax, vnames, medians, stds, 'R² (median across folds)', COLORS)
         ax.set_title(f'{tkey} Overall R²')
-    fig.suptitle('Overall Prediction Performance (LOMAO, 9 folds)', fontweight='bold')
+    fig.suptitle('Overall Prediction Performance — median R² (LOMAO, 9 folds)\n'
+                 'Note: fold 6 is a hard OOD outlier; median is more informative than mean',
+                 fontweight='bold', fontsize=9)
     fig.tight_layout()
     fig.savefig(OUT_DIR / 'fusion_overall_r2.png')
     fig.savefig(OUT_DIR / 'fusion_overall_r2.pdf')
     plt.close(fig)
     print("  Saved: fusion_overall_r2.{png,pdf}")
 
-    # Figure 2 — ArchDev R²
+    # Figure 2 — ArchDev R² (median)
     fig, axes = plt.subplots(1, 2, figsize=(9, 4))
     for ax, tkey in zip(axes, ['EA', 'IP']):
-        means, stds = _get(f'{tkey}_ArchDev_R2', f'{tkey}_ArchDev_R2_std')
-        _bar_panel(ax, vnames, means, stds, 'Architecture-Deviation R²', COLORS)
+        medians, stds = _get_median(f'{tkey}_ArchDev_R2')
+        _bar_panel(ax, vnames, medians, stds, 'Architecture-Deviation R² (median)', COLORS)
         ax.set_title(f'{tkey} Architecture Recovery R²')
-    fig.suptitle('Architecture-Deviation Performance (LOMAO, 9 folds)', fontweight='bold')
+    fig.suptitle('Architecture-Deviation Performance — median R² (LOMAO, 9 folds)', fontweight='bold')
     fig.tight_layout()
     fig.savefig(OUT_DIR / 'fusion_archdev_r2.png')
     fig.savefig(OUT_DIR / 'fusion_archdev_r2.pdf')
@@ -411,13 +413,13 @@ def task4_figures(summary_rows):
     ]
     fig, axes = plt.subplots(1, len(metrics_delta), figsize=(14, 4))
     for ax, (col, label) in zip(axes, metrics_delta):
-        base_val = base.get(col, np.nan)
+        base_val = base.get(col + '_median', np.nan)
         deltas = []
         labels = []
         for r in summary_rows:
             if r['Model'] == 'Additive (2D1)':
                 continue
-            delta = r.get(col, np.nan) - base_val
+            delta = r.get(col + '_median', np.nan) - base_val
             deltas.append(delta)
             labels.append(r['Model'])
         x = np.arange(len(labels))
@@ -433,7 +435,7 @@ def task4_figures(summary_rows):
                 ax.text(bar.get_x() + bar.get_width() / 2,
                         bar.get_height() + (0.001 if d >= 0 else -0.003),
                         f"{d:+.4f}", ha='center', va='bottom' if d >= 0 else 'top', fontsize=7)
-    fig.suptitle('Improvement over Additive 2D1 (Δ metric = Variant − Additive)', fontweight='bold')
+    fig.suptitle('Improvement over Additive 2D1 (Δ median R² = Variant − Additive)', fontweight='bold', fontsize=9)
     fig.tight_layout()
     fig.savefig(OUT_DIR / 'fusion_delta_vs_additive.png')
     plt.close(fig)
@@ -453,20 +455,19 @@ def task7_chatgpt(summary_rows):
             return 'N/A', np.nan
         return sorted(valid, key=lambda x: -x[1] if higher_better else x[1])[0]
 
-    best_ea_r2, bv = best('EA_R2', True)
-    best_ip_r2, _  = best('IP_R2', True)[0], best('IP_R2', True)[1]
-    best_ip_model  = best('IP_R2', True)[0]
-    best_ea_arch   = best('EA_ArchDev_R2', True)[0]
-    best_ip_arch   = best('IP_ArchDev_R2', True)[0]
+    # Use median as primary ranking metric (fold 6 is a hard OOD outlier)
+    best_ea_r2   = best('EA_R2_median',        True)[0]
+    best_ip_model= best('IP_R2_median',        True)[0]
+    best_ea_arch = best('EA_ArchDev_R2_median',True)[0]
+    best_ip_arch = best('IP_ArchDev_R2_median',True)[0]
 
-    # Check if improvements are substantial (>0.01 in R²) or small
-    base = {r['Model']: r for r in summary_rows}.get('Additive (2D1)', {})
+    base     = {r['Model']: r for r in summary_rows}.get('Additive (2D1)', {})
     non_base = [r for r in summary_rows if r['Model'] != 'Additive (2D1)']
-    max_delta_ea = max((r.get('EA_R2', np.nan) - base.get('EA_R2', np.nan)
-                        for r in non_base if not np.isnan(r.get('EA_R2', np.nan))),
+    max_delta_ea = max((r.get('EA_R2_median', np.nan) - base.get('EA_R2_median', np.nan)
+                        for r in non_base if not np.isnan(r.get('EA_R2_median', np.nan))),
                        default=np.nan)
-    max_delta_ip = max((r.get('IP_R2', np.nan) - base.get('IP_R2', np.nan)
-                        for r in non_base if not np.isnan(r.get('IP_R2', np.nan))),
+    max_delta_ip = max((r.get('IP_R2_median', np.nan) - base.get('IP_R2_median', np.nan)
+                        for r in non_base if not np.isnan(r.get('IP_R2_median', np.nan))),
                        default=np.nan)
 
     lines = [
@@ -474,30 +475,37 @@ def task7_chatgpt(summary_rows):
         "## Context\n\n",
         "Stage 2D1 architecture ablation. All experiments use LOMAO split (9 folds, leave-one-monomer-out).\n",
         "Baseline: Additive 2D1 (current model). Variants: FiLM, NLMix, FiLM+NLMix.\n\n",
-        "## Overall Metrics (mean ± std across 9 folds)\n\n",
-        "| Model | EA R² | EA RMSE | EA MAE | IP R² | IP RMSE | IP MAE |\n",
-        "|---|---|---|---|---|---|---|\n",
-    ]
-    for r in summary_rows:
-        def fmtc(col):
-            m, s = r.get(col, np.nan), r.get(col+'_std', np.nan)
-            if np.isnan(m): return 'N/A'
-            return f"{m:.4f}±{s:.4f}"
-        lines.append(f"| {r['Model']} | {fmtc('EA_R2')} | {fmtc('EA_RMSE')} | {fmtc('EA_MAE')} "
-                     f"| {fmtc('IP_R2')} | {fmtc('IP_RMSE')} | {fmtc('IP_MAE')} |\n")
-
-    lines += [
-        "\n## Architecture-Deviation Metrics (mean ± std across 9 folds)\n\n",
-        "| Model | EA ΔR² | EA ΔMAE | IP ΔR² | IP ΔMAE |\n",
+        "**Important:** Fold 6 (held-out monomer OB(O)c1ccc(B(O)O)c2nsnc12) causes catastrophic\n",
+        "failure for ALL models (EA R²≈−12 to −17). This single fold dominates the mean.\n",
+        "Median R² is reported as the primary metric; mean is provided for completeness.\n\n",
+        "## Overall Metrics — Median R² across 9 folds (primary)\n\n",
+        "| Model | EA R² median | EA R² mean±std | IP R² median | IP R² mean±std |\n",
         "|---|---|---|---|---|\n",
     ]
     for r in summary_rows:
-        def fmtc(col):
+        def fmtm(col):
+            v = r.get(col + '_median', np.nan)
+            return 'N/A' if np.isnan(v) else f"{v:.4f}"
+        def fmtms(col):
             m, s = r.get(col, np.nan), r.get(col+'_std', np.nan)
-            if np.isnan(m): return 'N/A'
-            return f"{m:.4f}±{s:.4f}"
-        lines.append(f"| {r['Model']} | {fmtc('EA_ArchDev_R2')} | {fmtc('EA_ArchDev_MAE')} "
-                     f"| {fmtc('IP_ArchDev_R2')} | {fmtc('IP_ArchDev_MAE')} |\n")
+            return 'N/A' if np.isnan(m) else f"{m:.4f}±{s:.4f}"
+        lines.append(f"| {r['Model']} | {fmtm('EA_R2')} | {fmtms('EA_R2')} "
+                     f"| {fmtm('IP_R2')} | {fmtms('IP_R2')} |\n")
+
+    lines += [
+        "\n## Architecture-Deviation Metrics (median R² across 9 folds)\n\n",
+        "| Model | EA ΔR² median | EA ΔR² mean±std | IP ΔR² median | IP ΔR² mean±std |\n",
+        "|---|---|---|---|---|\n",
+    ]
+    for r in summary_rows:
+        def fmtm(col):
+            v = r.get(col + '_median', np.nan)
+            return 'N/A' if np.isnan(v) else f"{v:.4f}"
+        def fmtms(col):
+            m, s = r.get(col, np.nan), r.get(col+'_std', np.nan)
+            return 'N/A' if np.isnan(m) else f"{m:.4f}±{s:.4f}"
+        lines.append(f"| {r['Model']} | {fmtm('EA_ArchDev_R2')} | {fmtms('EA_ArchDev_R2')} "
+                     f"| {fmtm('IP_ArchDev_R2')} | {fmtms('IP_ArchDev_R2')} |\n")
 
     lines += [
         "\n## Best-Performing Models\n\n",
@@ -524,7 +532,6 @@ def main():
     print("Stage 2D1 Fusion Ablation Analysis")
     print("=" * 70)
 
-    g2d._NORM_PARAMS = g2d.estimate_normalization_params()
     df = g2d.load_dataset()
     g2d._ensure_value_map(df)
 

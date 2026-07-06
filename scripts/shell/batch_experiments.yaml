@@ -144,7 +144,7 @@ opv_targets: &opv_targets
 
 eaip_targets: &eaip_targets
   - EA vs SHE (eV)
-  - IP vs SHE (eV)
+  # - IP vs SHE (eV)
 
 block_targets: &block_targets
   - phase_label
