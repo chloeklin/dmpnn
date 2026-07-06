@@ -165,12 +165,13 @@ class MPNN(pl.LightningModule):
         if H.size(0) == bmg.V.size(0):
             H = self.agg(H, bmg.batch)  # -> [num_graphs, d]
 
-        # 3) BatchNorm on graph-level embeddings
-        H = self.bn(H)
-
-        # 4) Optional degree-of-polymerization scaling
+        # 3) Optional degree-of-polymerization scaling (applied before BN to match official readout)
         if isinstance(bmg, BatchPolymerMolGraph):
             H = H * bmg.degree_of_polym.unsqueeze(1)
+
+        # 4) BatchNorm on graph-level embeddings (skipped for polymer graphs; not in reference architecture)
+        if not isinstance(bmg, BatchPolymerMolGraph):
+            H = self.bn(H)
 
         # 5) Concatenate tabular descriptors if present (late_concat or none mode)
         # In film mode, descriptors are already integrated via early conditioning

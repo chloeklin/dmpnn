@@ -162,6 +162,8 @@ def create_base_argument_parser(description="Train a graph model"):
                         help='Protocol for a_held_out splits: "groupkfold" (5-fold default) or "leave_one_A_out" (LOMAO)')
     parser.add_argument('--n_splits', type=int, default=5,
                         help='Number of folds for groupkfold protocol (ignored for leave_one_A_out)')
+    parser.add_argument('--max_folds', type=int, default=None,
+                        help='Limit training to the first N folds only (useful for quick verification before full run)')
 
     # Training arguments
     parser.add_argument('--train_size', type=str, default=None,

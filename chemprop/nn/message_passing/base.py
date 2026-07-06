@@ -199,9 +199,8 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
 
     def forward(self, bmg: BatchMolGraph|BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         bmg = self.graph_transform(bmg)
-        H_0 = self.initialize(bmg)
-        H_0 = self.tau(H_0)
-        H = H_0
+        H_0 = self.initialize(bmg)  # pre-activation: W_i(x_v || e_vw), residual anchor
+        H = self.tau(H_0)           # running state starts activated
 
         # Precompute edge-to-graph mapping for FiLM (directed edges inherit source node's graph id)
         edge_graph_ids = bmg.batch[bmg.edge_index[0]] if (self.film_conditioner is not None and X_d is not None) else None
@@ -211,7 +210,7 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
                 H = (H + H[bmg.rev_edge_index]) / 2
 
             M = self.message(H, bmg)
-            H = self.update(M, H_0)
+            H = self.update(M, H_0)  # update adds pre-activation H_0 as residual
 
             # Apply FiLM conditioning after each update step
             if self.film_conditioner is not None and X_d is not None and edge_graph_ids is not None:

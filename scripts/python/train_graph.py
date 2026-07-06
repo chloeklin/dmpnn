@@ -537,6 +537,13 @@ if args.model_name == "HPG":
                     train_indices_hpg[si] = rng.choice(train_indices_hpg[si], size=target_train_size, replace=False)
                     logger.info(f"Split {si}: Training set reduced {orig} → {target_train_size}")
 
+        if getattr(args, 'max_folds', None) is not None:
+            n_keep = int(args.max_folds)
+            train_indices_hpg = train_indices_hpg[:n_keep]
+            val_indices_hpg   = val_indices_hpg[:n_keep]
+            test_indices_hpg  = test_indices_hpg[:n_keep]
+            logger.info(f"--max_folds={n_keep}: running only the first {n_keep} of the available folds")
+
         results_all = []
         for i in range(len(train_indices_hpg)):
             tr = train_indices_hpg[i]
@@ -1505,6 +1512,13 @@ for target in target_columns:
     elif args.train_size is not None and args.train_size.lower() == "full":
         logger.info("Using full training set (no subsampling)")
 
+
+    if getattr(args, 'max_folds', None) is not None:
+        n_keep = int(args.max_folds)
+        train_indices = train_indices[:n_keep]
+        val_indices   = val_indices[:n_keep]
+        test_indices  = test_indices[:n_keep]
+        logger.info(f"--max_folds={n_keep}: running only the first {n_keep} of the available folds")
 
     train_data, val_data, test_data = data.split_data_by_indices(
         all_data, train_indices, val_indices, test_indices

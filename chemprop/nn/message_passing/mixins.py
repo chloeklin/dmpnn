@@ -8,12 +8,14 @@ from chemprop.data import BatchMolGraph, BatchPolymerMolGraph
 class _WeightedBondMessagePassingMixin:
     def initialize(self, bmg: BatchPolymerMolGraph) -> Tensor:
         """
-        Computes initial bond messages: h_{vw}^{(0)} = \text{ReLU}(W_i([x_v \,\|\, e_{vw}]))
+        Computes initial bond messages (pre-activation): h_{vw}^{(0)} = W_i([x_v || e_{vw}])
 
+        Returns the raw W_i output without activation so the caller can use it as a
+        pre-activation residual anchor (matching official polymer-chemprop / chemprop convention).
         """
         x_v = bmg.V[bmg.edge_index[0]]  # source atom features
         bond_input = torch.cat([x_v, bmg.E], dim=1)  # concat [atom || bond]
-        return self.tau(self.W_i(bond_input))  # shape: [num_bonds, hidden_dim]
+        return self.W_i(bond_input)  # pre-activation; shape: [num_bonds, hidden_dim]
 
     def message(self, H: Tensor, bmg: BatchPolymerMolGraph) -> Tensor:
         edge_index = bmg.edge_index
@@ -37,19 +39,18 @@ class _WeightedBondMessagePassingMixin:
         nei_h  = nei_h * nei_w.unsqueeze(-1) * mask.unsqueeze(-1)   # weight + mask
         a_msg  = nei_h.sum(dim=1)                                   # [num_atoms, hidden]
 
-        rev_msg = H[b2revb] * w_bonds[b2revb].unsqueeze(-1)         # [num_bonds, hidden]
+        rev_msg = H[b2revb]                                          # [num_bonds, hidden] — unweighted reverse (matches official polymer-chemprop)
         msg     = a_msg[b2a] - rev_msg                               # [num_bonds, hidden]
 
         # Return the raw aggregated message. W_h is applied once in
         # _MessagePassingBase.update() -> h = tau(h0 + W_h * m), matching
         # paper eq. (2) and the standard (unweighted) BondMessagePassing path.
-        # (Previously this returned self.W_h(msg), which double-applied W_h.)
         return msg
 
     def forward(self, bmg: BatchPolymerMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None) -> Tensor:
         bmg = self.graph_transform(bmg)
-        H0  = self.initialize(bmg)
-        H   = H0
+        H0  = self.initialize(bmg)   # pre-activation residual anchor
+        H   = self.tau(H0)           # running state starts activated
 
         # Precompute edge-to-graph mapping for FiLM
         film = getattr(self, 'film_conditioner', None)
@@ -59,7 +60,7 @@ class _WeightedBondMessagePassingMixin:
             if self.undirected:
                 H = (H + H[bmg.rev_edge_index]) / 2
             M = self.message(H, bmg)
-            H = self.update(M, H0)
+            H = self.update(M, H0)   # update: tau(H0 + W_h(M)), H0 is pre-activation
 
             # Apply FiLM conditioning after each update step
             if film is not None and X_d is not None and edge_graph_ids is not None:

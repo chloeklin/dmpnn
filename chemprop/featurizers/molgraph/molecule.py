@@ -461,9 +461,11 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         W_bonds = []
         a2b = []  # mapping from atom index to incoming bond indices
         b2a = []  # mapping from bond index to the index of the atom the bond is coming from  
+        b2tgt = []  # mapping from bond index to the index of the atom the bond is going TO
         W_bonds = []
         a2b = []  # mapping from atom index to incoming bond indices
         b2a = []  # mapping from bond index to the index of the atom the bond is coming from
+        b2tgt = []  # mapping from bond index to the index of the atom the bond is going TO
         b2revb = []  # mapping from bond index to the index of the reverse bond
         # Initialize atom to bond mapping for each atom
         for _ in range(n_atoms):
@@ -497,9 +499,9 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
                 b1 = n_bonds
                 b2 = b1 + 1
                 a2b[a2].append(b1)  # b1 = a1 --> a2
-                b2a.append(a1)
+                b2a.append(a1); b2tgt.append(a2)
                 a2b[a1].append(b2)  # b2 = a2 --> a1
-                b2a.append(a2)
+                b2a.append(a2); b2tgt.append(a1)
                 b2revb.append(b2)
                 b2revb.append(b1)
                 W_bonds.extend([1.0, 1.0])  # edge weights of 1.
@@ -580,9 +582,9 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
             b1 = n_bonds
             b2 = b1 + 1
             a2b[a2].append(b1)  # b1 = a1 --> a2
-            b2a.append(a1)
+            b2a.append(a1); b2tgt.append(a2)
             a2b[a1].append(b2)  # b2 = a2 --> a1
-            b2a.append(a2)
+            b2a.append(a2); b2tgt.append(a1)
             b2revb.append(b2)
             b2revb.append(b1)
 
@@ -601,7 +603,7 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
                                 f'the extra bond features')
 
         src = b2a
-        tgt = [a for a in range(n_atoms) for _ in a2b[a]]
+        tgt = b2tgt
         edge_index = np.array([src, tgt], dtype=int)    
         rev_edge_index = np.array(b2revb, dtype=int)
         E_arr = np.vstack(E).astype(np.single) if len(E) else np.empty((0, 0), dtype=np.single)
