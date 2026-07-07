@@ -10,7 +10,9 @@
 # submits one job only.
 #
 # Usage:
-#   ./submit_wdmpnn_lomao.sh                  # Submit full 9-fold run
+#   ./submit_wdmpnn_lomao.sh                  # Submit full 9-fold run (both targets)
+#   ./submit_wdmpnn_lomao.sh --target EA      # Run EA only
+#   ./submit_wdmpnn_lomao.sh --target IP      # Run IP only
 #   ./submit_wdmpnn_lomao.sh --dry_run        # Print command without submitting
 #   ./submit_wdmpnn_lomao.sh --no-submit      # Generate PBS script only, do not qsub
 #   ./submit_wdmpnn_lomao.sh --verify         # Run only the first fold (quick sanity check)
@@ -38,13 +40,25 @@ JOBFS="100GB"
 DRY_RUN=false
 NO_SUBMIT=false
 VERIFY=false
+TARGET_KEY=""      # EA, IP, or empty (both)
+TARGET_COL=""      # full column name passed to --target
 
-for arg in "$@"; do
-    case $arg in
-        --dry_run)   DRY_RUN=true ;;
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry_run)   DRY_RUN=true ;;  
         --no-submit) NO_SUBMIT=true ;;
         --verify)    VERIFY=true ;;
+        --target)
+            shift
+            TARGET_KEY="$1"
+            case "$TARGET_KEY" in
+                EA) TARGET_COL="EA vs SHE (eV)" ;;
+                IP) TARGET_COL="IP vs SHE (eV)" ;;
+                *)  echo "ERROR: --target must be EA or IP (got '$TARGET_KEY')"; exit 1 ;;
+            esac
+            ;;
     esac
+    shift
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -62,13 +76,18 @@ BASE_CMD="python3 scripts/python/train_graph.py \
   --results_subdir HPG2Stage_LOMAO \
   --save_predictions"
 
+# Append --target if specified
+if [[ -n "$TARGET_COL" ]]; then
+    BASE_CMD="$BASE_CMD --target \"$TARGET_COL\""
+fi
+
 if [[ "$VERIFY" == "true" ]]; then
     CMD="$BASE_CMD --max_folds 1"
-    JOB_NAME="wdmpnn_lomao_verify"
+    JOB_NAME="wdmpnn_lomao_verify${TARGET_KEY:+_${TARGET_KEY}}"
     WALLTIME="03:00:00"
 else
     CMD="$BASE_CMD"
-    JOB_NAME="wdmpnn_lomao_full"
+    JOB_NAME="wdmpnn_lomao_full${TARGET_KEY:+_${TARGET_KEY}}"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────
@@ -76,6 +95,7 @@ echo "================================================================"
 echo "wDMPNN LOMAO Experiment - Job Submission"
 echo "================================================================"
 echo "  Mode:        $([ "$VERIFY" == "true" ] && echo "VERIFY (fold 0 only)" || echo "FULL (all 9 folds)")"
+echo "  Target:      ${TARGET_KEY:-both (EA + IP)}"
 echo "  Job name:    $JOB_NAME"
 echo "  Walltime:    $WALLTIME"
 echo "  Project dir: $PROJECT_DIR"
