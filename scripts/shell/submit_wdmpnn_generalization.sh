@@ -10,11 +10,12 @@
 #   B) pair_disjoint:  Hold out entire (A,B) monomer pairs             [5 folds]
 #
 # Usage:
-#   ./submit_wdmpnn_generalization.sh              # Submit all 10 jobs
+#   ./submit_wdmpnn_generalization.sh              # Submit all 20 jobs (2 splits × 5 folds × 2 targets)
 #   ./submit_wdmpnn_generalization.sh --dry_run    # Print commands without submitting
 #   ./submit_wdmpnn_generalization.sh --no-submit  # Generate PBS scripts only
 #   ./submit_wdmpnn_generalization.sh --split group_disjoint   # Only one split type
 #   ./submit_wdmpnn_generalization.sh --fold 0                 # Only one fold
+#   ./submit_wdmpnn_generalization.sh --target EA              # Only EA target
 
 set -e
 
@@ -38,18 +39,22 @@ JOBFS="100GB"
 # Experiment configuration
 SPLIT_TYPES=("group_disjoint" "pair_disjoint")
 FOLDS=(0 1 2 3 4)
+TARGETS=("EA vs SHE (eV)" "IP vs SHE (eV)")
+TARGET_KEYS=("EA" "IP")   # short keys for job names / file names
 
 # Parse arguments
 DRY_RUN=false
 NO_SUBMIT=false
 SPLIT_FILTER=""
 FOLD_FILTER=""
+TARGET_FILTER=""
 for arg in "$@"; do
     case $arg in
         --dry_run)    DRY_RUN=true ;;
         --no-submit)  NO_SUBMIT=true ;;
         --split)      shift; SPLIT_FILTER="$1" ;;
         --fold)       shift; FOLD_FILTER="$1" ;;
+        --target)     shift; TARGET_FILTER="$1" ;;
     esac
 done
 
@@ -62,9 +67,10 @@ echo "================================================================"
 echo "wDMPNN Generalization Experiments - Job Submission"
 echo "================================================================"
 echo "  Split types: ${SPLIT_TYPES[*]}"
-echo "  Folds: ${FOLDS[*]}"
-echo "  Total jobs: $((${#SPLIT_TYPES[@]} * ${#FOLDS[@]}))"
-echo "  Walltime: $WALLTIME"
+echo "  Targets:     ${TARGETS[*]}"
+echo "  Folds:       ${FOLDS[*]}"
+echo "  Total jobs:  $((${#SPLIT_TYPES[@]} * ${#FOLDS[@]} * ${#TARGETS[@]}))"
+echo "  Walltime:    $WALLTIME"
 echo "  Project dir: $PROJECT_DIR"
 echo "  Dry run: $DRY_RUN"
 echo "  No submit: $NO_SUBMIT"
@@ -85,16 +91,25 @@ for SPLIT in "${SPLIT_TYPES[@]}"; do
             continue
         fi
 
-        SPLIT_SHORT="${SPLIT:0:3}"  # "gro" or "pai"
-        JOB_NAME="wgen_${SPLIT_SHORT}_f${FOLD}"
+        for TGT_IDX in "${!TARGETS[@]}"; do
+            TARGET="${TARGETS[$TGT_IDX]}"
+            TARGET_KEY="${TARGET_KEYS[$TGT_IDX]}"
 
-        CMD="python3 scripts/python/run_wdmpnn_generalization.py --split_types $SPLIT --folds $FOLD"
+            # Apply target filter if set
+            if [[ -n "$TARGET_FILTER" && "$TARGET_KEY" != "$TARGET_FILTER" ]]; then
+                continue
+            fi
 
-        if [[ "$DRY_RUN" == "true" ]]; then
-            echo "  [DRY] $JOB_NAME: $CMD"
-        else
-            PBS_SCRIPT="$LOG_DIR/${JOB_NAME}.pbs"
-            cat > "$PBS_SCRIPT" <<EOF
+            SPLIT_SHORT="${SPLIT:0:3}"  # "gro" or "pai"
+            JOB_NAME="wgen_${SPLIT_SHORT}_f${FOLD}_${TARGET_KEY}"
+
+            CMD="python3 scripts/python/run_wdmpnn_generalization.py --split_types $SPLIT --folds $FOLD --targets \"$TARGET\""
+
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo "  [DRY] $JOB_NAME: $CMD"
+            else
+                PBS_SCRIPT="$LOG_DIR/${JOB_NAME}.pbs"
+                cat > "$PBS_SCRIPT" <<EOF
 #!/bin/bash
 #PBS -q $QUEUE
 #PBS -P $PROJECT
@@ -112,7 +127,7 @@ source $VENV_ACTIVATE
 cd $PROJECT_DIR
 
 echo "Job: $JOB_NAME"
-echo "Split: $SPLIT | Fold: $FOLD"
+echo "Split: $SPLIT | Fold: $FOLD | Target: $TARGET"
 echo "Start: \$(date)"
 
 $CMD
@@ -120,17 +135,18 @@ $CMD
 echo "End: \$(date)"
 EOF
 
-            chmod +x "$PBS_SCRIPT"
+                chmod +x "$PBS_SCRIPT"
 
-            if [[ "$NO_SUBMIT" == "true" ]]; then
-                echo "  [GENERATED] $JOB_NAME -> $PBS_SCRIPT"
-            else
-                JOB_ID=$(qsub "$PBS_SCRIPT")
-                echo "  [SUBMITTED] $JOB_NAME -> $JOB_ID"
+                if [[ "$NO_SUBMIT" == "true" ]]; then
+                    echo "  [GENERATED] $JOB_NAME -> $PBS_SCRIPT"
+                else
+                    JOB_ID=$(qsub "$PBS_SCRIPT")
+                    echo "  [SUBMITTED] $JOB_NAME -> $JOB_ID"
+                fi
             fi
-        fi
 
-        JOB_COUNT=$((JOB_COUNT + 1))
+            JOB_COUNT=$((JOB_COUNT + 1))
+        done
     done
 done
 
