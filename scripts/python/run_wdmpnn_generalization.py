@@ -58,7 +58,7 @@ N_FOLDS = 5
 SEED = 42
 EPOCHS = 300
 PATIENCE = 30
-BATCH_SIZE = 64
+BATCH_SIZE = 512
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -99,6 +99,11 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     val_ds = PolymerDataset(val_data, polymer_featurizer)
     test_ds = PolymerDataset(test_data, polymer_featurizer)
 
+    # Pre-featurize all graphs once (avoids re-running RDKit on every __getitem__ per epoch)
+    train_ds.cache = True
+    val_ds.cache = True
+    test_ds.cache = True
+
     # Normalize targets (fit on train)
     scaler = train_ds.normalize_targets()
     val_ds.normalize_targets(scaler)
@@ -136,10 +141,10 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
         logger=pl.loggers.TensorBoardLogger(str(ckpt_path), name='logs'),
     )
 
-    # Dataloaders
-    train_loader = build_dataloader(train_ds, batch_size=BATCH_SIZE, num_workers=0, pin_memory=True)
-    val_loader = build_dataloader(val_ds, batch_size=BATCH_SIZE, num_workers=0, shuffle=False, pin_memory=True)
-    test_loader = build_dataloader(test_ds, batch_size=BATCH_SIZE, num_workers=0, shuffle=False, pin_memory=True)
+    # Dataloaders — num_workers>0 overlaps batch prep with GPU compute
+    train_loader = build_dataloader(train_ds, batch_size=BATCH_SIZE, num_workers=4, pin_memory=True)
+    val_loader = build_dataloader(val_ds, batch_size=BATCH_SIZE, num_workers=4, shuffle=False, pin_memory=True)
+    test_loader = build_dataloader(test_ds, batch_size=BATCH_SIZE, num_workers=4, shuffle=False, pin_memory=True)
 
     # Check for existing training
     done_flag = ckpt_path / "TRAINING_COMPLETE"

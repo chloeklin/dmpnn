@@ -74,7 +74,8 @@ BASE_CMD="python3 scripts/python/train_graph.py \
   --split_type a_held_out \
   --a_held_out_protocol leave_one_A_out \
   --results_subdir HPG2Stage_LOMAO \
-  --save_predictions"
+  --save_predictions \
+  --batch_size 512"
 
 # Append --target if specified
 if [[ -n "$TARGET_COL" ]]; then

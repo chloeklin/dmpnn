@@ -1124,6 +1124,7 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
                 train_ds = MultiMonomerCopolymerDataset(train_dA, train_dB, train_fA, train_fB, featurizer_copoly)
                 val_ds = MultiMonomerCopolymerDataset(val_dA, val_dB, val_fA, val_fB, featurizer_copoly)
                 test_ds = MultiMonomerCopolymerDataset(test_dA, test_dB, test_fA, test_fB, featurizer_copoly)
+                train_ds.cache = True; val_ds.cache = True; test_ds.cache = True
             else:
                 train_dA = [data_A[j] for j in tr]
                 train_dB = [data_B[j] for j in tr]
@@ -1135,6 +1136,7 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
                 train_ds = CopolymerDataset(train_dA, train_dB, fA[tr], fB[tr], featurizer_copoly)
                 val_ds = CopolymerDataset(val_dA, val_dB, fA[va], fB[va], featurizer_copoly)
                 test_ds = CopolymerDataset(test_dA, test_dB, fA[te], fB[te], featurizer_copoly)
+                train_ds.cache = True; val_ds.cache = True; test_ds.cache = True
 
             # Normalize targets (regression only)
             scaler = None
@@ -1819,6 +1821,8 @@ for target in target_columns:
         train = DS(train_data[i], featurizer)
         val = DS(val_data[i], featurizer)
         test = DS(test_data[i], featurizer)
+        if DS is data.PolymerDataset:
+            train.cache = True; val.cache = True; test.cache = True
         
         # Now normalize inputs if we have descriptors
         if combined_descriptor_data is not None:
