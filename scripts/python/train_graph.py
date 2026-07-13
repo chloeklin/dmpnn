@@ -1286,6 +1286,26 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
                 
                 # Save predictions with IDs and training configuration metadata
                 split_type_sfx = f"__{args.split_type}"
+                _canon_path = None
+                if (args.dataset_name == 'ea_ip'
+                        and getattr(args, 'polymer_type', '') == 'copolymer'
+                        and getattr(args, 'split_type', '') == 'a_held_out'
+                        and copolymer_mode is not None):
+                    try:
+                        import sys as _sys
+                        import os as _os
+                        _sys.path.insert(0, str(chemprop_dir))
+                        from evaluation.naming import (
+                            make_prediction_filename, standard_model_name as _smn,
+                            split_subdir as _ssd,
+                        )
+                        _subdir = predictions_dir / _ssd('a_held_out')
+                        _subdir.mkdir(parents=True, exist_ok=True)
+                        _canon_path = _subdir / make_prediction_filename(
+                            target, copolymer_mode, 'a_held_out', i
+                        )
+                    except Exception:
+                        pass
                 save_predictions(
                     y_true, y_pred, predictions_dir, args.dataset_name, target, output_model_name,
                     desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,
@@ -1297,6 +1317,7 @@ if args.polymer_type == "copolymer" and args.model_name not in ("wDMPNN", "HPG")
                     aux_task=getattr(args, 'aux_task', None),
                     split_type_suffix=split_type_sfx,
                     actual_model_name=args.model_name if getattr(args, 'results_subdir', None) else None,
+                    canonical_path=_canon_path,
                 )
 
             # Export embeddings if requested
@@ -2039,6 +2060,23 @@ for target in target_columns:
             
             # Save predictions with IDs and training configuration metadata
             split_type_sfx = f"__{args.split_type}" if getattr(args, 'split_type', 'random') != 'random' else ""
+            _canon_path2 = None
+            if (args.dataset_name == 'ea_ip'
+                    and getattr(args, 'split_type', '') == 'a_held_out'):
+                try:
+                    import sys as _sys
+                    _sys.path.insert(0, str(chemprop_dir))
+                    from evaluation.naming import (
+                        make_prediction_filename, split_subdir as _ssd2,
+                    )
+                    _model_tok = 'wdmpnn'
+                    _subdir2 = predictions_dir / _ssd2('a_held_out')
+                    _subdir2.mkdir(parents=True, exist_ok=True)
+                    _canon_path2 = _subdir2 / make_prediction_filename(
+                        target, _model_tok, 'a_held_out', i
+                    )
+                except Exception:
+                    pass
             save_predictions(
                 y_true, y_pred, predictions_dir, args.dataset_name, target, output_model_name,
                 desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, i, logger,
@@ -2048,7 +2086,8 @@ for target in target_columns:
                 task_type=args.task_type,
                 fusion_mode=getattr(args, 'fusion_mode', None),
                 aux_task=getattr(args, 'aux_task', None),
-                split_type_suffix=split_type_sfx
+                split_type_suffix=split_type_sfx,
+                canonical_path=_canon_path2,
             )
         
         # Export embeddings if requested

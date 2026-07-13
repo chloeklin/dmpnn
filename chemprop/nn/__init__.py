@@ -73,6 +73,7 @@ from .predictors import (
 from .film import FilmConditioner
 from .hpg import HPGGATLayer, HPGMessagePassing
 from .stage2d import Stage2Aggregator, VALID_STAGE2_VARIANTS, ARCH_LABEL_MAP
+from .within_group_loss import within_group_residual_loss
 from .transforms import GraphTransform, ScaleTransform, UnscaleTransform
 from .utils import Activation
 
@@ -161,4 +162,5 @@ __all__ = [
     "Stage2Aggregator",
     "VALID_STAGE2_VARIANTS",
     "ARCH_LABEL_MAP",
+    "within_group_residual_loss",
 ]

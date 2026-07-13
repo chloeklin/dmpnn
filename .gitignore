@@ -13,7 +13,7 @@ data/
 !/chemprop/data/
 checkpoints/
 *.zip
-experiments/
+# experiments/
 paper_figures/
 
 

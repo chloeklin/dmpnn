@@ -104,9 +104,22 @@ class CopolymerDataset(Dataset):
     featurizer: Featurizer[Mol, MolGraph] = field(
         default_factory=SimpleMoleculeMolGraphFeaturizer
     )
+    group_ids: np.ndarray | None = field(default=None)
+    """Optional integer group label per sample (shape ``(N,)``).
+
+    When set, :func:`build_dataloader` automatically constructs a
+    :class:`~chemprop.data.samplers.GroupAwareSampler` so that every
+    chemistry group is kept intact within a single batch.  Required for
+    the within-group residual loss (``lambda_within > 0``).
+    """
 
     def __post_init__(self):
         assert len(self.data_A) == len(self.data_B) == len(self.fracA)
+        if self.group_ids is not None:
+            self.group_ids = np.asarray(self.group_ids, dtype=np.int64)
+            assert len(self.group_ids) == len(self.data_A), (
+                f"group_ids length {len(self.group_ids)} != dataset length {len(self.data_A)}"
+            )
         self.reset()
         self.cache = False
 

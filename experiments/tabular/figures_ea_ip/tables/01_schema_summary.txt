@@ -1,0 +1,35 @@
+EA/IP Consolidated Results — Schema Summary
+Generated: 2026-03-19 17:19
+Source: /Users/u6788552/Desktop/experiments/dmpnn/plots/ea_ip_random_vs_monomer/ea_ip_random_vs_monomer_consolidated.csv
+
+Total rows       : 88
+Rows with data   : 70
+Missing rows     : 18
+
+Columns:
+  category       — model family (Identity, Graph, Tabular)
+  model          — model name (DMPNN, GAT, GIN, wDMPNN, HPG, Linear, RF, XGB, IdentityBaseline)
+  copolymer_mode — mix | interact | desc | N/A
+  poly_type      — bool, True = poly_type one-hot added
+  model_label    — human-readable model variant label
+  split          — random | monomer
+  target         — EA vs SHE (eV) | IP vs SHE (eV)
+  mae_mean/std   — mean absolute error (eV)
+  rmse_mean/std  — root mean squared error (eV)
+  r2_mean/std    — coefficient of determination
+
+Unique values:
+  category          : ['Graph', 'Identity', 'Tabular']
+  model             : ['DMPNN', 'GAT', 'GIN', 'HPG', 'IdentityBaseline', 'Linear', 'RF', 'XGB', 'wDMPNN']
+  copolymer_mode    : ['desc', 'interact', 'mix']
+  poly_type         : [False, True]
+  split             : ['monomer', 'random']
+  target            : ['EA vs SHE (eV)', 'IP vs SHE (eV)']
+
+Missing entries by model variant:
+  DMPNN +PT                     : random
+  HPG +desc +PT                 : random
+  Linear +PT                    : monomer, random
+  RF +PT                        : monomer, random
+  XGB +PT                       : monomer, random
+  wDMPNN                        : random

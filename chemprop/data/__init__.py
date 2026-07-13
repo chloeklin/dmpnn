@@ -42,7 +42,7 @@ from .datasets import (
 
 from .hpg import BatchHPGMolGraph, HPGMolGraph
 from .molgraph import MolGraph, PolymerMolGraph
-from .samplers import ClassBalanceSampler, SeededSampler
+from .samplers import ClassBalanceSampler, GroupAwareSampler, SeededSampler
 from .splitting import SplitType, make_split_indices, split_data_by_indices
 
 __all__ = [
@@ -69,6 +69,7 @@ __all__ = [
     "MolGraphDataset",
     "MolGraph",
     "ClassBalanceSampler",
+    "GroupAwareSampler",
     "SeededSampler",
     "SplitType",
     "make_split_indices",

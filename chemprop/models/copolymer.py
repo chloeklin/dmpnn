@@ -12,6 +12,7 @@ from chemprop.data import BatchMolGraph
 from chemprop.nn import Aggregation, ChempropMetric, MessagePassing, Predictor
 from chemprop.nn.transforms import ScaleTransform
 from chemprop.nn.stage2d import Stage2Aggregator, VALID_STAGE2_VARIANTS
+from chemprop.nn.within_group_loss import within_group_residual_loss
 from chemprop.schedulers import build_NoamLike_LRSched
 
 logger = logging.getLogger(__name__)
@@ -320,11 +321,13 @@ class CopolymerMPNN(pl.LightningModule):
         max_lr: float = 1e-3,
         final_lr: float = 1e-4,
         X_d_transform: ScaleTransform | None = None,
+        lambda_within: float = 0.0,
     ):
         super().__init__()
         self.save_hyperparameters(
             ignore=["X_d_transform", "message_passing", "agg", "predictor"]
         )
+        self.lambda_within = lambda_within
         self.hparams["X_d_transform"] = X_d_transform
         
         # Handle both fresh init and checkpoint loading
@@ -1048,10 +1051,28 @@ class CopolymerMPNN(pl.LightningModule):
         batch_size = len(fracA)
 
         mask = targets.isfinite()
-        targets = targets.nan_to_num(nan=0.0)
+        targets_clean = targets.nan_to_num(nan=0.0)
 
         preds, aux = self.forward_stage2d(bmg_A, bmg_B, fracA, fracB, X_d)
-        l = self.criterion(preds, targets, mask, weights, lt_mask, gt_mask)
+        l_overall = self.criterion(preds, targets_clean, mask, weights, lt_mask, gt_mask)
+
+        if self.lambda_within > 0.0 and X_d is not None and X_d.shape[1] >= 2:
+            group_ids = X_d[:, 1].long()
+            l_within, wg_info = within_group_residual_loss(targets, preds, group_ids)
+            l = l_overall + self.lambda_within * l_within
+
+            self.log("train/loss_overall", l_overall.detach(), batch_size=batch_size,
+                     on_epoch=True, on_step=False, sync_dist=True)
+            self.log("train/loss_within", l_within.detach(), batch_size=batch_size,
+                     on_epoch=True, on_step=False, sync_dist=True)
+            self.log("train/n_groups_active",
+                     float(wg_info["n_groups_active"]), batch_size=batch_size,
+                     on_epoch=True, on_step=False, sync_dist=True)
+            self.log("train/avg_group_size",
+                     float(wg_info["avg_group_size"]), batch_size=batch_size,
+                     on_epoch=True, on_step=False, sync_dist=True)
+        else:
+            l = l_overall
 
         self.log("train_loss", self.criterion, batch_size=batch_size, prog_bar=True,
                  on_epoch=True, on_step=False, sync_dist=True)

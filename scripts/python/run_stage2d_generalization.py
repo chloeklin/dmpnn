@@ -52,11 +52,16 @@ from utils import (
     set_seed, build_copolymer_model_and_trainer, get_metric_list,
     create_copolymer_data, canonicalize_smiles, pick_best_checkpoint,
 )
+sys.path.insert(0, str(ROOT_DIR))
+from evaluation.naming import (
+    make_prediction_filename, standard_model_name, standard_split_name,
+    standard_target_token, split_subdir, DATASET_NAME as _CANONICAL_DATASET,
+)
 
 # ── Configuration ────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parents[2]
 DATA_PATH = ROOT / 'data' / 'ea_ip.csv'
-PREDICTIONS_DIR = ROOT / 'predictions' / 'HPG2Stage_Gen'
+PREDICTIONS_DIR = ROOT / 'predictions'
 
 MODELS = ['frac', '2d0_arch', '2d1_arch']
 N_FOLDS = 5
@@ -233,13 +238,36 @@ def verify_pair_disjoint_extra(train_idx, val_idx, test_idx, pair_keys, fold_i):
 def train_single_run(df_input, data_A, data_B, fA, fB, orig_Xd,
                      train_idx, val_idx, test_idx,
                      variant, target, fold_idx, split_type,
-                     featurizer, args_template):
+                     featurizer, args_template, group_keys=None):
     """Train a single model run and return predictions."""
     
     from chemprop.data import CopolymerDataset, build_dataloader
     
     copolymer_mode = f'stage2d_{variant}'
+    lambda_within = getattr(args_template, 'lambda_within', 0.0)
     
+    # Build integer group_ids if group_keys provided (needed for lambda_within > 0)
+    if group_keys is not None and lambda_within > 0.0:
+        unique_keys, inverse = np.unique(group_keys, return_inverse=True)
+        all_group_ids = inverse.astype(np.int64)
+        train_group_ids = all_group_ids[train_idx]
+    else:
+        train_group_ids = None
+
+    # When lambda_within > 0, append group_id as column 1 of X_d so the
+    # training step can extract it.  Column 0 stays arch_idx.
+    def make_Xd_with_groups(idx_subset, base_Xd, gids):
+        """Append group_id column to X_d for the given subset."""
+        if gids is None:
+            return base_Xd[idx_subset]
+        return np.concatenate(
+            [base_Xd[idx_subset], gids.reshape(-1, 1).astype(np.float32)], axis=1
+        )
+
+    train_Xd = make_Xd_with_groups(train_idx, orig_Xd, train_group_ids)
+    val_Xd   = orig_Xd[val_idx]    # group_id not needed outside training
+    test_Xd  = orig_Xd[test_idx]
+
     # Build datasets
     train_dA = [data_A[j] for j in train_idx]
     train_dB = [data_B[j] for j in train_idx]
@@ -247,8 +275,19 @@ def train_single_run(df_input, data_A, data_B, fA, fB, orig_Xd,
     val_dB = [data_B[j] for j in val_idx]
     test_dA = [data_A[j] for j in test_idx]
     test_dB = [data_B[j] for j in test_idx]
-    
-    train_ds = CopolymerDataset(train_dA, train_dB, fA[train_idx], fB[train_idx], featurizer)
+
+    # Patch X_d on data_A copies so CopolymerDataset picks up the right columns
+    for i, dp in enumerate(train_dA):
+        dp.x_d = train_Xd[i]
+    for i, dp in enumerate(val_dA):
+        dp.x_d = val_Xd[i]
+    for i, dp in enumerate(test_dA):
+        dp.x_d = test_Xd[i]
+
+    train_ds = CopolymerDataset(
+        train_dA, train_dB, fA[train_idx], fB[train_idx], featurizer,
+        group_ids=train_group_ids,
+    )
     val_ds = CopolymerDataset(val_dA, val_dB, fA[val_idx], fB[val_idx], featurizer)
     test_ds = CopolymerDataset(test_dA, test_dB, fA[test_idx], fB[test_idx], featurizer)
     
@@ -268,7 +307,7 @@ def train_single_run(df_input, data_A, data_B, fA, fB, orig_Xd,
     args_template.copolymer_mode = copolymer_mode
     mpnn, trainer = build_copolymer_model_and_trainer(
         args=args_template,
-        combined_descriptor_data=orig_Xd,
+        combined_descriptor_data=train_Xd,
         scaler=scaler,
         checkpoint_path=checkpoint_path,
         copolymer_mode=copolymer_mode,
@@ -277,10 +316,11 @@ def train_single_run(df_input, data_A, data_B, fA, fB, orig_Xd,
         early_stopping_patience=PATIENCE,
         max_epochs=EPOCHS,
         save_checkpoint=True,
+        lambda_within=lambda_within,
     )
     
     # Dataloaders
-    train_loader = build_dataloader(train_ds, batch_size=BATCH_SIZE, num_workers=0, pin_memory=True)
+    train_loader = build_dataloader(train_ds, batch_size=BATCH_SIZE, num_workers=0, pin_memory=True, seed=SEED)
     val_loader = build_dataloader(val_ds, batch_size=BATCH_SIZE, num_workers=0, shuffle=False, pin_memory=True)
     test_loader = build_dataloader(test_ds, batch_size=BATCH_SIZE, num_workers=0, shuffle=False, pin_memory=True)
     
@@ -452,6 +492,7 @@ def main():
         aux_task='off',
         _aux_cols=[],
         _n_aux_targets=0,
+        lambda_within=0.0,
     )
     
     # Prepare copolymer data
@@ -499,27 +540,35 @@ def main():
                         tr, va, te,
                         variant, target, fold_idx, split_type,
                         featurizer, train_args,
+                        group_keys=group_keys,
                     )
                     
-                    # Save predictions
-                    pred_file = (PREDICTIONS_DIR /
-                                f'{DATASET_NAME}__{target}__stage2d_{variant}__{split_type}__fold{fold_idx}.npz')
+                    # Save predictions using canonical naming convention
+                    _model_internal = f'stage2d_{variant}'
+                    _subdir = PREDICTIONS_DIR / split_subdir(split_type)
+                    _subdir.mkdir(parents=True, exist_ok=True)
+                    pred_file = _subdir / make_prediction_filename(
+                        target, _model_internal, split_type, fold_idx
+                    )
                     np.savez_compressed(
                         pred_file,
                         y_true=y_true,
                         y_pred=y_pred,
                         test_indices=te,
-                        split_type=split_type,
+                        split_type=standard_split_name(split_type),
+                        model=standard_model_name(_model_internal),
+                        target=standard_target_token(target),
                         fold=fold_idx,
                         n_train=len(tr),
                         n_val=len(va),
                         n_test=len(te),
+                        prediction_scale="physical_units",
                     )
                     logger.info(f"    Saved: {pred_file.name}")
     
     print("\n" + "=" * 70)
     print("GENERALIZATION EXPERIMENTS COMPLETE")
-    print(f"Predictions: {PREDICTIONS_DIR}")
+    print(f"Predictions: {PREDICTIONS_DIR} (canonical subdirs)")
     print("=" * 70)
 
 

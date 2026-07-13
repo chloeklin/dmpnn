@@ -25,7 +25,7 @@ from chemprop.data.datasets import (
     ReactionDataset,
 )
 
-from chemprop.data.samplers import ClassBalanceSampler, SeededSampler
+from chemprop.data.samplers import ClassBalanceSampler, GroupAwareSampler, SeededSampler
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,14 @@ def build_dataloader(
 
     if class_balance:
         sampler = ClassBalanceSampler(dataset.Y, seed, shuffle)
+    elif (
+        shuffle
+        and isinstance(dataset, CopolymerDataset)
+        and dataset.group_ids is not None
+    ):
+        sampler = GroupAwareSampler(
+            dataset.group_ids, batch_size=batch_size, seed=seed
+        )
     elif shuffle and seed is not None:
         sampler = SeededSampler(len(dataset), seed)
     else:

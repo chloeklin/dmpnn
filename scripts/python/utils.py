@@ -224,6 +224,9 @@ def add_model_specific_args(parser, model_type):
                             help='Comma list NAME:NUM_CLASSES for multiclass tasks, e.g. "phase_label:11,color:3". Others are regression.')
         parser.add_argument('--task_weights', type=str, default="",
                             help='Optional comma list of per-task loss weights aligned with target_columns.')
+        parser.add_argument('--lambda_within', type=float, default=0.0,
+                            help='Weight for within-group residual variance loss (Stage2D only). '
+                                 'Default 0.0 reproduces standard MSE training exactly.')
         
     elif model_type == "attentivefp":
         parser.add_argument('--model_name', type=str, default="AttentiveFP")
@@ -970,6 +973,7 @@ def build_copolymer_model_and_trainer(
     max_epochs: int = 300,
     gradient_clip_val: float = 10.0,
     save_checkpoint: bool = True,
+    lambda_within: float = 0.0,
     **trainer_kwargs,
 ) -> Tuple[Any, Any]:
     """Build a CopolymerMPNN and matching Trainer.
@@ -1133,6 +1137,7 @@ def build_copolymer_model_and_trainer(
         fusion_type=fusion_type,
         batch_norm=batch_norm,
         metrics=metric_list or [],
+        lambda_within=lambda_within,
     )
 
     # ---------- trainer ----------
@@ -3339,7 +3344,8 @@ def select_features_remove_constant_and_correlated(
 def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, model_name, 
                     desc_suffix, rdkit_suffix, batch_norm_suffix, size_suffix, copoly_suffix, split_idx, logger,
                     test_ids=None, copolymer_mode=None, polymer_type=None, task_type=None,
-                    fusion_mode=None, aux_task=None, split_type_suffix="", actual_model_name=None):
+                    fusion_mode=None, aux_task=None, split_type_suffix="", actual_model_name=None,
+                    canonical_path=None):
     """Save predictions for learning curve analysis.
     
     Args:
@@ -3362,20 +3368,28 @@ def save_predictions(y_true, y_pred, predictions_dir, dataset_name, target, mode
         task_type: Task type (reg, binary, multi)
         fusion_mode: Fusion mode (none, late_concat, film)
         aux_task: Auxiliary task (off, predict_descriptors)
+        canonical_path: If provided, save directly to this full Path instead of constructing
+                        the legacy filename.  Used by ea_ip copolymer runs to enforce the
+                        standard naming convention (ea_ip__{target}__{model}__{split}__fold{N}.npz).
     """
     import numpy as np
     from pathlib import Path
     
-    # Create predictions directory structure
-    model_pred_dir = predictions_dir / model_name
-    model_pred_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Build filename with all relevant identifiers including copolymer mode
-    # When model_name is a shared subdir alias (e.g. HPG2Stage_LOMAO), embed
-    # actual_model_name in the filename so different models don't collide.
-    _model_token = f"__{actual_model_name}" if actual_model_name and actual_model_name != model_name else ""
-    filename = f"{dataset_name}{_model_token}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{copoly_suffix}{split_type_suffix}{size_suffix}__split{split_idx}.npz"
-    pred_file = model_pred_dir / filename
+    if canonical_path is not None:
+        # Use caller-supplied canonical path; create parent dir as needed
+        pred_file = Path(canonical_path)
+        pred_file.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        # Create predictions directory structure
+        model_pred_dir = predictions_dir / model_name
+        model_pred_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Build filename with all relevant identifiers including copolymer mode
+        # When model_name is a shared subdir alias (e.g. HPG2Stage_LOMAO), embed
+        # actual_model_name in the filename so different models don't collide.
+        _model_token = f"__{actual_model_name}" if actual_model_name and actual_model_name != model_name else ""
+        filename = f"{dataset_name}{_model_token}__{target}{desc_suffix}{rdkit_suffix}{batch_norm_suffix}{copoly_suffix}{split_type_suffix}{size_suffix}__split{split_idx}.npz"
+        pred_file = model_pred_dir / filename
     
     # Prepare metadata with model-specific training configuration
     # Note: dataset, target, split, task_type are already in preprocessing metadata

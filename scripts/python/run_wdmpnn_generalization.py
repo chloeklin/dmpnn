@@ -38,6 +38,9 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from chemprop import data, featurizers, nn
 from chemprop import models
 from chemprop.data import PolymerDatapoint, PolymerDataset, build_dataloader
+from chemprop.data.collate import collate_polymer_batch
+from chemprop.data.samplers import GroupAwareSampler
+from chemprop.nn.within_group_loss import within_group_residual_loss
 from utils import (
     set_seed, get_metric_list, pick_best_checkpoint,
     canonicalize_smiles,
@@ -47,10 +50,14 @@ from run_stage2d_generalization import (
     build_group_keys, build_pair_keys,
     verify_no_leakage, verify_pair_disjoint_extra,
 )
+from evaluation.naming import (
+    make_prediction_filename, standard_model_name, standard_split_name,
+    standard_target_token, split_subdir,
+)
 
 # ── Configuration ────────────────────────────────────────────────────
 DATA_PATH = ROOT_DIR / 'data' / 'ea_ip.csv'
-PREDICTIONS_DIR = ROOT_DIR / 'predictions' / 'wDMPNN_Gen'
+PREDICTIONS_DIR = ROOT_DIR / 'predictions'
 CHECKPOINT_DIR = ROOT_DIR / 'checkpoints' / 'wDMPNN_Gen'
 
 TARGETS = ['EA vs SHE (eV)', 'IP vs SHE (eV)']
@@ -64,9 +71,101 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def _lambda_tag(lw: float) -> str:
+    """Convert lambda_within to a filesystem-safe string (e.g. 0.03 → '0p03')."""
+    return str(lw).replace('.', 'p')
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # TRAINING
 # ═══════════════════════════════════════════════════════════════════════
+
+class WDMPNNWithinGroupLoss(models.MPNN):
+    """wDMPNN with normalized within-group residual loss.
+
+    When lambda_within > 0 the total training loss is:
+        L_total = L_overall + lambda_within * L_within
+
+    Group IDs are injected into the last column of X_d in the training batch
+    (by setting x_d = [group_id] on each training PolymerDatapoint before
+    constructing the dataset).  They are stripped before the forward pass so
+    the FFN always sees X_d=None, preserving exact backward compatibility with
+    the original wDMPNN architecture.
+
+    Validation and test dataloaders are unchanged (x_d=None).
+    """
+
+    def __init__(self, *args, lambda_within: float = 0.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lambda_within = lambda_within
+
+    def training_step(self, batch, batch_idx):
+        if self.lambda_within == 0.0:
+            return super().training_step(batch, batch_idx)
+
+        batch_size = self.get_batch_size(batch)
+        bmg, V_d, X_d, targets, weights, lt_mask, gt_mask = batch
+
+        targets_orig = targets.clone()
+
+        group_ids = None
+        X_d_model = None
+        if X_d is not None:
+            group_ids = X_d[:, -1].long()
+            X_d_model = X_d[:, :-1] if X_d.shape[1] > 1 else None
+
+        mask = targets.isfinite()
+        targets = targets.nan_to_num(nan=0.0)
+
+        Z = self.fingerprint(bmg, V_d, X_d_model)
+        main_targets, aux_targets, main_mask, aux_mask, main_lt, main_gt = \
+            self._split_targets(targets, mask, lt_mask, gt_mask)
+        preds = self.predictor.train_step(Z)
+
+        l_overall = self.criterion(preds, main_targets, main_mask, weights, main_lt, main_gt)
+
+        l_within = torch.zeros(1, device=l_overall.device).squeeze()
+        if group_ids is not None:
+            l_within, _ = within_group_residual_loss(targets_orig, preds, group_ids)
+
+        l_total = l_overall + self.lambda_within * l_within
+
+        self.log("train_loss", self.criterion, batch_size=batch_size,
+                 prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("train_loss_overall", l_overall.detach(), batch_size=batch_size,
+                 prog_bar=False, on_epoch=True, on_step=False)
+        self.log("train_loss_within", l_within.detach(), batch_size=batch_size,
+                 prog_bar=False, on_epoch=True, on_step=False)
+
+        return l_total
+
+
+class _GroupBatchSampler(torch.utils.data.Sampler):
+    """Batch sampler that yields complete group-aware batches each epoch.
+
+    Wraps :class:`GroupAwareSampler._make_batches` so the DataLoader calls
+    ``next(iter(batch_sampler))`` to get a *list of indices* per batch, rather
+    than a scalar index.  This prevents PyTorch's default :class:`BatchSampler`
+    from slicing across GroupAwareSampler's internal batch boundaries.
+    """
+
+    def __init__(
+        self,
+        group_ids: np.ndarray,
+        batch_size: int,
+        seed: int | None = None,
+        drop_last: bool = False,
+    ):
+        self._impl = GroupAwareSampler(group_ids, batch_size, seed, drop_last)
+
+    def __iter__(self):
+        return iter(self._impl._make_batches())
+
+    def __len__(self) -> int:
+        return (
+            self._impl._n_samples + self._impl.batch_size - 1
+        ) // self._impl.batch_size
+
 
 def build_wdmpnn_model(n_targets=1):
     """Build a wDMPNN model with standard configuration."""
@@ -78,8 +177,22 @@ def build_wdmpnn_model(n_targets=1):
 
 
 def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
-                      fold_idx, split_type):
-    """Train wDMPNN for a single fold and return predictions + metadata."""
+                      fold_idx, split_type, lambda_within=0.0,
+                      all_group_ids=None, results_subdir=None):
+    """Train wDMPNN for a single fold and return predictions + metadata.
+
+    Parameters
+    ----------
+    lambda_within : float
+        Weight for the normalized within-group residual loss.  0.0 reproduces
+        the original wDMPNN pipeline exactly.
+    all_group_ids : np.ndarray | None
+        Integer group IDs for all dataset rows (length = len(df)).
+        Required when lambda_within > 0.
+    results_subdir : str | None
+        Override the checkpoint/predictions subdirectory name.  When None,
+        uses the module-level CHECKPOINT_DIR / PREDICTIONS_DIR.
+    """
 
     # Extract target values
     ys = df[target].astype(float).values.reshape(-1, 1)
@@ -108,20 +221,38 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     scaler = train_ds.normalize_targets()
     val_ds.normalize_targets(scaler)
 
-    # Build checkpoint path
+    # Build checkpoint path (include lambda tag for non-default runs)
     target_short = target.replace(' ', '_').replace('(', '').replace(')', '')
-    ckpt_path = CHECKPOINT_DIR / f'ea_ip__{target_short}__wDMPNN__{split_type}__fold{fold_idx}'
+    include_tag = (lambda_within > 0.0) or (results_subdir is not None)
+    lambda_suffix = f"__lw{_lambda_tag(lambda_within)}" if include_tag else ""
+    ckpt_base = (ROOT_DIR / 'checkpoints' / results_subdir) if results_subdir else CHECKPOINT_DIR
+    ckpt_path = ckpt_base / f'ea_ip__{target_short}__wDMPNN__{split_type}__fold{fold_idx}{lambda_suffix}'
     ckpt_path.mkdir(parents=True, exist_ok=True)
 
     # Metrics
     metric_list = get_metric_list('reg', target=target)
+
+    # Set group_id on training datapoints for GroupAwareSampler + L_within
+    train_group_ids = None
+    if lambda_within > 0.0:
+        if all_group_ids is None:
+            raise ValueError("lambda_within > 0 requires all_group_ids to be provided")
+        train_group_ids = all_group_ids[train_idx].astype(np.int64)
+        for i, dp in enumerate(train_data):
+            dp.x_d = np.array([float(train_group_ids[i])], dtype=np.float32)
+        # PolymerDataset caches X_d during __post_init__; refresh it via the setter
+        # so __getitem__ returns the updated group_id column in every batch.
+        train_ds.X_d = np.array([dp.x_d for dp in train_data])
 
     # Build model (wDMPNN uses weighted message passing and aggregation)
     mp = nn.WeightedBondMessagePassing()
     agg = nn.WeightedMeanAggregation()
     output_transform = nn.UnscaleTransform.from_standard_scaler(scaler)
     ffn = nn.RegressionFFN(input_dim=mp.output_dim, output_transform=output_transform)
-    mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)
+    if lambda_within > 0.0:
+        mpnn = WDMPNNWithinGroupLoss(mp, agg, ffn, batch_norm=False, lambda_within=lambda_within)
+    else:
+        mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)
 
     # Trainer
     from lightning import pytorch as pl
@@ -141,8 +272,18 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
         logger=pl.loggers.TensorBoardLogger(str(ckpt_path), name='logs'),
     )
 
-    # Dataloaders — num_workers>0 overlaps batch prep with GPU compute
-    train_loader = build_dataloader(train_ds, batch_size=BATCH_SIZE, num_workers=4, pin_memory=True)
+    # Dataloaders
+    if lambda_within > 0.0 and train_group_ids is not None:
+        from torch.utils.data import DataLoader as TorchDataLoader
+        drop_last = (len(train_ds) % BATCH_SIZE == 1)
+        batch_sampler = _GroupBatchSampler(train_group_ids, batch_size=BATCH_SIZE,
+                                           seed=SEED, drop_last=drop_last)
+        train_loader = TorchDataLoader(
+            train_ds, batch_sampler=batch_sampler,
+            num_workers=4, pin_memory=True, collate_fn=collate_polymer_batch,
+        )
+    else:
+        train_loader = build_dataloader(train_ds, batch_size=BATCH_SIZE, num_workers=4, pin_memory=True)
     val_loader = build_dataloader(val_ds, batch_size=BATCH_SIZE, num_workers=4, shuffle=False, pin_memory=True)
     test_loader = build_dataloader(test_ds, batch_size=BATCH_SIZE, num_workers=4, shuffle=False, pin_memory=True)
 
@@ -171,7 +312,11 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
             best_ckpt_path, best_val_loss = pick_best_checkpoint(ckpt_path)
             if best_ckpt_path:
                 with open(ckpt_path / "best.json", "w") as f:
-                    json.dump({"best_ckpt": str(best_ckpt_path), "best_val_loss": best_val_loss}, f, indent=2)
+                    json.dump(
+                        {"best_ckpt": str(best_ckpt_path), "best_val_loss": best_val_loss,
+                         "lambda_within": lambda_within},
+                        f, indent=2,
+                    )
                 done_flag.touch()
         finally:
             if inprog_flag.exists():
@@ -203,11 +348,17 @@ def main():
                        help='Comma-separated split types')
     parser.add_argument('--targets', type=str, default=None,
                        help='Comma-separated target names (default: all)')
+    parser.add_argument('--lambda_within', type=float, default=0.0,
+                       help='Weight for normalized within-group residual loss (default: 0.0)')
+    parser.add_argument('--results_subdir', type=str, default=None,
+                       help='Override checkpoint/predictions subdirectory name')
     cli_args = parser.parse_args()
 
     folds_to_run = [int(x) for x in cli_args.folds.split(',')]
     split_types = [x.strip() for x in cli_args.split_types.split(',')]
     targets = TARGETS if cli_args.targets is None else [x.strip() for x in cli_args.targets.split(',')]
+    lambda_within = cli_args.lambda_within
+    results_subdir = cli_args.results_subdir
 
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
@@ -218,6 +369,8 @@ def main():
     print(f"  Split types: {split_types}")
     print(f"  Targets: {targets}")
     print(f"  Folds: {folds_to_run}")
+    print(f"  Lambda within: {lambda_within}")
+    print(f"  Results subdir: {results_subdir or '(default)'}")
     print(f"  Dry run: {cli_args.dry_run}")
     print(f"  Predictions: {PREDICTIONS_DIR}")
     print(f"  Checkpoints: {CHECKPOINT_DIR}")
@@ -230,6 +383,13 @@ def main():
     smis_wdmpnn = df['WDMPNN_Input'].astype(str).values
     group_keys = build_group_keys(df)
     pair_keys = build_pair_keys(df)
+
+    # Build integer group IDs (needed when lambda_within > 0)
+    all_group_ids = None
+    if lambda_within > 0.0:
+        _, inverse = np.unique(group_keys, return_inverse=True)
+        all_group_ids = inverse.astype(np.int64)
+        logger.info(f"Built {len(np.unique(all_group_ids))} unique group IDs for lambda_within={lambda_within}")
 
     # ── Generate and verify splits ────────────────────────────────────
     splits = {}
@@ -287,22 +447,37 @@ def main():
                 y_true, y_pred = train_wdmpnn_fold(
                     df, smis_wdmpnn, target,
                     tr, va, te, fold_idx, split_type,
+                    lambda_within=lambda_within,
+                    all_group_ids=all_group_ids,
+                    results_subdir=results_subdir,
                 )
 
-                # Save predictions with full metadata
-                pred_file = (PREDICTIONS_DIR /
-                            f'ea_ip__{target}__wDMPNN__{split_type}__fold{fold_idx}.npz')
+                # Save predictions using canonical naming convention
+                # Include lambda tag in model name for non-default runs
+                include_tag = (lambda_within > 0.0) or (results_subdir is not None)
+                lw_suffix = f"_lw{_lambda_tag(lambda_within)}" if include_tag else ""
+                model_name_out = f'wdmpnn{lw_suffix}'
+                pred_base = (ROOT_DIR / 'predictions' / results_subdir) if results_subdir \
+                    else PREDICTIONS_DIR
+                _subdir = pred_base / split_subdir(split_type)
+                _subdir.mkdir(parents=True, exist_ok=True)
+                pred_file = _subdir / make_prediction_filename(
+                    target, model_name_out, split_type, fold_idx
+                )
                 np.savez_compressed(
                     pred_file,
                     y_true=y_true,
                     y_pred=y_pred,
                     test_indices=te,
-                    split_type=split_type,
+                    split_type=standard_split_name(split_type),
+                    model=standard_model_name(model_name_out),
+                    target=standard_target_token(target),
                     fold=fold_idx,
                     n_train=len(tr),
                     n_val=len(va),
                     n_test=len(te),
-                    # Metadata for Stage 2D analysis
+                    lambda_within=lambda_within,
+                    prediction_scale="physical_units",
                     smiles_A=df.iloc[te]['smiles_A'].values,
                     smiles_B=df.iloc[te]['smiles_B'].values,
                     fracA=df.iloc[te]['fracA'].values,
@@ -313,7 +488,7 @@ def main():
 
     print("\n" + "=" * 70)
     print("wDMPNN GENERALIZATION EXPERIMENTS COMPLETE")
-    print(f"Predictions: {PREDICTIONS_DIR}")
+    print(f"Predictions: {PREDICTIONS_DIR} (canonical subdirs)")
     print("=" * 70)
 
 
