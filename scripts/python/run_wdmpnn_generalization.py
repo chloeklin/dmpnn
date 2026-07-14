@@ -452,25 +452,25 @@ def main():
                     results_subdir=results_subdir,
                 )
 
-                # Save predictions using canonical naming convention
-                # Include lambda tag in model name for non-default runs
-                include_tag = (lambda_within > 0.0) or (results_subdir is not None)
-                lw_suffix = f"_lw{_lambda_tag(lambda_within)}" if include_tag else ""
-                model_name_out = f'wdmpnn{lw_suffix}'
+                # Save predictions using canonical naming convention.
+                # Always use 'wdmpnn' as the canonical model token (avoids
+                # registering every lambda variant in naming.py).  The lambda
+                # value is encoded as a '__lw{tag}' suffix on the filename stem
+                # and stored verbatim in the npz 'lambda_within' field.
+                lw_file_tag = f"__lw{_lambda_tag(lambda_within)}" if lambda_within > 0.0 else ""
                 pred_base = (ROOT_DIR / 'predictions' / results_subdir) if results_subdir \
                     else PREDICTIONS_DIR
                 _subdir = pred_base / split_subdir(split_type)
                 _subdir.mkdir(parents=True, exist_ok=True)
-                pred_file = _subdir / make_prediction_filename(
-                    target, model_name_out, split_type, fold_idx
-                )
+                base_name = make_prediction_filename(target, 'wdmpnn', split_type, fold_idx)
+                pred_file = _subdir / (base_name[:-4] + lw_file_tag + '.npz')
                 np.savez_compressed(
                     pred_file,
                     y_true=y_true,
                     y_pred=y_pred,
                     test_indices=te,
                     split_type=standard_split_name(split_type),
-                    model=standard_model_name(model_name_out),
+                    model='wdmpnn',
                     target=standard_target_token(target),
                     fold=fold_idx,
                     n_train=len(tr),
