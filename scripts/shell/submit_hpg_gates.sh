@@ -44,8 +44,12 @@ write_array_pbs() {
     local manifest="$1"
     local pbs="$2"
     local name="$3"
-    local tasks
+    local tasks array_directive
     tasks="$(wc -l < "$manifest" | tr -d ' ')"
+    array_directive=""
+    if [[ "$tasks" -gt 1 ]]; then
+        array_directive="#PBS -J 0-$((tasks - 1))"
+    fi
     cat > "$pbs" <<EOF
 #!/bin/bash
 #PBS -q $QUEUE
@@ -58,14 +62,15 @@ write_array_pbs() {
 #PBS -l jobfs=$JOBFS
 #PBS -N $name
 #PBS -r y
-#PBS -J 0-$((tasks - 1))
+$array_directive
 
 set -euo pipefail
 module load $MODULE_PYTHON $MODULE_CUDA
 source $VENV_ACTIVATE
 cd $PROJECT_DIR
 MANIFEST="$PROJECT_DIR/logs/hpg_gates/manifests/$(basename "$manifest")"
-TASK_ARGS="\$(sed -n "\$((PBS_ARRAY_INDEX + 1))p" "\$MANIFEST")"
+TASK_INDEX="\${PBS_ARRAY_INDEX:-0}"
+TASK_ARGS="\$(sed -n "\$((TASK_INDEX + 1))p" "\$MANIFEST")"
 eval "set -- \$TASK_ARGS"
 python scripts/python/run_hpg_generalization.py "\$@"
 EOF
@@ -113,7 +118,7 @@ PYTHONPATH=. python scripts/python/report_hpg_gate.py --models hpg_hier --seeds 
 EOF
 chmod +x "$REPORT_PBS"
 
-echo "Gate 1 manifest (2 tasks): $GATE1_MANIFEST"
+echo "Gate 1 manifest (1 task): $GATE1_MANIFEST"
 nl -ba "$GATE1_MANIFEST"
 echo "Gate 2 manifest (2 tasks): $GATE2_MANIFEST"
 nl -ba "$GATE2_MANIFEST"
