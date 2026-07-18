@@ -1,0 +1,26 @@
+#!/bin/bash
+#PBS -q gpuvolta
+#PBS -P ng76
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=24:00:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N eaip_s42diag
+#PBS -J 0-265
+
+set -euo pipefail
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+
+TASK="$(sed -n "$((PBS_ARRAY_INDEX + 1))p" "/scratch/um09/hl4138/dmpnn/logs/seed42_diagnosis/manifests/seed42_diagnosis.manifest")"
+read -r RUNNER TASK_ARGS <<< "$TASK"
+eval "set -- $TASK_ARGS"
+case "$RUNNER" in
+    hpg) python scripts/python/run_hpg_generalization.py "$@" ;;
+    wdmpnn) python scripts/python/run_wdmpnn_generalization.py "$@" ;;
+    stage2d) python scripts/python/run_stage2d_generalization.py "$@" ;;
+    *) printf 'Unknown runner: %s\n' "$RUNNER" >&2; exit 2 ;;
+esac

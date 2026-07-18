@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+from . import config as _cfg
 from .config import (
     DATA_PATH, META_DIR, PRED_ROOT, MODELS, SPLITS, TARGETS,
     TARGET_TOKENS, SPLIT_SUBDIRS, N_FOLDS,
@@ -68,17 +69,29 @@ def get_global_indices(fold: int, meta_folds: list) -> np.ndarray:
     raise KeyError(f"Fold {fold} not in metadata")
 
 
-def make_pred_filename(target_key: str, model: str, split: str, fold: int) -> str:
-    """Construct canonical prediction filename."""
+def make_pred_filename(target_key: str, model: str, split: str, fold: int,
+                       seed: int | None = None) -> str:
+    """Construct canonical prediction filename.
+
+    When *seed* is ``None`` (default) the filename includes the
+    ``__s{ACTIVE_SEED}`` suffix resolved from :data:`config.ACTIVE_SEED`.
+    """
+    if seed is None:
+        seed = _cfg.ACTIVE_SEED
     t_tok = TARGET_TOKENS[target_key]
-    return f"ea_ip__{t_tok}__{model}__{split}__fold{fold}.npz"
+    return f"ea_ip__{t_tok}__{model}__{split}__fold{fold}__s{seed}.npz"
 
 
 def load_predictions_single(model: str, target_key: str, split: str, fold: int,
-                            meta_folds: list) -> dict | None:
-    """Load a single fold's predictions. Returns dict or None if missing."""
+                            meta_folds: list, seed: int | None = None) -> dict | None:
+    """Load a single fold's predictions.
+
+    *seed* defaults to :data:`config.ACTIVE_SEED` (resolved live at call
+    time, **not** snapshotted at import).  Returns dict or None if the
+    file is missing.
+    """
     subdir = PRED_ROOT / SPLIT_SUBDIRS[split]
-    fname = make_pred_filename(target_key, model, split, fold)
+    fname = make_pred_filename(target_key, model, split, fold, seed=seed)
     fpath = subdir / fname
     if not fpath.exists():
         return None
@@ -94,6 +107,7 @@ def load_predictions_single(model: str, target_key: str, split: str, fold: int,
         'model': model,
         'target': target_key,
         'split': split,
+        'seed': seed if seed is not None else _cfg.ACTIVE_SEED,
     }
 
 

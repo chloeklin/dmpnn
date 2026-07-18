@@ -51,6 +51,7 @@ from chemprop.nn.stage2d import ARCH_LABEL_MAP
 from utils import (
     set_seed, build_copolymer_model_and_trainer, get_metric_list,
     create_copolymer_data, canonicalize_smiles, pick_best_checkpoint,
+    generate_a_held_out_splits,
 )
 sys.path.insert(0, str(ROOT_DIR))
 from evaluation.naming import (
@@ -62,6 +63,7 @@ from evaluation.naming import (
 ROOT = Path(__file__).resolve().parents[2]
 DATA_PATH = ROOT / 'data' / 'ea_ip.csv'
 PREDICTIONS_DIR = ROOT / 'predictions'
+META_PATH = ROOT / 'metadata' / 'splits' / 'monomer_heldout.json'
 
 MODELS = ['frac', '2d0_arch', '2d1_arch']
 N_FOLDS = 5
@@ -238,7 +240,8 @@ def verify_pair_disjoint_extra(train_idx, val_idx, test_idx, pair_keys, fold_i):
 def train_single_run(df_input, data_A, data_B, fA, fB, orig_Xd,
                      train_idx, val_idx, test_idx,
                      variant, target, fold_idx, split_type,
-                     featurizer, args_template, group_keys=None):
+                     featurizer, args_template, group_keys=None,
+                     training_seed=42):
     """Train a single model run and return predictions."""
     
     from chemprop.data import CopolymerDataset, build_dataloader
@@ -297,7 +300,7 @@ def train_single_run(df_input, data_A, data_B, fA, fB, orig_Xd,
     
     # Build checkpoint path
     checkpoint_path = (ROOT / 'checkpoints' / 'HPG2Stage_Gen' /
-                      f'{DATASET_NAME}__{target}__{copolymer_mode}__{split_type}__fold{fold_idx}')
+                      f'{DATASET_NAME}__{target}__{copolymer_mode}__{split_type}__fold{fold_idx}__s{training_seed}')
     checkpoint_path.mkdir(parents=True, exist_ok=True)
     
     # Metrics
@@ -385,6 +388,21 @@ def train_single_run(df_input, data_A, data_B, fA, fB, orig_Xd,
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════
 
+def _load_lomao_splits(df: pd.DataFrame):
+    train, val, test, _ = generate_a_held_out_splits(
+        df['smiles_A'].astype(str).values, len(df), seed=42,
+        protocol='leave_one_A_out', logger=logger,
+    )
+    metadata = json.loads(META_PATH.read_text())['folds']
+    if len(test) != len(metadata):
+        raise AssertionError(f'Expected {len(metadata)} monomer-heldout folds, got {len(test)}')
+    for fold, indices in enumerate(test):
+        expected = np.asarray(metadata[fold]['global_test_indices'], dtype=int)
+        if not np.array_equal(indices, expected):
+            raise AssertionError(f'monomer_heldout fold {fold} test indices differ from metadata')
+    return train, val, test
+
+
 def main():
     parser = argparse.ArgumentParser(description='Stage 2D Generalization Experiments')
     parser.add_argument('--dry_run', action='store_true',
@@ -395,11 +413,20 @@ def main():
                        help='Comma-separated split types (default: group_disjoint,pair_disjoint)')
     parser.add_argument('--models', type=str, default='frac,2d0_arch,2d1_arch',
                        help='Comma-separated model variants (default: frac,2d0_arch,2d1_arch)')
+    parser.add_argument('--targets', type=str, default=None,
+                       help='Comma-separated target column names (default: both)')
+    parser.add_argument('--seed', type=int, default=SEED,
+                       help='Training seed (default: 42). Split seed is always 42.')
     cli_args = parser.parse_args()
     
     folds_to_run = [int(x) for x in cli_args.folds.split(',')]
     split_types = [x.strip() for x in cli_args.split_types.split(',')]
     models_to_run = [x.strip() for x in cli_args.models.split(',')]
+    targets_to_run = TARGETS if cli_args.targets is None else [x.strip() for x in cli_args.targets.split(',')]
+    unknown_targets = set(targets_to_run) - set(TARGETS)
+    if unknown_targets:
+        raise ValueError(f'Unknown targets: {sorted(unknown_targets)}')
+    training_seed = cli_args.seed
     
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -407,8 +434,10 @@ def main():
     print("STAGE 2D GENERALIZATION EXPERIMENTS")
     print("=" * 70)
     print(f"  Models: {models_to_run}")
+    print(f"  Targets: {targets_to_run}")
     print(f"  Split types: {split_types}")
     print(f"  Folds: {folds_to_run}")
+    print(f"  Training seed: {training_seed}")
     print(f"  Dry run: {cli_args.dry_run}")
     print(f"  Predictions dir: {PREDICTIONS_DIR}")
     print("=" * 70)
@@ -421,7 +450,7 @@ def main():
     group_keys = build_group_keys(df)
     pair_keys = build_pair_keys(df)
     
-    # ── Generate and verify splits ────────────────────────────────────
+    # ── Generate and verify splits (always seed=42 for reproducible splits) ──
     splits = {}
     
     for split_type in split_types:
@@ -431,19 +460,22 @@ def main():
         
         if split_type == 'group_disjoint':
             train_indices, val_indices, test_indices = generate_group_disjoint_splits(
-                df, n_splits=N_FOLDS, seed=SEED
+                df, n_splits=N_FOLDS, seed=42
             )
             verify_keys = group_keys
         elif split_type == 'pair_disjoint':
             train_indices, val_indices, test_indices = generate_pair_disjoint_splits(
-                df, n_splits=N_FOLDS, seed=SEED
+                df, n_splits=N_FOLDS, seed=42
             )
             verify_keys = pair_keys
+        elif split_type == 'monomer_heldout':
+            splits[split_type] = _load_lomao_splits(df)
+            continue
         else:
             raise ValueError(f"Unknown split type: {split_type}")
         
         # Verify no leakage for each fold
-        for fold_i in range(N_FOLDS):
+        for fold_i in range(len(train_indices)):
             verify_no_leakage(
                 train_indices[fold_i], val_indices[fold_i], test_indices[fold_i],
                 verify_keys, fold_i, split_type
@@ -471,6 +503,9 @@ def main():
         print("\n[DRY RUN] Split generation and verification complete. Exiting without training.")
         return
     
+    # Set training seed (different from split seed)
+    set_seed(training_seed)
+
     # ── Prepare data for training ────────────────────────────────────
     train_args = argparse.Namespace(
         model_name='DMPNN',
@@ -508,7 +543,7 @@ def main():
     featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
     
     # ── Training loop ────────────────────────────────────────────────
-    for target in TARGETS:
+    for target in targets_to_run:
         logger.info(f"\n{'='*60}\nTarget: {target}\n{'='*60}")
         
         ys = df[target].astype(float).values.reshape(-1, 1)
@@ -541,6 +576,7 @@ def main():
                         variant, target, fold_idx, split_type,
                         featurizer, train_args,
                         group_keys=group_keys,
+                        training_seed=training_seed,
                     )
                     
                     # Save predictions using canonical naming convention
@@ -548,7 +584,8 @@ def main():
                     _subdir = PREDICTIONS_DIR / split_subdir(split_type)
                     _subdir.mkdir(parents=True, exist_ok=True)
                     pred_file = _subdir / make_prediction_filename(
-                        target, _model_internal, split_type, fold_idx
+                        target, _model_internal, split_type, fold_idx,
+                        seed=training_seed,
                     )
                     np.savez_compressed(
                         pred_file,
@@ -559,6 +596,7 @@ def main():
                         model=standard_model_name(_model_internal),
                         target=standard_target_token(target),
                         fold=fold_idx,
+                        seed=training_seed,
                         n_train=len(tr),
                         n_val=len(va),
                         n_test=len(te),
@@ -573,5 +611,4 @@ def main():
 
 
 if __name__ == '__main__':
-    set_seed(SEED)
     main()

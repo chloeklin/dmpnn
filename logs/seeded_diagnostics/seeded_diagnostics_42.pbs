@@ -1,0 +1,16 @@
+#!/bin/bash
+#PBS -q normal
+#PBS -P ng76
+#PBS -l ncpus=12
+#PBS -l mem=100GB
+#PBS -l walltime=04:00:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N seed_diag
+
+set -euo pipefail
+module load python3/3.12.1
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+python scripts/python/run_seeded_diagnostics.py --seeds 42 --skip-aggregate
+python scripts/python/aggregate_seeded_diagnostics.py --seeds 42

@@ -19,13 +19,15 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
 
+from . import config as _cfg
 from .config import (
     COLORS, DPI, FOLD_MONOMER_NAMES, MARKERS, MODEL_DISPLAY, MODELS,
-    OUT_ROOT, PRED_ROOT, SPLIT_SUBDIRS, TARGETS, TARGET_TOKENS,
+    PRED_ROOT, SPLIT_SUBDIRS, TARGETS, TARGET_TOKENS,
 )
 from .data_loading import load_dataset, load_split_meta
 
-OUT_DIR = OUT_ROOT / "11_pathological_folds"
+def _out_dir():
+    return _cfg.OUT_ROOT / "11_pathological_folds"
 N_LOMO_FOLDS = 9
 SPLIT = "monomer_heldout"
 PRED_DIR = PRED_ROOT / SPLIT_SUBDIRS[SPLIT]
@@ -45,7 +47,8 @@ def _abs_errors(y_true: np.ndarray, y_pred: np.ndarray):
 
 
 def _load_npz(model: str, tkey: str, fold: int) -> tuple[np.ndarray, np.ndarray] | None:
-    fname = f"ea_ip__{TARGET_TOKENS[tkey]}__{model}__{SPLIT}__fold{fold}.npz"
+    seed = _cfg.ACTIVE_SEED
+    fname = f"ea_ip__{TARGET_TOKENS[tkey]}__{model}__{SPLIT}__fold{fold}__s{seed}.npz"
     p = PRED_DIR / fname
     if not p.exists():
         return None
@@ -56,7 +59,7 @@ def _load_npz(model: str, tkey: str, fold: int) -> tuple[np.ndarray, np.ndarray]
 # ── main function ─────────────────────────────────────────────────────────────
 
 def run_pathological_folds() -> pd.DataFrame:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _out_dir().mkdir(parents=True, exist_ok=True)
 
     meta_folds = load_split_meta(SPLIT)
     fold_info = {f["fold"]: f for f in meta_folds}
@@ -97,7 +100,7 @@ def run_pathological_folds() -> pd.DataFrame:
                 ))
 
     df = pd.DataFrame(rows)
-    df.to_csv(OUT_DIR / "pathological_fold_metrics.csv", index=False)
+    df.to_csv(_out_dir() / "pathological_fold_metrics.csv", index=False)
     print(f"  Saved: pathological_fold_metrics.csv  ({len(df)} rows)")
 
     _make_plots(df)
@@ -142,7 +145,7 @@ def _make_plots(df: pd.DataFrame):
 
             plt.tight_layout()
             fname = f"monomer_heldout_{tkey.replace(' ', '_')}_{metric}.png"
-            fig.savefig(OUT_DIR / fname, dpi=DPI)
+            fig.savefig(_out_dir() / fname, dpi=DPI)
             plt.close(fig)
 
     # Highlight Fold 6 EA and hardest IP fold
@@ -181,10 +184,10 @@ def _make_plots(df: pd.DataFrame):
         plt.suptitle(f"{tkey} — highlighted: {hl_label}", fontsize=10)
         plt.tight_layout()
         fname = f"monomer_heldout_{tkey.replace(' ', '_')}_highlight.png"
-        fig.savefig(OUT_DIR / fname, dpi=DPI)
+        fig.savefig(_out_dir() / fname, dpi=DPI)
         plt.close(fig)
 
-    print(f"  Saved: fold-wise bar/line plots in {OUT_DIR}")
+    print(f"  Saved: fold-wise bar/line plots in {_out_dir()}")
 
 
 # ── markdown report ───────────────────────────────────────────────────────────
@@ -288,5 +291,5 @@ def _make_report(df: pd.DataFrame):
                 lines.append("- **Verdict: MIXED — both denominator shrinkage and elevated errors contribute.**")
         lines.append("")
 
-    (OUT_DIR / "pathological_fold_report.md").write_text("\n".join(lines))
+    (_out_dir() / "pathological_fold_report.md").write_text("\n".join(lines))
     print(f"  Saved: pathological_fold_report.md")

@@ -8,9 +8,8 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from .config import FOLD_MONOMER_NAMES, MODEL_DISPLAY, OUT_ROOT, TARGETS
-
-OUT_DIR = OUT_ROOT
+from . import config as _cfg
+from .config import FOLD_MONOMER_NAMES, MODEL_DISPLAY, TARGETS
 
 
 def run_followup_summary(
@@ -19,9 +18,9 @@ def run_followup_summary(
     abla_df: pd.DataFrame | None = None,
 ):
     """Read CSVs from disk if DataFrames not provided."""
-    p11 = OUT_ROOT / "11_pathological_folds"
-    p12 = OUT_ROOT / "12_residual_correlation"
-    p13 = OUT_ROOT / "13_chemarch_residual_ablation"
+    p11 = _cfg.OUT_ROOT / "11_pathological_folds"
+    p12 = _cfg.OUT_ROOT / "12_residual_correlation"
+    p13 = _cfg.OUT_ROOT / "13_chemarch_residual_ablation"
 
     if path_df is None:
         f = p11 / "pathological_fold_metrics.csv"
@@ -301,7 +300,7 @@ def run_followup_summary(
     lines.append("---\n")
     lines.append("_Generated automatically by `analysis/diagnostics/followup_summary.py`_")
 
-    out_path = OUT_ROOT / "13_final_followup_summary.md"
+    out_path = _cfg.OUT_ROOT / "13_final_followup_summary.md"
     out_path.write_text("\n".join(lines))
     print(f"  Saved: {out_path}")
     return out_path

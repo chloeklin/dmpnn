@@ -33,14 +33,16 @@ _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "scripts" / "python"))
 
+from . import config as _cfg
 from .config import (
-    COLORS, DPI, FOLD_MONOMER_NAMES, MODEL_DISPLAY, OUT_ROOT, TARGETS,
+    COLORS, DPI, FOLD_MONOMER_NAMES, MODEL_DISPLAY, TARGETS,
     TARGET_TOKENS, PRED_ROOT, SPLIT_SUBDIRS,
 )
 from .data_loading import load_dataset, load_split_meta
 from .grouping import build_fold_df, filter_matched_groups
 
-OUT_DIR = OUT_ROOT / "13_chemarch_residual_ablation"
+def _out_dir():
+    return _cfg.OUT_ROOT / "13_chemarch_residual_ablation"
 CKPT_DIR = _ROOT / "checkpoints" / "ea_ip_lomo"
 SPLIT = "monomer_heldout"
 N_FOLDS = 9
@@ -213,7 +215,7 @@ def _group_metrics(fdf: pd.DataFrame, yp: np.ndarray, label: str) -> dict:
 # ── main function ─────────────────────────────────────────────────────────────
 
 def run_chemarch_residual_ablation(df: pd.DataFrame) -> pd.DataFrame:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _out_dir().mkdir(parents=True, exist_ok=True)
 
     meta_folds = load_split_meta(SPLIT)
 
@@ -277,7 +279,7 @@ def run_chemarch_residual_ablation(df: pd.DataFrame) -> pd.DataFrame:
             fold_summaries[tkey].append((fold, yp_full, yp_backbone, yt, m_full, m_back))
 
     out_df = pd.DataFrame(rows)
-    out_df.to_csv(OUT_DIR / "chemarch_pre_vs_post.csv", index=False)
+    out_df.to_csv(_out_dir() / "chemarch_pre_vs_post.csv", index=False)
     print(f"\n  Saved: chemarch_pre_vs_post.csv  ({len(out_df)} rows)")
 
     _make_ablation_plots(out_df, fold_summaries)
@@ -325,7 +327,7 @@ def _make_ablation_plots(df: pd.DataFrame, fold_summaries: dict):
 
             plt.tight_layout()
             fname = f"chemarch_backbone_vs_full_{tkey.replace(' ', '_')}_{metric}.png"
-            fig.savefig(OUT_DIR / fname, dpi=DPI)
+            fig.savefig(_out_dir() / fname, dpi=DPI)
             plt.close(fig)
 
     # Summary delta plot: full - backbone
@@ -357,7 +359,7 @@ def _make_ablation_plots(df: pd.DataFrame, fold_summaries: dict):
         ax.legend(fontsize=8)
     plt.suptitle("ChemArch: Change in R² from adding the residual head (α·r_arch)", fontsize=10)
     plt.tight_layout()
-    fig.savefig(OUT_DIR / "chemarch_delta_r2.png", dpi=DPI)
+    fig.savefig(_out_dir() / "chemarch_delta_r2.png", dpi=DPI)
     plt.close(fig)
 
-    print(f"  Saved: ablation comparison plots in {OUT_DIR}")
+    print(f"  Saved: ablation comparison plots in {_out_dir()}")

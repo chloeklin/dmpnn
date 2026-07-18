@@ -21,7 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from analysis.diagnostics.config import ensure_dirs, OUT_ROOT, STEP_DIRS
+from analysis.diagnostics import config as diag_config
+from analysis.diagnostics.config import ensure_dirs, STEP_DIRS
 from analysis.diagnostics.data_loading import load_dataset, load_all_meta
 from analysis.diagnostics.validation import run_validation
 from analysis.diagnostics.variance_geometry import run_variance_geometry, run_error_decomposition
@@ -49,11 +50,19 @@ import pandas as pd
 
 
 def main():
+    import argparse as _ap
+    _p = _ap.ArgumentParser(description='Run diagnostics pipeline')
+    _p.add_argument('--seed', type=int, default=42,
+                    help='Active seed for prediction files (default: 42)')
+    _cli = _p.parse_args()
+
+    diag_config.set_active_seed(_cli.seed)
+
     t0 = time.time()
     print("=" * 72)
-    print("MODEL DIAGNOSTICS PIPELINE")
+    print(f"MODEL DIAGNOSTICS PIPELINE  (seed={_cli.seed})")
     print("=" * 72)
-    print(f"Output directory: {OUT_ROOT}\n")
+    print(f"Output directory: {diag_config.OUT_ROOT}\n")
 
     # ── Setup ─────────────────────────────────────────────────────────────────
     ensure_dirs()
@@ -178,7 +187,7 @@ def main():
     print("=" * 72)
     print(f"PIPELINE COMPLETE ({elapsed:.1f}s)")
     print("=" * 72)
-    print(f"\nAll outputs saved to: {OUT_ROOT}")
+    print(f"\nAll outputs saved to: {diag_config.OUT_ROOT}")
     print("\nGenerated files:")
     for step_name, step_dir in STEP_DIRS.items():
         files = sorted(step_dir.glob('*'))

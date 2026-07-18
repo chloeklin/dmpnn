@@ -133,7 +133,7 @@ class HPGMPNN(pl.LightningModule):
 
     def __init__(
         self,
-        d_v: int = 49,
+        d_v: int = 130,
         d_e: int = 1,
         d_h: int = 128,
         d_ffn: int = 64,

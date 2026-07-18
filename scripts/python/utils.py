@@ -152,6 +152,12 @@ def create_base_argument_parser(description="Train a graph model"):
                              '"pairInteractGate" = gated pairwise interaction (Phase 4): '
                              'h_poly = h_mix + lambda * h_int where lambda = sigmoid(Linear(h_mix)); '
                              'pair MLP output zero-init + gate bias=-3 => starts as HPG_frac')
+    parser.add_argument('--chain_edge_mode', type=str, default='degree',
+                        choices=['degree', 'stochastic'],
+                        help='HPG fragment-fragment edge weight scheme (only for model=HPG): '
+                             "'degree' = bidirectional edges with degree scalar (default); "
+                             "'stochastic' = all N\u00b2 directed edges with Markov transition "
+                             'weights derived from poly_type and monomer fractions.')
 
     # Split arguments
     parser.add_argument('--split_type', type=str, default='random',
@@ -377,6 +383,11 @@ def save_model_results(results_data, args, model_name, results_dir, logger=None)
     hpg_variant = getattr(args, 'hpg_variant', 'baseline')
     if model_name == 'HPG' and hpg_variant != 'baseline':
         filename_parts.append(f"hpg_{hpg_variant}")
+
+    # Add chain_edge_mode suffix (only for non-default)
+    chain_edge_mode = getattr(args, 'chain_edge_mode', 'degree')
+    if model_name == 'HPG' and chain_edge_mode != 'degree':
+        filename_parts.append(f"chain_{chain_edge_mode}")
 
     # Add poly_type suffix
     if getattr(args, 'incl_poly_type', False):
@@ -2048,7 +2059,12 @@ def build_experiment_paths(args, chemprop_dir, checkpoint_dir, target, descripto
         if model_name in ['HPG', 'wDMPNN']:
             # HPG and wDMPNN don't use copolymer modes
             # wDMPNN reads directly from WDMPNN_Input column
-            copoly_suffix = poly_type_sfx
+            _chain_sfx = ""
+            if model_name == 'HPG':
+                _cem = getattr(args, 'chain_edge_mode', 'degree')
+                if _cem != 'degree':
+                    _chain_sfx = f"__chain_{_cem}"
+            copoly_suffix = poly_type_sfx + _chain_sfx
         else:
             copolymer_mode = getattr(args, 'copolymer_mode', 'mix')
             # Include fusion_type in filename for pairwise modes
@@ -2440,6 +2456,10 @@ def load_and_preprocess_data(args, setup_info):
     if getattr(args, 'hpg_variant', '') == 'archGraph' and 'poly_type' in ds_ignore:
         ds_ignore = [col for col in ds_ignore if col != 'poly_type']
         logger.info(f"hpg_variant=archGraph: keeping 'poly_type' column (removed from ignore list)")
+    # Don't drop poly_type for stochastic chain edge mode (needed for Markov weights)
+    if getattr(args, 'chain_edge_mode', 'degree') == 'stochastic' and 'poly_type' in ds_ignore:
+        ds_ignore = [col for col in ds_ignore if col != 'poly_type']
+        logger.info(f"chain_edge_mode='stochastic': keeping 'poly_type' column (removed from ignore list)")
     # Don't drop poly_type for Stage 2D modes (needed for ordinal architecture encoding)
     if getattr(args, 'copolymer_mode', '').startswith('stage2d_') and 'poly_type' in ds_ignore:
         ds_ignore = [col for col in ds_ignore if col != 'poly_type']
@@ -2641,6 +2661,7 @@ def load_and_preprocess_data(args, setup_info):
             _needs_poly_type = (
                 getattr(args, 'copolymer_mode', '').startswith('stage2d_')
                 or getattr(args, 'hpg_variant', '') == 'archGraph'
+                or getattr(args, 'chain_edge_mode', 'degree') == 'stochastic'
                 or getattr(args, 'incl_poly_type', False)
             )
             if _needs_poly_type:

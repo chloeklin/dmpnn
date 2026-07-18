@@ -46,7 +46,7 @@ def test_featurizer_copolymer():
     print(f"  V shape: {mg.V.shape}, E shape: {mg.E.shape}")
     print(f"  edge_index shape: {mg.edge_index.shape}")
     assert mg.V.shape[0] == mg.n_fragments + mg.n_atoms
-    # Should have: 1 frag-frag edge + atom-atom bonds (bidirectional) + atom→frag edges
+    # Should have: 2 frag-frag edges (bidirectional) + atom-atom bonds + atom→frag edges
     assert mg.edge_index.shape[1] > 0
 
 
@@ -1535,6 +1535,156 @@ def test_archGraph_backward_compat():
     print(f"  VALID_POOLING_TYPES: {VALID_POOLING_TYPES}")
 
 
+# ──────────────────────────────────────────────────────────────────
+# Stochastic chain_edge_mode tests
+# ──────────────────────────────────────────────────────────────────
+
+def _ff_weight_matrix(mg) -> np.ndarray:
+    """Extract the [n_frags, n_frags] ff-edge weight matrix from an HPGMolGraph."""
+    n = mg.n_fragments
+    ff_mask = (mg.edge_index[0] < n) & (mg.edge_index[1] < n)
+    P = np.zeros((n, n), dtype=np.float32)
+    for k in range(mg.edge_index.shape[1]):
+        if ff_mask[k]:
+            P[mg.edge_index[0, k], mg.edge_index[1, k]] = mg.E[k, 0]
+    return P
+
+
+def test_stochastic_alternating():
+    """Alternating: off-diagonal = 1-eps, diagonal = eps for a 2-fragment polymer."""
+    EPS = 0.05
+    feat = HPGMolGraphFeaturizer(chain_edge_mode="stochastic")
+    fracs = np.array([0.5, 0.5], dtype=np.float32)
+    mg = feat(
+        fragment_smiles=["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=fracs,
+        poly_type="alternating",
+    )
+    n_frags = mg.n_fragments
+    ff_mask = (mg.edge_index[0] < n_frags) & (mg.edge_index[1] < n_frags)
+    assert ff_mask.sum() == n_frags ** 2, (
+        f"Expected {n_frags**2} ff edges (N\u00b2), got {ff_mask.sum()}"
+    )
+    P = _ff_weight_matrix(mg)
+    np.testing.assert_allclose(P[0, 0], EPS,       atol=1e-6, err_msg="P_AA wrong")
+    np.testing.assert_allclose(P[0, 1], 1.0 - EPS, atol=1e-6, err_msg="P_AB wrong")
+    np.testing.assert_allclose(P[1, 0], 1.0 - EPS, atol=1e-6, err_msg="P_BA wrong")
+    np.testing.assert_allclose(P[1, 1], EPS,       atol=1e-6, err_msg="P_BB wrong")
+    print(f"  alternating ff matrix: {P.tolist()} — confirmed")
+
+
+def test_stochastic_block():
+    """Block: diagonal = 1-eps, off-diagonal = eps for a 2-fragment polymer.
+    Fractions are ignored by design (first-order Markov cannot encode block length).
+    """
+    EPS = 0.05
+    feat = HPGMolGraphFeaturizer(chain_edge_mode="stochastic")
+    fracs = np.array([0.3, 0.7], dtype=np.float32)  # fracs should be ignored
+    mg = feat(
+        fragment_smiles=["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=fracs,
+        poly_type="block",
+    )
+    P = _ff_weight_matrix(mg)
+    np.testing.assert_allclose(P[0, 0], 1.0 - EPS, atol=1e-6, err_msg="P_AA wrong")
+    np.testing.assert_allclose(P[0, 1], EPS,       atol=1e-6, err_msg="P_AB wrong")
+    np.testing.assert_allclose(P[1, 0], EPS,       atol=1e-6, err_msg="P_BA wrong")
+    np.testing.assert_allclose(P[1, 1], 1.0 - EPS, atol=1e-6, err_msg="P_BB wrong")
+    print(f"  block ff matrix: {P.tolist()} — confirmed (fracs ignored by design)")
+
+
+def test_stochastic_random():
+    """Random: each row = fracs (memoryless Markov) for a 2-fragment polymer."""
+    fA, fB = 0.3, 0.7
+    feat = HPGMolGraphFeaturizer(chain_edge_mode="stochastic")
+    fracs = np.array([fA, fB], dtype=np.float32)
+    mg = feat(
+        fragment_smiles=["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=fracs,
+        poly_type="random",
+    )
+    P = _ff_weight_matrix(mg)
+    np.testing.assert_allclose(P[0, 0], fA, atol=1e-6, err_msg="P_AA should equal fA")
+    np.testing.assert_allclose(P[0, 1], fB, atol=1e-6, err_msg="P_AB should equal fB")
+    np.testing.assert_allclose(P[1, 0], fA, atol=1e-6, err_msg="P_BA should equal fA")
+    np.testing.assert_allclose(P[1, 1], fB, atol=1e-6, err_msg="P_BB should equal fB")
+    print(f"  random ff matrix: {P.tolist()} — confirmed (memoryless, rows = fracs)")
+
+
+def test_stochastic_deterministic():
+    """Same (poly_type, fracs) input → byte-identical graph every call."""
+    feat = HPGMolGraphFeaturizer(chain_edge_mode="stochastic")
+    kwargs = dict(
+        fragment_smiles=["[*]CC[*]", "[*]OCC[*]"],
+        connections=[(0, 1, 1.0)],
+        frag_fracs=np.array([0.4, 0.6], dtype=np.float32),
+        poly_type="random",
+    )
+    mg1 = feat(**kwargs)
+    mg2 = feat(**kwargs)
+    np.testing.assert_array_equal(mg1.E, mg2.E,
+                                   err_msg="E not deterministic")
+    np.testing.assert_array_equal(mg1.edge_index, mg2.edge_index,
+                                   err_msg="edge_index not deterministic")
+    np.testing.assert_array_equal(mg1.V, mg2.V,
+                                   err_msg="V not deterministic")
+    print("  determinism: same input \u2192 identical graph — confirmed")
+
+
+def test_stochastic_only_ff_differs():
+    """Degree vs stochastic differ ONLY in the ff-edge block.
+    V and all non-ff edges (atom-atom + atom\u2192fragment) must be byte-identical.
+    """
+    fracs = np.array([0.5, 0.5], dtype=np.float32)
+    smi = ["[*]CC[*]", "[*]OCC[*]"]
+    conns = [(0, 1, 1.0)]
+
+    feat_deg = HPGMolGraphFeaturizer(chain_edge_mode="degree")
+    feat_sto = HPGMolGraphFeaturizer(chain_edge_mode="stochastic")
+
+    mg_deg = feat_deg(smi, conns, frag_fracs=fracs)
+    mg_sto = feat_sto(smi, conns, frag_fracs=fracs, poly_type="random")
+
+    # V must be byte-identical
+    np.testing.assert_array_equal(
+        mg_deg.V, mg_sto.V,
+        err_msg="V differs between degree and stochastic — single-factor violated",
+    )
+
+    n_frags = mg_deg.n_fragments
+
+    def split_ff(mg):
+        ei = mg.edge_index
+        ff_mask = (ei[0] < n_frags) & (ei[1] < n_frags)
+        return (
+            ei[:, ff_mask], mg.E[ff_mask],      # ff block
+            ei[:, ~ff_mask], mg.E[~ff_mask],    # non-ff block
+        )
+
+    _, deg_ff_E, deg_nff_idx, deg_nff_E = split_ff(mg_deg)
+    _, sto_ff_E, sto_nff_idx, sto_nff_E = split_ff(mg_sto)
+
+    # Non-ff blocks must be identical (atom-atom and atom→frag edges unchanged)
+    np.testing.assert_array_equal(deg_nff_idx, sto_nff_idx,
+                                   err_msg="non-ff edge_index differs")
+    np.testing.assert_array_equal(deg_nff_E, sto_nff_E,
+                                   err_msg="non-ff E differs")
+
+    # FF blocks must differ (different edge count and/or weights)
+    ff_identical = (
+        deg_ff_E.shape[0] == sto_ff_E.shape[0]
+        and np.array_equal(deg_ff_E, sto_ff_E)
+    )
+    assert not ff_identical, "ff-edge block should differ between degree and stochastic"
+
+    print(f"  degree ff edges: {deg_ff_E.shape[0]}, stochastic ff edges: {sto_ff_E.shape[0]}")
+    print(f"  non-ff edges: identical ({deg_nff_E.shape[0]})")
+    print("  single-factor test: PASSED")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  HPG-GAT Smoke Tests")
@@ -1616,6 +1766,12 @@ if __name__ == "__main__":
         ("62. Arch types produce distinct update patterns", test_archGraph_arch_types_differ),
         ("63. Batching isolation", test_archGraph_batching_isolation),
         ("64. Backward compat (arch_graph_layer isolated)", test_archGraph_backward_compat),
+        # Stochastic chain_edge_mode tests
+        ("65. Stochastic alternating ff weights", test_stochastic_alternating),
+        ("66. Stochastic block ff weights (fracs ignored)", test_stochastic_block),
+        ("67. Stochastic random ff weights = fracs", test_stochastic_random),
+        ("68. Stochastic deterministic (same input → identical graph)", test_stochastic_deterministic),
+        ("69. Degree vs stochastic: only ff-edge block differs", test_stochastic_only_ff_differs),
     ]
 
     for name, fn in tests:

@@ -26,14 +26,16 @@ import pandas as pd
 from scipy import stats as sp_stats
 from sklearn.metrics import r2_score
 
+from . import config as _cfg
 from .config import (
     COLORS, DPI, FOLD_MONOMER_NAMES, MODEL_DISPLAY, MODELS,
-    N_FOLDS, OUT_ROOT, SPLITS, TARGETS,
+    N_FOLDS, SPLITS, TARGETS,
 )
 from .data_loading import load_all_meta, load_dataset, load_predictions_single
 from .grouping import build_fold_df, filter_matched_groups
 
-OUT_DIR = OUT_ROOT / "12_residual_correlation"
+def _out_dir():
+    return _cfg.OUT_ROOT / "12_residual_correlation"
 PAIRS = [("chemarch", "wdmpnn"), ("globalarch", "wdmpnn"), ("frac", "wdmpnn")]
 PAIR_LABELS = {
     ("chemarch", "wdmpnn"):   ("ChemArch", "wDMPNN"),
@@ -77,7 +79,7 @@ def _pairwise_metrics(e1: np.ndarray, e2: np.ndarray) -> dict:
 # ── main function ─────────────────────────────────────────────────────────────
 
 def run_residual_correlation(df: pd.DataFrame, meta: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _out_dir().mkdir(parents=True, exist_ok=True)
 
     corr_rows = []
     # Accumulate all residuals for scatter plots and disagreement analysis
@@ -141,7 +143,7 @@ def run_residual_correlation(df: pd.DataFrame, meta: dict) -> tuple[pd.DataFrame
                     all_resid[(m1, m2)].append(sample_info)
 
     corr_df = pd.DataFrame(corr_rows)
-    corr_df.to_csv(OUT_DIR / "residual_correlations.csv", index=False)
+    corr_df.to_csv(_out_dir() / "residual_correlations.csv", index=False)
     print(f"  Saved: residual_correlations.csv  ({len(corr_df)} rows)")
 
     # Scatter/hexbin plots
@@ -149,7 +151,7 @@ def run_residual_correlation(df: pd.DataFrame, meta: dict) -> tuple[pd.DataFrame
 
     # Largest disagreements
     disagree_df = _make_disagreement_table(df, all_resid)
-    disagree_df.to_csv(OUT_DIR / "largest_model_disagreements.csv", index=False)
+    disagree_df.to_csv(_out_dir() / "largest_model_disagreements.csv", index=False)
     print(f"  Saved: largest_model_disagreements.csv  ({len(disagree_df)} rows)")
 
     return corr_df, disagree_df
@@ -232,10 +234,10 @@ def _make_scatter_plots(df: pd.DataFrame, all_resid: dict, corr_df: pd.DataFrame
             plt.suptitle(f"Residual correlation: {lA} vs {lB}  —  {tkey}", fontsize=11)
             plt.tight_layout()
             fname = f"residual_scatter_{m1}_vs_{m2}_{tkey.replace(' ', '_')}.png"
-            fig.savefig(OUT_DIR / fname, dpi=DPI)
+            fig.savefig(_out_dir() / fname, dpi=DPI)
             plt.close(fig)
 
-    print(f"  Saved: residual scatter/hexbin plots in {OUT_DIR}")
+    print(f"  Saved: residual scatter/hexbin plots in {_out_dir()}")
 
 
 # ── disagreement table ────────────────────────────────────────────────────────

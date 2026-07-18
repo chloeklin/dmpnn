@@ -177,7 +177,7 @@ class HPGMessagePassing(nn.Module):
 
     def __init__(
         self,
-        d_v: int = 49,
+        d_v: int = 130,
         d_h: int = 128,
         d_e: int = 1,
         depth: int = 6,
@@ -363,7 +363,7 @@ class HPGRelMsgMessagePassing(nn.Module):
 
     def __init__(
         self,
-        d_v: int = 49,
+        d_v: int = 130,
         d_h: int = 128,
         d_e: int = 1,
         depth: int = 6,

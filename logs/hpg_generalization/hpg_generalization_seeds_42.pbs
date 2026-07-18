@@ -1,0 +1,26 @@
+#!/bin/bash
+#PBS -q gpuvolta
+#PBS -P ng76
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=12:30:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N hpg_gen
+#PBS -J 0-113
+
+set -euo pipefail
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+
+MANIFEST="/scratch/um09/hl4138/dmpnn/logs/hpg_generalization/manifests/hpg_generalization_seeds_42.manifest"
+TASK_ARGS="$(sed -n "$((PBS_ARRAY_INDEX + 1))p" "$MANIFEST")"
+if [[ -z "$TASK_ARGS" ]]; then
+    printf 'No manifest entry for PBS_ARRAY_INDEX=%s\n' "$PBS_ARRAY_INDEX" >&2
+    exit 2
+fi
+eval "set -- $TASK_ARGS"
+echo "Task $PBS_ARRAY_INDEX: $*"
+python scripts/python/run_hpg_generalization.py "$@"

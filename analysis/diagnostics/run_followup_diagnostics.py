@@ -26,18 +26,22 @@ def main():
                         help="Which parts to run: 1, 2, 3 (default: all)")
     parser.add_argument("--skip-ablation", action="store_true",
                         help="Skip Part 3 (requires checkpoint loading, may be slow)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Active seed for prediction files (default: 42)")
     args = parser.parse_args()
 
     parts = set(args.parts)
     if args.skip_ablation:
         parts.discard("3")
 
-    from analysis.diagnostics.data_loading import load_dataset, load_all_meta
-    from analysis.diagnostics.config import OUT_ROOT
+    from analysis.diagnostics import config as diag_config
+    diag_config.set_active_seed(args.seed)
 
-    (OUT_ROOT / "11_pathological_folds").mkdir(parents=True, exist_ok=True)
-    (OUT_ROOT / "12_residual_correlation").mkdir(parents=True, exist_ok=True)
-    (OUT_ROOT / "13_chemarch_residual_ablation").mkdir(parents=True, exist_ok=True)
+    from analysis.diagnostics.data_loading import load_dataset, load_all_meta
+
+    (diag_config.OUT_ROOT / "11_pathological_folds").mkdir(parents=True, exist_ok=True)
+    (diag_config.OUT_ROOT / "12_residual_correlation").mkdir(parents=True, exist_ok=True)
+    (diag_config.OUT_ROOT / "13_chemarch_residual_ablation").mkdir(parents=True, exist_ok=True)
 
     print("Loading dataset and metadata...")
     df   = load_dataset()
@@ -82,7 +86,7 @@ def main():
     from analysis.diagnostics.followup_summary import run_followup_summary
     run_followup_summary(path_df, corr_df, abla_df)
 
-    print("\nAll done. Outputs under:", OUT_ROOT)
+    print("\nAll done. Outputs under:", diag_config.OUT_ROOT)
 
 
 if __name__ == "__main__":

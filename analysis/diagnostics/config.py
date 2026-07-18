@@ -9,13 +9,20 @@ META_DIR     = PROJECT_ROOT / 'metadata' / 'splits'
 PRED_ROOT    = PROJECT_ROOT / 'predictions'
 OUT_ROOT     = PROJECT_ROOT / 'analysis' / 'model_diagnostics'
 
+# ── Active seed (set by orchestrator before each pipeline run) ──────────────
+ACTIVE_SEED: int = 42
+SEEDS: list[int] = [42, 43, 44]
+
 # ── Model definitions ────────────────────────────────────────────────────────
-MODELS = ['frac', 'wdmpnn', 'globalarch', 'chemarch']
+MODELS = ['frac', 'wdmpnn', 'globalarch', 'chemarch', 'hpg_sum', 'hpg_frac', 'hpg_hier']
 MODEL_DISPLAY = {
     'frac':       'Frac',
     'wdmpnn':     'wDMPNN',
     'globalarch': 'GlobalArch',
     'chemarch':   'ChemArch',
+    'hpg_sum':    'HPG (sum)',
+    'hpg_frac':   'HPG (frac)',
+    'hpg_hier':   'HPG (hierarchical)',
 }
 
 # ── Splits ───────────────────────────────────────────────────────────────────
@@ -74,15 +81,35 @@ COLORS = {
     'wdmpnn':     '#7f7f7f',
     'globalarch': '#ff7f0e',
     'chemarch':   '#2ca02c',
+    'hpg_sum':    '#9467bd',
+    'hpg_frac':   '#d62728',
+    'hpg_hier':   '#8c564b',
 }
 MARKERS = {
     'frac':       'o',
     'wdmpnn':     's',
     'globalarch': '^',
     'chemarch':   'D',
+    'hpg_sum':    'P',
+    'hpg_frac':   'X',
+    'hpg_hier':   'v',
 }
 
 DPI = 300
+
+
+def set_active_seed(seed: int) -> None:
+    """Reconfigure the pipeline for a specific seed.
+
+    Updates :data:`ACTIVE_SEED`, :data:`OUT_ROOT`, and mutates
+    :data:`STEP_DIRS` **in-place** so that any module which already
+    imported the dict sees the new paths.
+    """
+    global ACTIVE_SEED, OUT_ROOT
+    ACTIVE_SEED = seed
+    OUT_ROOT = PROJECT_ROOT / 'analysis' / 'model_diagnostics' / f'seed_{seed}'
+    for key in list(STEP_DIRS.keys()):
+        STEP_DIRS[key] = OUT_ROOT / key
 
 
 def ensure_dirs():

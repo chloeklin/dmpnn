@@ -4,9 +4,9 @@ Converts a polymer (given as fragment SMILES + connections) into an
 :class:`~chemprop.data.hpg.HPGMolGraph` — a flat graph mixing fragment-level
 and atom-level nodes with three edge types, matching the original HPG-GAT paper.
 
-Atom features exactly replicate the original HPG-GAT 49-dim encoding:
+Atom features exactly replicate the original HPG-GAT 130-dim encoding:
   20 symbol + 5 H-count + 7 degree + 1 aromatic + 6 hybridization
-  + 1 ring + 9 formal-charge = **49**.
+  + 1 ring + 9 formal-charge = **130**.
 (E/Z stereo is NOT used in the hierarchical graph — see mol2dgl_single.)
 Fragment nodes receive ``ones(d_v)`` features (as in the original).
 Edge features are 1-D scalars: bond order for atom–atom, 1.0 for
@@ -71,7 +71,7 @@ def _hpg_atom_features(atom: Atom) -> np.ndarray:
 
 
 def _hpg_atom_features_for_mol(mol: Chem.Mol) -> np.ndarray:
-    """49-dim features for every atom in *mol* (matching mol2dgl_single)."""
+    """130-dim features for every atom in *mol* (matching mol2dgl_single)."""
     return np.array([_hpg_atom_features(a) for a in mol.GetAtoms()], dtype=np.float32)
 
 
@@ -82,6 +82,65 @@ _BOND_ORDER = {
     Chem.rdchem.BondType.TRIPLE: 3.0,
     Chem.rdchem.BondType.AROMATIC: 1.5,
 }
+
+
+def compute_stochastic_ff_weights(
+    poly_type: str,
+    fracs: np.ndarray,
+    eps: float = 0.05,
+) -> np.ndarray:
+    """Markov transition matrix [n_frags, n_frags] for fragment-fragment edges.
+
+    Each entry P[i, j] is the probability of transitioning from fragment i to
+    fragment j given the chain architecture.  Rows are normalised to sum to 1.
+
+    Schemes (2-fragment case shown; generalises to N fragments):
+      alternating : P[i,j] = (1-eps)/(n-1) if i≠j, eps if i==j
+                    → strong cross-monomer edges, near-zero self-loops
+      block       : P[i,j] = eps/(n-1) if i≠j, 1-eps if i==j
+                    → strong self-loops, weak cross-monomer edges.
+                    NOTE: block ignores fracs by design — first-order Markov
+                    cannot encode block length; composition still enters via
+                    frac-weighted pooling.
+      random      : P[i,j] = fracs[j]  (memoryless; each row = fracs)
+                    → transition probability equals monomer composition
+
+    Parameters
+    ----------
+    poly_type : str
+        Architecture label (case-insensitive): 'alternating', 'block', 'random'.
+        Unknown values fall back to the 'random' scheme.
+    fracs : np.ndarray, shape [n_frags]
+        Monomer mole fractions (should sum to ~1).
+    eps : float
+        Diagonal weight for alternating, or off-diagonal weight for block.
+        Default 0.05.  Adjust to change the contrast between modes.
+
+    Returns
+    -------
+    np.ndarray, shape [n_frags, n_frags], dtype float32, rows normalised to 1.
+    """
+    n = len(fracs)
+    if n == 1:
+        return np.ones((1, 1), dtype=np.float32)
+
+    pt = str(poly_type).lower().strip()
+    if pt == "alternating":
+        # Strong cross-monomer transitions; near-zero self-loops
+        P = np.full((n, n), (1.0 - eps) / (n - 1), dtype=np.float32)
+        np.fill_diagonal(P, eps)
+    elif pt == "block":
+        # Strong self-loops; weak cross-monomer transitions
+        P = np.full((n, n), eps / (n - 1), dtype=np.float32)
+        np.fill_diagonal(P, 1.0 - eps)
+    else:  # "random" or unknown
+        # Memoryless: each row = fracs (composition-derived transition probs)
+        P = np.tile(fracs.astype(np.float32), (n, 1))
+
+    # Normalise rows to sum to 1 (guards against floating-point imprecision)
+    row_sums = P.sum(axis=1, keepdims=True)
+    P = P / np.maximum(row_sums, 1e-8)
+    return P.astype(np.float32)
 
 
 @dataclass
@@ -103,9 +162,17 @@ class HPGMolGraphFeaturizer:
     wildcard_replacements: dict[str, str] = field(default_factory=lambda: {
         "[R]": "[*]", "[Q]": "[*]", "[T]": "[*]", "[U]": "[*]",
     })
+    chain_edge_mode: str = "degree"
+    """Fragment-fragment edge weight scheme: ``'degree'`` (bidirectional, weight=degree)
+    or ``'stochastic'`` (N² directed edges with Markov transition weights)."""
 
     def __post_init__(self):
-        self.d_v = HPG_ATOM_FDIM  # 49
+        self.d_v = HPG_ATOM_FDIM  # 130
+        if self.chain_edge_mode not in ("degree", "stochastic"):
+            raise ValueError(
+                f"HPGMolGraphFeaturizer: invalid chain_edge_mode={self.chain_edge_mode!r}. "
+                "Choose from 'degree' or 'stochastic'."
+            )
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -121,6 +188,7 @@ class HPGMolGraphFeaturizer:
         fragment_smiles: list[str],
         connections: list[tuple[int, int, float]] | None = None,
         frag_fracs: np.ndarray | None = None,
+        poly_type: str | None = None,
     ) -> HPGMolGraph:
         """Featurize a polymer into an HPGMolGraph.
 
@@ -131,10 +199,16 @@ class HPGMolGraphFeaturizer:
         connections : list[tuple[int, int, float]] | None
             Each entry is ``(src_frag_idx, dst_frag_idx, degree)``.
             If *None*, fragments are connected linearly with degree 1.0.
+            Ignored when ``chain_edge_mode='stochastic'`` and ``poly_type``
+            is provided (all N² Markov edges are built instead).
         frag_fracs : np.ndarray | None
             Monomer fractions ``[n_fragments]``, one per fragment.
             Used for fraction-weighted pooling in HPG_frac variants.
-            If *None*, no fractions are stored in the graph.
+            Required when ``chain_edge_mode='stochastic'``.
+        poly_type : str | None
+            Architecture label (``'alternating'``, ``'block'``, ``'random'``).
+            Required when ``chain_edge_mode='stochastic'`` to select the
+            transition weight scheme.  Ignored in degree mode.
 
         Returns
         -------
@@ -143,22 +217,43 @@ class HPGMolGraphFeaturizer:
         n_frags = len(fragment_smiles)
 
         # --- 1. Build fragment-fragment edges ---
-        if connections is None:
-            if n_frags == 1:
-                # Homopolymer: self-loop with degree 1.0 (matching original HPG)
-                connections = [(0, 0, 1.0)]
-            else:
-                # Linear chain
-                connections = [(i, i + 1, 1.0) for i in range(n_frags - 1)]
-
         ff_src, ff_dst, ff_feat = [], [], []
-        for src_f, dst_f, deg in connections:
-            # Handle unknown degree (matching original HPG polyG.py:84-85)
-            if deg == "?" or deg is None:
-                deg = 1.0
-            ff_src.append(src_f)
-            ff_dst.append(dst_f)
-            ff_feat.append(float(deg))
+
+        if self.chain_edge_mode == "stochastic" and poly_type is not None and n_frags > 1:
+            # Stochastic mode: emit all n_frags² directed ff edges with Markov
+            # transition weights derived from poly_type and monomer fractions.
+            # The 'connections' argument is ignored in this mode.
+            if frag_fracs is None:
+                raise ValueError(
+                    "chain_edge_mode='stochastic' requires frag_fracs. "
+                    "Pass frag_fracs=np.array([fA, fB, ...]) to __call__."
+                )
+            P = compute_stochastic_ff_weights(poly_type, frag_fracs)
+            for i in range(n_frags):
+                for j in range(n_frags):
+                    ff_src.append(i)
+                    ff_dst.append(j)
+                    ff_feat.append(float(P[i, j]))
+        else:
+            # Degree mode: bidirectional edges from connections list.
+            # Each structural bond → two directed edges (matching HPG paper).
+            if connections is None:
+                if n_frags == 1:
+                    connections = [(0, 0, 1.0)]
+                else:
+                    connections = [(i, i + 1, 1.0) for i in range(n_frags - 1)]
+            for src_f, dst_f, deg in connections:
+                # Handle unknown degree (matching original HPG polyG.py:84-85)
+                if deg == "?" or deg is None:
+                    deg = 1.0
+                deg = float(deg)
+                ff_src.append(src_f)
+                ff_dst.append(dst_f)
+                ff_feat.append(deg)
+                if src_f != dst_f:  # reverse direction; self-loops are not doubled
+                    ff_src.append(dst_f)
+                    ff_dst.append(src_f)
+                    ff_feat.append(deg)
 
         # --- 2. Parse each fragment and collect atom features + bond edges ---
         frag_node_feats = np.ones((n_frags, self.d_v), dtype=np.float32)
@@ -185,7 +280,7 @@ class HPGMolGraphFeaturizer:
             }
             n_real = len(real_local_indices)
 
-            # Atom features (49-dim, wildcards excluded)
+            # Atom features (130-dim, wildcards excluded)
             for old_idx in real_local_indices:
                 all_atom_feats.append(_hpg_atom_features(mol.GetAtomWithIdx(old_idx)))
 
@@ -325,25 +420,46 @@ class HPGMolGraphFeaturizerEdgeTyped(HPGMolGraphFeaturizer):
         fragment_smiles: list[str],
         connections: list[tuple[int, int, float]] | None = None,
         frag_fracs: np.ndarray | None = None,
+        poly_type: str | None = None,
     ) -> HPGMolGraph:
         """Featurize a polymer into an HPGMolGraph with 4-dim typed edge features."""
         n_frags = len(fragment_smiles)
 
         # --- 1. Build fragment-fragment edges ---
-        if connections is None:
-            if n_frags == 1:
-                connections = [(0, 0, 1.0)]
-            else:
-                connections = [(i, i + 1, 1.0) for i in range(n_frags - 1)]
-
         ff_src, ff_dst, ff_efeat = [], [], []
-        for src_f, dst_f, deg in connections:
-            if deg == "?" or deg is None:
-                deg = 1.0
-            ff_src.append(src_f)
-            ff_dst.append(dst_f)
-            # fragment_to_fragment: one-hot [0,0,1] + degree scalar
-            ff_efeat.append(encode_hpg_edge('fragment_to_fragment', float(deg)))
+
+        if self.chain_edge_mode == "stochastic" and poly_type is not None and n_frags > 1:
+            if frag_fracs is None:
+                raise ValueError(
+                    "chain_edge_mode='stochastic' requires frag_fracs. "
+                    "Pass frag_fracs=np.array([fA, fB, ...]) to __call__."
+                )
+            P = compute_stochastic_ff_weights(poly_type, frag_fracs)
+            for i in range(n_frags):
+                for j in range(n_frags):
+                    ff_src.append(i)
+                    ff_dst.append(j)
+                    # fragment_to_fragment: one-hot [0,0,1] + stochastic weight
+                    ff_efeat.append(encode_hpg_edge('fragment_to_fragment', float(P[i, j])))
+        else:
+            # Degree mode: bidirectional edges; each bond → two directed edges.
+            if connections is None:
+                if n_frags == 1:
+                    connections = [(0, 0, 1.0)]
+                else:
+                    connections = [(i, i + 1, 1.0) for i in range(n_frags - 1)]
+            for src_f, dst_f, deg in connections:
+                if deg == "?" or deg is None:
+                    deg = 1.0
+                deg = float(deg)
+                ff_src.append(src_f)
+                ff_dst.append(dst_f)
+                # fragment_to_fragment: one-hot [0,0,1] + degree scalar
+                ff_efeat.append(encode_hpg_edge('fragment_to_fragment', deg))
+                if src_f != dst_f:  # reverse direction; self-loops are not doubled
+                    ff_src.append(dst_f)
+                    ff_dst.append(src_f)
+                    ff_efeat.append(encode_hpg_edge('fragment_to_fragment', deg))
 
         # --- 2. Parse each fragment ---
         frag_node_feats = np.ones((n_frags, self.d_v), dtype=np.float32)

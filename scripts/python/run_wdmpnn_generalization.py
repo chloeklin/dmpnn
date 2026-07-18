@@ -43,7 +43,7 @@ from chemprop.data.samplers import GroupAwareSampler
 from chemprop.nn.within_group_loss import within_group_residual_loss
 from utils import (
     set_seed, get_metric_list, pick_best_checkpoint,
-    canonicalize_smiles,
+    canonicalize_smiles, generate_a_held_out_splits,
 )
 from run_stage2d_generalization import (
     generate_group_disjoint_splits, generate_pair_disjoint_splits,
@@ -59,6 +59,7 @@ from evaluation.naming import (
 DATA_PATH = ROOT_DIR / 'data' / 'ea_ip.csv'
 PREDICTIONS_DIR = ROOT_DIR / 'predictions'
 CHECKPOINT_DIR = ROOT_DIR / 'checkpoints' / 'wDMPNN_Gen'
+META_PATH = ROOT_DIR / 'metadata' / 'splits' / 'monomer_heldout.json'
 
 TARGETS = ['EA vs SHE (eV)', 'IP vs SHE (eV)']
 N_FOLDS = 5
@@ -178,7 +179,8 @@ def build_wdmpnn_model(n_targets=1):
 
 def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
                       fold_idx, split_type, lambda_within=0.0,
-                      all_group_ids=None, results_subdir=None):
+                      all_group_ids=None, results_subdir=None,
+                      training_seed=42):
     """Train wDMPNN for a single fold and return predictions + metadata.
 
     Parameters
@@ -226,7 +228,7 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     include_tag = (lambda_within > 0.0) or (results_subdir is not None)
     lambda_suffix = f"__lw{_lambda_tag(lambda_within)}" if include_tag else ""
     ckpt_base = (ROOT_DIR / 'checkpoints' / results_subdir) if results_subdir else CHECKPOINT_DIR
-    ckpt_path = ckpt_base / f'ea_ip__{target_short}__wDMPNN__{split_type}__fold{fold_idx}{lambda_suffix}'
+    ckpt_path = ckpt_base / f'ea_ip__{target_short}__wDMPNN__{split_type}__fold{fold_idx}{lambda_suffix}__s{training_seed}'
     ckpt_path.mkdir(parents=True, exist_ok=True)
 
     # Metrics
@@ -338,6 +340,21 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════
 
+def _load_lomao_splits(df: pd.DataFrame):
+    train, val, test, _ = generate_a_held_out_splits(
+        df['smiles_A'].astype(str).values, len(df), seed=42,
+        protocol='leave_one_A_out', logger=logger,
+    )
+    metadata = json.loads(META_PATH.read_text())['folds']
+    if len(test) != len(metadata):
+        raise AssertionError(f'Expected {len(metadata)} monomer-heldout folds, got {len(test)}')
+    for fold, indices in enumerate(test):
+        expected = np.asarray(metadata[fold]['global_test_indices'], dtype=int)
+        if not np.array_equal(indices, expected):
+            raise AssertionError(f'monomer_heldout fold {fold} test indices differ from metadata')
+    return train, val, test
+
+
 def main():
     parser = argparse.ArgumentParser(description='wDMPNN Generalization Experiments')
     parser.add_argument('--dry_run', action='store_true',
@@ -352,6 +369,8 @@ def main():
                        help='Weight for normalized within-group residual loss (default: 0.0)')
     parser.add_argument('--results_subdir', type=str, default=None,
                        help='Override checkpoint/predictions subdirectory name')
+    parser.add_argument('--seed', type=int, default=SEED,
+                       help='Training seed (default: 42). Split seed is always 42.')
     cli_args = parser.parse_args()
 
     folds_to_run = [int(x) for x in cli_args.folds.split(',')]
@@ -359,6 +378,7 @@ def main():
     targets = TARGETS if cli_args.targets is None else [x.strip() for x in cli_args.targets.split(',')]
     lambda_within = cli_args.lambda_within
     results_subdir = cli_args.results_subdir
+    training_seed = cli_args.seed
 
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
@@ -370,6 +390,7 @@ def main():
     print(f"  Targets: {targets}")
     print(f"  Folds: {folds_to_run}")
     print(f"  Lambda within: {lambda_within}")
+    print(f"  Training seed: {training_seed}")
     print(f"  Results subdir: {results_subdir or '(default)'}")
     print(f"  Dry run: {cli_args.dry_run}")
     print(f"  Predictions: {PREDICTIONS_DIR}")
@@ -400,18 +421,22 @@ def main():
 
         if split_type == 'group_disjoint':
             train_indices, val_indices, test_indices = generate_group_disjoint_splits(
-                df, n_splits=N_FOLDS, seed=SEED
+                df, n_splits=N_FOLDS, seed=42
             )
             verify_keys = group_keys
         elif split_type == 'pair_disjoint':
             train_indices, val_indices, test_indices = generate_pair_disjoint_splits(
-                df, n_splits=N_FOLDS, seed=SEED
+                df, n_splits=N_FOLDS, seed=42
             )
             verify_keys = pair_keys
+        elif split_type == 'monomer_heldout':
+            train_indices, val_indices, test_indices = _load_lomao_splits(df)
+            splits[split_type] = (train_indices, val_indices, test_indices)
+            continue
         else:
-            raise ValueError(f"Unknown split type: {split_type}. Use group_disjoint or pair_disjoint.")
+            raise ValueError(f"Unknown split type: {split_type}")
 
-        for fold_i in range(N_FOLDS):
+        for fold_i in range(len(train_indices)):
             verify_no_leakage(
                 train_indices[fold_i], val_indices[fold_i], test_indices[fold_i],
                 verify_keys, fold_i, split_type
@@ -428,6 +453,8 @@ def main():
     if cli_args.dry_run:
         print("\n[DRY RUN] Split verification complete. Exiting without training.")
         return
+
+    set_seed(training_seed)
 
     # ── Training loop ────────────────────────────────────────────────
     for target in targets:
@@ -450,6 +477,7 @@ def main():
                     lambda_within=lambda_within,
                     all_group_ids=all_group_ids,
                     results_subdir=results_subdir,
+                    training_seed=training_seed,
                 )
 
                 # Save predictions using canonical naming convention.
@@ -462,7 +490,7 @@ def main():
                     else PREDICTIONS_DIR
                 _subdir = pred_base / split_subdir(split_type)
                 _subdir.mkdir(parents=True, exist_ok=True)
-                base_name = make_prediction_filename(target, 'wdmpnn', split_type, fold_idx)
+                base_name = make_prediction_filename(target, 'wdmpnn', split_type, fold_idx, seed=training_seed)
                 pred_file = _subdir / (base_name[:-4] + lw_file_tag + '.npz')
                 np.savez_compressed(
                     pred_file,
@@ -473,6 +501,7 @@ def main():
                     model='wdmpnn',
                     target=standard_target_token(target),
                     fold=fold_idx,
+                    seed=training_seed,
                     n_train=len(tr),
                     n_val=len(va),
                     n_test=len(te),
@@ -493,5 +522,4 @@ def main():
 
 
 if __name__ == '__main__':
-    set_seed(SEED)
     main()

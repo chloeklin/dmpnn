@@ -337,6 +337,7 @@ if args.model_name == "HPG":
     is_copolymer = (args.polymer_type == "copolymer")
 
     hpg_variant = getattr(args, 'hpg_variant', 'baseline')
+    chain_edge_mode = getattr(args, 'chain_edge_mode', 'degree')
     use_frac_pooling = hpg_variant in (
         'frac', 'frac_polytype', 'frac_edgeTyped', 'frac_archAware',
         'relMsg', 'fragGraph', 'archGraph',  # Phase 2
@@ -346,12 +347,17 @@ if args.model_name == "HPG":
     # Select featurizer: edgeTyped uses 4-dim typed edges; all others use standard d_e=1
     # frac_archAware intentionally reuses the standard featurizer (no edge typing)
     hpg_d_e = 4 if hpg_variant == 'frac_edgeTyped' else 1
-    hpg_featurizer = HPGMolGraphFeaturizerEdgeTyped() if hpg_variant == 'frac_edgeTyped' else HPGMolGraphFeaturizer()
+    hpg_featurizer = (
+        HPGMolGraphFeaturizerEdgeTyped(chain_edge_mode=chain_edge_mode)
+        if hpg_variant == 'frac_edgeTyped'
+        else HPGMolGraphFeaturizer(chain_edge_mode=chain_edge_mode)
+    )
 
     logger.info(f"\n=== HPG Training ===")
     logger.info(f"Dataset          : {args.dataset_name}")
     logger.info(f"Polymer type     : {args.polymer_type}")
     logger.info(f"HPG variant      : {hpg_variant}")
+    logger.info(f"Chain edge mode  : {chain_edge_mode}")
     logger.info(f"Frac pooling     : {use_frac_pooling}")
     logger.info(f"Target columns   : {target_columns}")
     logger.info(f"incl_desc        : {args.incl_desc}")
@@ -378,6 +384,16 @@ if args.model_name == "HPG":
         fracB_arr = df_input["fracB"].values.astype(float)
     else:
         smis_homo = df_input[smiles_column].astype(str).tolist()
+
+    # ── Read poly_type for stochastic chain edges ──
+    poly_type_arr = None
+    if is_copolymer and chain_edge_mode == 'stochastic':
+        if 'poly_type' not in df_input.columns:
+            raise ValueError(
+                "chain_edge_mode='stochastic' requires a 'poly_type' column in the dataset"
+            )
+        poly_type_arr = df_input['poly_type'].astype(str).tolist()
+        logger.info(f"chain_edge_mode='stochastic': loaded {len(poly_type_arr)} poly_type labels")
 
     # ── Descriptors (X_d) — variant-dependent wiring ──
     # HPG_baseline   : uses incl_desc / incl_poly_type flags as before
@@ -469,10 +485,12 @@ if args.model_name == "HPG":
             if is_copolymer:
                 frag_smiles = [smis_A[idx], smis_B[idx]]
                 connections = [(0, 1, 1.0)]
-                # Attach per-fragment fractions for frac pooling variants
-                ff = (np.array([fracA_arr[idx], fracB_arr[idx]], dtype=np.float32)
-                      if use_frac_pooling else None)
-                mg = hpg_featurizer(frag_smiles, connections, frag_fracs=ff)
+                # Always pass frag_fracs for copolymers: used by frac-weighted pooling
+                # variants and (when chain_edge_mode='stochastic') by Markov edge weights.
+                ff = np.array([fracA_arr[idx], fracB_arr[idx]], dtype=np.float32)
+                poly_type_str = poly_type_arr[idx] if poly_type_arr is not None else None
+                mg = hpg_featurizer(frag_smiles, connections, frag_fracs=ff,
+                                    poly_type=poly_type_str)
                 if _arch_weights_arr is not None:
                     mg = mg._replace(arch_weights=_arch_weights_arr[idx])
             else:
