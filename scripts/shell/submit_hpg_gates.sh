@@ -57,6 +57,7 @@ write_array_pbs() {
 #PBS -l storage=$STORAGE
 #PBS -l jobfs=$JOBFS
 #PBS -N $name
+#PBS -r y
 #PBS -J 0-$((tasks - 1))
 
 set -euo pipefail
@@ -83,6 +84,7 @@ cat > "$GATE1_REPORT_PBS" <<EOF
 #PBS -l storage=$STORAGE
 #PBS -l jobfs=$JOBFS
 #PBS -N hpg_gate1r
+#PBS -r y
 
 set -euo pipefail
 module load $MODULE_PYTHON
@@ -101,6 +103,7 @@ cat > "$REPORT_PBS" <<EOF
 #PBS -l storage=$STORAGE
 #PBS -l jobfs=$JOBFS
 #PBS -N hpg_gate2r
+#PBS -r y
 
 set -euo pipefail
 module load $MODULE_PYTHON

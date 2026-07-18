@@ -72,6 +72,7 @@ cat > "$PBS_SCRIPT" <<EOF
 #PBS -l storage=$STORAGE
 #PBS -l jobfs=$JOBFS
 #PBS -N hpg_gen
+#PBS -r y
 #PBS -J 0-$LAST_INDEX
 
 set -euo pipefail
