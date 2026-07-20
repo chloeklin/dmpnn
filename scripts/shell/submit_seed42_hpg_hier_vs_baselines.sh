@@ -1,4 +1,10 @@
 #!/bin/bash
+# Submit seed-42 HPG-hier vs wDMPNN vs ChemArch generalization experiments.
+# Usage:
+#   ./submit_seed42_hpg_hier_vs_baselines.sh              # all 114 cells
+#   ./submit_seed42_hpg_hier_vs_baselines.sh --dry_run    # print qsub commands only
+#   ./submit_seed42_hpg_hier_vs_baselines.sh --no-submit  # generate PBS scripts only
+#   ./submit_seed42_hpg_hier_vs_baselines.sh --split monomer_heldout  # resume one split
 set -euo pipefail
 
 PROJECT="ng76"
@@ -16,10 +22,12 @@ WALLTIME="24:00:00"
 
 DRY_RUN=false
 NO_SUBMIT=false
+SPLIT_FILTER=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry_run) DRY_RUN=true; shift ;;
         --no-submit) NO_SUBMIT=true; shift ;;
+        --split) SPLIT_FILTER="$2"; shift 2 ;;
         *) printf 'Unknown argument: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
@@ -38,6 +46,9 @@ SPLITS=(group_disjoint pair_disjoint monomer_heldout)
 TARGETS=("EA vs SHE (eV)" "IP vs SHE (eV)")
 TARGET_TOKENS=(EA_vs_SHE_eV IP_vs_SHE_eV)
 for split in "${SPLITS[@]}"; do
+    if [[ -n "$SPLIT_FILTER" && "$split" != "$SPLIT_FILTER" ]]; then
+        continue
+    fi
     if [[ "$split" == "monomer_heldout" ]]; then
         folds=(0 1 2 3 4 5 6 7 8)
     else
@@ -55,8 +66,16 @@ for split in "${SPLITS[@]}"; do
 done
 
 TASK_COUNT="$(wc -l < "$MANIFEST" | tr -d ' ')"
-if [[ "$TASK_COUNT" -ne 114 ]]; then
-    printf 'Expected 114 tasks, found %s\n' "$TASK_COUNT" >&2
+EXPECTED_COUNT=114
+if [[ -n "$SPLIT_FILTER" ]]; then
+    case "$SPLIT_FILTER" in
+        group_disjoint|pair_disjoint) EXPECTED_COUNT=30 ;;
+        monomer_heldout) EXPECTED_COUNT=54 ;;
+        *) printf 'Unknown split filter: %s\n' "$SPLIT_FILTER" >&2; exit 2 ;;
+    esac
+fi
+if [[ "$TASK_COUNT" -ne "$EXPECTED_COUNT" ]]; then
+    printf 'Expected %s tasks, found %s\n' "$EXPECTED_COUNT" "$TASK_COUNT" >&2
     exit 1
 fi
 

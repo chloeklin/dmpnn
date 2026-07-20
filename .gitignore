@@ -186,6 +186,7 @@ cython_debug/
 *.pkl
 *.pt
 *.json
+!metadata/splits/*.json
 *.sqlite3
 # Allow train_config.yaml but ignore all other YAML files
 !train_config.yaml
