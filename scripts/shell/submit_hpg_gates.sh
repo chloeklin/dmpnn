@@ -12,7 +12,7 @@ MODULE_PYTHON="python3/3.12.1"
 MODULE_CUDA="cuda/12.0.0"
 VENV_ACTIVATE="/home/659/hl4138/dmpnn-venv/bin/activate"
 PROJECT_DIR="/scratch/um09/hl4138/dmpnn"
-WALLTIME="00:40:00"
+WALLTIME="12:30:00"
 
 DRY_RUN=false
 NO_SUBMIT=false

@@ -1,0 +1,31 @@
+#!/bin/bash
+#PBS -N wdmpnn_pilot_lw0p3_group_disjoint_fold0
+#PBS -P ng76
+#PBS -q gpuvolta
+#PBS -l walltime=12:30:00
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+
+# ── Environment ──────────────────────────────────────────────────────────────
+module use /g/data/dk92/apps/Modules/modulefiles
+module load python3/3.12.1 cuda/12.0.0
+
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+
+echo "=============================="
+echo "Job   : wdmpnn_pilot_lw0p3_group_disjoint_fold0"
+echo "Node  : $(hostname)"
+echo "Time  : $(date)"
+echo "Lambda: 0.3"
+echo "=============================="
+
+# ── Training command ──────────────────────────────────────────────────────────
+python3 scripts/python/run_wdmpnn_generalization.py     --folds 0     --split_types group_disjoint     --targets "EA vs SHE (eV)"     --lambda_within 0.3     --results_subdir wDMPNN_Pilot_Lambda
+
+echo "=============================="
+echo "Done: $(date)"
+echo "=============================="

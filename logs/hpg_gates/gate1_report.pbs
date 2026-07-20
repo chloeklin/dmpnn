@@ -3,13 +3,14 @@
 #PBS -P ng76
 #PBS -l ncpus=12
 #PBS -l mem=100GB
-#PBS -l walltime=00:40:00
+#PBS -l walltime=12:30:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
 #PBS -N hpg_gate1r
+#PBS -r y
 
 set -euo pipefail
 module load python3/3.12.1
 source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn
-python scripts/python/report_hpg_gate.py --models hpg_sum,hpg_frac --seed 42
+PYTHONPATH=. python scripts/python/report_hpg_gate.py --models hpg_hier --seed 42

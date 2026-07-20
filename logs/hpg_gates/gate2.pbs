@@ -4,10 +4,11 @@
 #PBS -l ncpus=12
 #PBS -l ngpus=1
 #PBS -l mem=100GB
-#PBS -l walltime=00:40:00
+#PBS -l walltime=12:30:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
 #PBS -N hpg_gate2
+#PBS -r y
 #PBS -J 0-1
 
 set -euo pipefail
@@ -15,6 +16,7 @@ module load python3/3.12.1 cuda/12.0.0
 source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn
 MANIFEST="/scratch/um09/hl4138/dmpnn/logs/hpg_gates/manifests/gate2.manifest"
-TASK_ARGS="$(sed -n "$((PBS_ARRAY_INDEX + 1))p" "$MANIFEST")"
+TASK_INDEX="${PBS_ARRAY_INDEX:-0}"
+TASK_ARGS="$(sed -n "$((TASK_INDEX + 1))p" "$MANIFEST")"
 eval "set -- $TASK_ARGS"
 python scripts/python/run_hpg_generalization.py "$@"
