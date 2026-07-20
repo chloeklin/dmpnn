@@ -103,10 +103,11 @@ Job **array** (not one qsub per run) to stay under Gadi's per-user job cap.
 
 ## 10. Current status & immediate next action
 
-- **Built & verified:** original HPG reimplementation (faithful except a documented feature change), the within-group loss, the seeded diagnostics, the runners. Stochastic-edge featurizer is built but **shelved (not run)**.
-- **Building now:** HPG-hier — the true two-stage model (Stage-1 per-monomer atom encoder + Stage-2 monomer-level graph), in chemprop, wired into the diagnostics/runners on EA/IP.
-- **Next action:** finish HPG-hier → run the two **gates** (fold-0 R² sanity + non-zero seed variance) → launch the **seed-42 grid** (wDMPNN / original HPG / HPG-hier + baseline re-seeds) on Gadi as a job array → seeds 43/44 for error bars.
-- **What we're waiting to learn:** whether objective-alone suffices (pilot Monomer-heldout) and whether the two-stage representation reaches best-of-both — those decide the paper(s).
+- **Built & verified:** original HPG, within-group loss, seeded diagnostics, runners. HPG-hier (true two-stage) **built and gate-passed locally** (fold-0 group-mean R² ~0.9965, converged, non-zero seed std). Stochastic-edge featurizer **shelved (not run)**.
+- **Legacy-baseline finding:** all legacy baselines were seed-42, and LOMO coverage is **complete (9/9 EA and IP** for wDMPNN — an earlier "1/9 IP" count was a manifest artifact, retracted). So the report's LOMO numbers (wDMPNN 0.93 / ChemArch −0.37) are backed by full data. **But provenance is mixed:** legacy LOMO came from the `train_graph.py` path while legacy group/pair came from the generalization runners, and HPG-hier uses the current dedicated runner. **Decision: regenerate ALL baselines fresh at seed 42 through the current runners** — for uniform provenance / same pipeline as HPG-hier, not because legacy is incomplete.
+- **Next action (Gadi):** confirm gate1/gate2 on the cluster → launch the **seed-42 diagnosis slice** (`submit_seed42_diagnosis.sh`: all 7 models × 2 targets × 19 folds, seed 42 — regenerates baselines cleanly) → read HPG-hier LOMO group-mean vs the fresh baselines → gate seeds 43/44 (all 7 models) on the result.
+- **Consistency check (now meaningful):** fresh seed-42 wDMPNN LOMO group-mean should reproduce ~0.93 (ChemArch ~−0.37). Match → the current runner ≈ the legacy path, comparison sound. Materially off → the training-path difference is real; investigate before trusting the numbers.
+- **What we're waiting to learn:** whether objective-alone suffices (pilot Monomer-heldout) and whether the two-stage representation reaches best-of-both.
 
 ---
 
