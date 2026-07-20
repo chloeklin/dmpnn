@@ -31,7 +31,7 @@ MANIFEST_DIR="$LOG_DIR/manifests"
 TASK_LOG_DIR="$LOG_DIR/tasks"
 mkdir -p "$MANIFEST_DIR" "$TASK_LOG_DIR"
 MANIFEST="$MANIFEST_DIR/seed42_hpg_hier_vs_baselines.manifest"
-PBS_SCRIPT="$LOG_DIR/seed42_hpg_hier_vs_baselines.pbs"
+PBS_SCRIPT_PREFIX="$LOG_DIR/seed42_hpg_hier_vs_baselines"
 
 : > "$MANIFEST"
 SPLITS=(group_disjoint pair_disjoint monomer_heldout)
@@ -55,9 +55,24 @@ for split in "${SPLITS[@]}"; do
 done
 
 TASK_COUNT="$(wc -l < "$MANIFEST" | tr -d ' ')"
-LAST_INDEX=$((TASK_COUNT - 1))
+MAX_ARRAY_SIZE=57
+if [[ "$TASK_COUNT" -ne 114 ]]; then
+    printf 'Expected 114 tasks, found %s\n' "$TASK_COUNT" >&2
+    exit 1
+fi
 
-cat > "$PBS_SCRIPT" <<EOF
+PBS_SCRIPTS=()
+for ((start = 0, chunk = 1; start < TASK_COUNT; start += MAX_ARRAY_SIZE, chunk++)); do
+    count=$((TASK_COUNT - start))
+    if [[ "$count" -gt "$MAX_ARRAY_SIZE" ]]; then
+        count="$MAX_ARRAY_SIZE"
+    fi
+    last_index=$((count - 1))
+    chunk_manifest="$MANIFEST_DIR/seed42_hpg_hier_vs_baselines_${chunk}.manifest"
+    pbs_script="${PBS_SCRIPT_PREFIX}_${chunk}.pbs"
+    sed -n "$((start + 1)),$((start + count))p" "$MANIFEST" > "$chunk_manifest"
+
+    cat > "$pbs_script" <<EOF
 #!/bin/bash
 #PBS -q $QUEUE
 #PBS -P $PROJECT
@@ -67,16 +82,16 @@ cat > "$PBS_SCRIPT" <<EOF
 #PBS -l walltime=$WALLTIME
 #PBS -l storage=$STORAGE
 #PBS -l jobfs=$JOBFS
-#PBS -N eaip_s42hvb
+#PBS -N eaip_s42hvb${chunk}
 #PBS -r y
-#PBS -J 0-$LAST_INDEX
+#PBS -J 0-$last_index
 
 set -euo pipefail
 module load $MODULE_PYTHON $MODULE_CUDA
 source $VENV_ACTIVATE
 cd $PROJECT_DIR
 
-MANIFEST="$PROJECT_DIR/logs/seed42_hpg_hier_vs_baselines/manifests/$(basename "$MANIFEST")"
+MANIFEST="$PROJECT_DIR/logs/seed42_hpg_hier_vs_baselines/manifests/$(basename "$chunk_manifest")"
 TASK_LOG_DIR="$PROJECT_DIR/logs/seed42_hpg_hier_vs_baselines/tasks"
 mkdir -p "\$TASK_LOG_DIR"
 exec > >(tee -a "\$TASK_LOG_DIR/task_\${PBS_ARRAY_INDEX}_\${PBS_JOBID}.log") 2>&1
@@ -109,18 +124,23 @@ case "\$RUNNER" in
     *) printf 'Unknown runner: %s\\n' "\$RUNNER" >&2; exit 2 ;;
 esac
 EOF
-chmod +x "$PBS_SCRIPT"
+    chmod +x "$pbs_script"
+    PBS_SCRIPTS+=("$pbs_script")
+    printf 'Array %s: tasks %s-%s, manifest: %s, PBS script: %s\n' "$chunk" "$start" "$((start + count - 1))" "$chunk_manifest" "$pbs_script"
+done
 
-printf 'Manifest: %s\nTasks: %s\nPBS script: %s\nTask logs: %s\n' "$MANIFEST" "$TASK_COUNT" "$PBS_SCRIPT" "$TASK_LOG_DIR"
-if [[ "$TASK_COUNT" -ne 114 ]]; then
-    printf 'Expected 114 tasks, found %s\n' "$TASK_COUNT" >&2
-    exit 1
-fi
+printf 'Manifest: %s\nTasks: %s\nArrays: %s\nTask logs: %s\n' "$MANIFEST" "$TASK_COUNT" "${#PBS_SCRIPTS[@]}" "$TASK_LOG_DIR"
 if [[ "$DRY_RUN" == true ]]; then
     nl -ba "$MANIFEST"
-    printf 'qsub %s\n' "$PBS_SCRIPT"
+    for pbs_script in "${PBS_SCRIPTS[@]}"; do
+        printf 'qsub %s\n' "$pbs_script"
+    done
 elif [[ "$NO_SUBMIT" == true ]]; then
-    printf 'Generated only: qsub %s\n' "$PBS_SCRIPT"
+    for pbs_script in "${PBS_SCRIPTS[@]}"; do
+        printf 'Generated only: qsub %s\n' "$pbs_script"
+    done
 else
-    qsub "$PBS_SCRIPT"
+    for pbs_script in "${PBS_SCRIPTS[@]}"; do
+        qsub "$pbs_script"
+    done
 fi

@@ -1,0 +1,50 @@
+#!/bin/bash
+#PBS -q gpuvolta
+#PBS -P ng76
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=24:00:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N eaip_s42hvb1
+#PBS -r y
+#PBS -J 0-56
+
+set -euo pipefail
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+
+MANIFEST="/scratch/um09/hl4138/dmpnn/logs/seed42_hpg_hier_vs_baselines/manifests/seed42_hpg_hier_vs_baselines_1.manifest"
+TASK_LOG_DIR="/scratch/um09/hl4138/dmpnn/logs/seed42_hpg_hier_vs_baselines/tasks"
+mkdir -p "$TASK_LOG_DIR"
+exec > >(tee -a "$TASK_LOG_DIR/task_${PBS_ARRAY_INDEX}_${PBS_JOBID}.log") 2>&1
+
+TASK="$(sed -n "$((PBS_ARRAY_INDEX + 1))p" "$MANIFEST")"
+IFS=$'\t' read -r RUNNER TARGET_TOKEN MODEL_TOKEN SPLIT FOLD TASK_ARGS <<< "$TASK"
+if [[ -z "$TASK_ARGS" ]]; then
+    printf 'No manifest entry for PBS_ARRAY_INDEX=%s\n' "$PBS_ARRAY_INDEX" >&2
+    exit 2
+fi
+
+case "$SPLIT" in
+    group_disjoint) PREDICTION_SUBDIR="ea_ip_group" ;;
+    pair_disjoint) PREDICTION_SUBDIR="ea_ip_pair" ;;
+    monomer_heldout) PREDICTION_SUBDIR="ea_ip_lomo" ;;
+    *) printf 'Unknown split: %s\n' "$SPLIT" >&2; exit 2 ;;
+esac
+PREDICTION_PATH="/scratch/um09/hl4138/dmpnn/predictions/$PREDICTION_SUBDIR/ea_ip__${TARGET_TOKEN}__${MODEL_TOKEN}__${SPLIT}__fold${FOLD}__s42.npz"
+if [[ -f "$PREDICTION_PATH" ]]; then
+    printf 'Skipping existing prediction: %s\n' "$PREDICTION_PATH"
+    exit 0
+fi
+
+eval "set -- $TASK_ARGS"
+printf 'Task %s: runner=%s model=%s split=%s fold=%s target=%s\n' "$PBS_ARRAY_INDEX" "$RUNNER" "$MODEL_TOKEN" "$SPLIT" "$FOLD" "$TARGET_TOKEN"
+case "$RUNNER" in
+    hpg) python scripts/python/run_hpg_generalization.py "$@" ;;
+    wdmpnn) python scripts/python/run_wdmpnn_generalization.py "$@" ;;
+    stage2d) python scripts/python/run_stage2d_generalization.py "$@" ;;
+    *) printf 'Unknown runner: %s\n' "$RUNNER" >&2; exit 2 ;;
+esac
