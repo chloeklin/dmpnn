@@ -12,5 +12,10 @@ set -euo pipefail
 module load python3/3.12.1
 source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn
-python scripts/python/run_seeded_diagnostics.py --seeds 42 --skip-aggregate
+MODELS="hpg_hier,wdmpnn,chemarch"
+MODEL_ARGS=""
+if [[ -n "$MODELS" ]]; then
+    MODEL_ARGS="--models $MODELS"
+fi
+python scripts/python/run_seeded_diagnostics.py --seeds 42 $MODEL_ARGS --skip-aggregate
 python scripts/python/aggregate_seeded_diagnostics.py --seeds 42

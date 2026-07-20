@@ -54,9 +54,13 @@ def main():
     _p = _ap.ArgumentParser(description='Run diagnostics pipeline')
     _p.add_argument('--seed', type=int, default=42,
                     help='Active seed for prediction files (default: 42)')
+    _p.add_argument('--models', default=None,
+                    help='Comma-separated canonical model tokens to include (default: all)')
     _cli = _p.parse_args()
 
     diag_config.set_active_seed(_cli.seed)
+    if _cli.models is not None:
+        diag_config.set_models([model.strip() for model in _cli.models.split(',') if model.strip()])
 
     t0 = time.time()
     print("=" * 72)

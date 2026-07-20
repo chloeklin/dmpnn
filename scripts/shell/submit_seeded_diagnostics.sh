@@ -13,11 +13,13 @@ PROJECT_DIR="/scratch/um09/hl4138/dmpnn"
 WALLTIME="04:00:00"
 
 SEEDS="42,43,44"
+MODELS=""
 DRY_RUN=false
 NO_SUBMIT=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --seeds) SEEDS="$2"; shift 2 ;;
+        --models) MODELS="$2"; shift 2 ;;
         --dry_run) DRY_RUN=true; shift ;;
         --no-submit) NO_SUBMIT=true; shift ;;
         *) printf 'Unknown argument: %s\n' "$1" >&2; exit 2 ;;
@@ -45,7 +47,12 @@ set -euo pipefail
 module load $MODULE_PYTHON
 source $VENV_ACTIVATE
 cd $PROJECT_DIR
-python scripts/python/run_seeded_diagnostics.py --seeds $SEEDS --skip-aggregate
+MODELS="$MODELS"
+MODEL_ARGS=""
+if [[ -n "\$MODELS" ]]; then
+    MODEL_ARGS="--models \$MODELS"
+fi
+python scripts/python/run_seeded_diagnostics.py --seeds $SEEDS \$MODEL_ARGS --skip-aggregate
 python scripts/python/aggregate_seeded_diagnostics.py --seeds $SEEDS
 EOF
 chmod +x "$PBS_SCRIPT"

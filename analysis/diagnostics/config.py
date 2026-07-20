@@ -98,6 +98,13 @@ MARKERS = {
 DPI = 300
 
 
+def set_models(models: list[str]) -> None:
+    invalid = set(models) - set(MODEL_DISPLAY)
+    if invalid:
+        raise ValueError(f"Unknown diagnostic models: {sorted(invalid)}")
+    MODELS[:] = models
+
+
 def set_active_seed(seed: int) -> None:
     """Reconfigure the pipeline for a specific seed.
 

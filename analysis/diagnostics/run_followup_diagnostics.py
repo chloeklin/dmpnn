@@ -28,6 +28,8 @@ def main():
                         help="Skip Part 3 (requires checkpoint loading, may be slow)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Active seed for prediction files (default: 42)")
+    parser.add_argument("--models", default=None,
+                        help="Comma-separated canonical model tokens to include (default: all)")
     args = parser.parse_args()
 
     parts = set(args.parts)
@@ -36,6 +38,8 @@ def main():
 
     from analysis.diagnostics import config as diag_config
     diag_config.set_active_seed(args.seed)
+    if args.models is not None:
+        diag_config.set_models([model.strip() for model in args.models.split(",") if model.strip()])
 
     from analysis.diagnostics.data_loading import load_dataset, load_all_meta
 
