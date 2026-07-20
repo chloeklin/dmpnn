@@ -31,7 +31,7 @@ MANIFEST_DIR="$LOG_DIR/manifests"
 TASK_LOG_DIR="$LOG_DIR/tasks"
 mkdir -p "$MANIFEST_DIR" "$TASK_LOG_DIR"
 MANIFEST="$MANIFEST_DIR/seed42_hpg_hier_vs_baselines.manifest"
-PBS_SCRIPT_PREFIX="$LOG_DIR/seed42_hpg_hier_vs_baselines"
+PBS_SCRIPT_DIR="$LOG_DIR/pbs"
 
 : > "$MANIFEST"
 SPLITS=(group_disjoint pair_disjoint monomer_heldout)
@@ -55,23 +55,23 @@ for split in "${SPLITS[@]}"; do
 done
 
 TASK_COUNT="$(wc -l < "$MANIFEST" | tr -d ' ')"
-MAX_ARRAY_SIZE=57
 if [[ "$TASK_COUNT" -ne 114 ]]; then
     printf 'Expected 114 tasks, found %s\n' "$TASK_COUNT" >&2
     exit 1
 fi
 
+mkdir -p "$PBS_SCRIPT_DIR"
+rm -f "$PBS_SCRIPT_DIR"/seed42_hvb_*.pbs
 PBS_SCRIPTS=()
-for ((start = 0, chunk = 1; start < TASK_COUNT; start += MAX_ARRAY_SIZE, chunk++)); do
-    count=$((TASK_COUNT - start))
-    if [[ "$count" -gt "$MAX_ARRAY_SIZE" ]]; then
-        count="$MAX_ARRAY_SIZE"
-    fi
-    last_index=$((count - 1))
-    chunk_manifest="$MANIFEST_DIR/seed42_hpg_hier_vs_baselines_${chunk}.manifest"
-    pbs_script="${PBS_SCRIPT_PREFIX}_${chunk}.pbs"
-    sed -n "$((start + 1)),$((start + count))p" "$MANIFEST" > "$chunk_manifest"
-
+task_index=0
+while IFS=$'\t' read -r runner target_token model_token split fold task_args; do
+    case "$split" in
+        group_disjoint) prediction_subdir="ea_ip_group" ;;
+        pair_disjoint) prediction_subdir="ea_ip_pair" ;;
+        monomer_heldout) prediction_subdir="ea_ip_lomo" ;;
+        *) printf 'Unknown split: %s\n' "$split" >&2; exit 2 ;;
+    esac
+    pbs_script="$PBS_SCRIPT_DIR/seed42_hvb_$(printf '%03d' "$task_index")_${model_token}_${split}_f${fold}_${target_token}.pbs"
     cat > "$pbs_script" <<EOF
 #!/bin/bash
 #PBS -q $QUEUE
@@ -82,56 +82,40 @@ for ((start = 0, chunk = 1; start < TASK_COUNT; start += MAX_ARRAY_SIZE, chunk++
 #PBS -l walltime=$WALLTIME
 #PBS -l storage=$STORAGE
 #PBS -l jobfs=$JOBFS
-#PBS -N eaip_s42hvb${chunk}
+#PBS -N s42_${model_token}_f${fold}
 #PBS -r y
-#PBS -J 0-$last_index
 
 set -euo pipefail
 module load $MODULE_PYTHON $MODULE_CUDA
 source $VENV_ACTIVATE
 cd $PROJECT_DIR
 
-MANIFEST="$PROJECT_DIR/logs/seed42_hpg_hier_vs_baselines/manifests/$(basename "$chunk_manifest")"
 TASK_LOG_DIR="$PROJECT_DIR/logs/seed42_hpg_hier_vs_baselines/tasks"
 mkdir -p "\$TASK_LOG_DIR"
-exec > >(tee -a "\$TASK_LOG_DIR/task_\${PBS_ARRAY_INDEX}_\${PBS_JOBID}.log") 2>&1
+exec > >(tee -a "\$TASK_LOG_DIR/task_${task_index}_\${PBS_JOBID}.log") 2>&1
 
-TASK="\$(sed -n "\$((PBS_ARRAY_INDEX + 1))p" "\$MANIFEST")"
-IFS=\$'\t' read -r RUNNER TARGET_TOKEN MODEL_TOKEN SPLIT FOLD TASK_ARGS <<< "\$TASK"
-if [[ -z "\$TASK_ARGS" ]]; then
-    printf 'No manifest entry for PBS_ARRAY_INDEX=%s\\n' "\$PBS_ARRAY_INDEX" >&2
-    exit 2
-fi
-
-case "\$SPLIT" in
-    group_disjoint) PREDICTION_SUBDIR="ea_ip_group" ;;
-    pair_disjoint) PREDICTION_SUBDIR="ea_ip_pair" ;;
-    monomer_heldout) PREDICTION_SUBDIR="ea_ip_lomo" ;;
-    *) printf 'Unknown split: %s\\n' "\$SPLIT" >&2; exit 2 ;;
-esac
-PREDICTION_PATH="$PROJECT_DIR/predictions/\$PREDICTION_SUBDIR/ea_ip__\${TARGET_TOKEN}__\${MODEL_TOKEN}__\${SPLIT}__fold\${FOLD}__s42.npz"
+PREDICTION_PATH="$PROJECT_DIR/predictions/$prediction_subdir/ea_ip__${target_token}__${model_token}__${split}__fold${fold}__s42.npz"
 if [[ -f "\$PREDICTION_PATH" ]]; then
     printf 'Skipping existing prediction: %s\\n' "\$PREDICTION_PATH"
     exit 0
 fi
 
-eval "set -- \$TASK_ARGS"
-printf 'Task %s: runner=%s model=%s split=%s fold=%s target=%s\\n' "\$PBS_ARRAY_INDEX" "\$RUNNER" "\$MODEL_TOKEN" "\$SPLIT" "\$FOLD" "\$TARGET_TOKEN"
-case "\$RUNNER" in
+set -- $task_args
+printf 'Task ${task_index}: runner=${runner} model=${model_token} split=${split} fold=${fold} target=${target_token}\\n'
+case "$runner" in
     hpg) python scripts/python/run_hpg_generalization.py "\$@" ;;
     wdmpnn) python scripts/python/run_wdmpnn_generalization.py "\$@" ;;
     stage2d) python scripts/python/run_stage2d_generalization.py "\$@" ;;
-    *) printf 'Unknown runner: %s\\n' "\$RUNNER" >&2; exit 2 ;;
+    *) printf 'Unknown runner: %s\\n' "$runner" >&2; exit 2 ;;
 esac
 EOF
     chmod +x "$pbs_script"
     PBS_SCRIPTS+=("$pbs_script")
-    printf 'Array %s: tasks %s-%s, manifest: %s, PBS script: %s\n' "$chunk" "$start" "$((start + count - 1))" "$chunk_manifest" "$pbs_script"
-done
+    task_index=$((task_index + 1))
+done < "$MANIFEST"
 
-printf 'Manifest: %s\nTasks: %s\nArrays: %s\nTask logs: %s\n' "$MANIFEST" "$TASK_COUNT" "${#PBS_SCRIPTS[@]}" "$TASK_LOG_DIR"
+printf 'Manifest: %s\nTasks: %s\nPBS jobs: %s\nTask logs: %s\n' "$MANIFEST" "$TASK_COUNT" "${#PBS_SCRIPTS[@]}" "$TASK_LOG_DIR"
 if [[ "$DRY_RUN" == true ]]; then
-    nl -ba "$MANIFEST"
     for pbs_script in "${PBS_SCRIPTS[@]}"; do
         printf 'qsub %s\n' "$pbs_script"
     done

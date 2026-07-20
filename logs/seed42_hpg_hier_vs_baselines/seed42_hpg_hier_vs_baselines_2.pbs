@@ -9,7 +9,7 @@
 #PBS -l jobfs=100GB
 #PBS -N eaip_s42hvb2
 #PBS -r y
-#PBS -J 0-56
+#PBS -J 0-39
 
 set -euo pipefail
 module load python3/3.12.1 cuda/12.0.0

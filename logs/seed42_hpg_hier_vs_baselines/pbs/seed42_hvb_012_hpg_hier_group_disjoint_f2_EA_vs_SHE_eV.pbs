@@ -1,0 +1,35 @@
+#!/bin/bash
+#PBS -q gpuvolta
+#PBS -P ng76
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=24:00:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N s42_hpg_hier_f2
+#PBS -r y
+
+set -euo pipefail
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+
+TASK_LOG_DIR="/scratch/um09/hl4138/dmpnn/logs/seed42_hpg_hier_vs_baselines/tasks"
+mkdir -p "$TASK_LOG_DIR"
+exec > >(tee -a "$TASK_LOG_DIR/task_12_${PBS_JOBID}.log") 2>&1
+
+PREDICTION_PATH="/scratch/um09/hl4138/dmpnn/predictions/ea_ip_group/ea_ip__EA_vs_SHE_eV__hpg_hier__group_disjoint__fold2__s42.npz"
+if [[ -f "$PREDICTION_PATH" ]]; then
+    printf 'Skipping existing prediction: %s\n' "$PREDICTION_PATH"
+    exit 0
+fi
+
+set -- --split_types group_disjoint --folds 2 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+printf 'Task 12: runner=hpg model=hpg_hier split=group_disjoint fold=2 target=EA_vs_SHE_eV\n'
+case "hpg" in
+    hpg) python scripts/python/run_hpg_generalization.py "$@" ;;
+    wdmpnn) python scripts/python/run_wdmpnn_generalization.py "$@" ;;
+    stage2d) python scripts/python/run_stage2d_generalization.py "$@" ;;
+    *) printf 'Unknown runner: %s\n' "hpg" >&2; exit 2 ;;
+esac
