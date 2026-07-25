@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from itertools import combinations
 from typing import Optional
 
 import numpy as np
@@ -150,28 +151,54 @@ class TwoStageHPGFeaturizer:
         return edge_index, np.asarray(features, dtype=np.float32)
 
     @staticmethod
+    def _octamer_transition_matrix(rule_text: str, owners: dict[int, int]) -> np.ndarray:
+        raw = np.zeros((2, 2), dtype=np.float64)
+        matches = list(_PORT_RULE.finditer(rule_text))
+        if not matches:
+            raise ValueError("WDMPNN_Input must contain at least one <i-j:w_ij:w_ji> rule")
+        for match in matches:
+            i, j = int(match.group(1)), int(match.group(2))
+            wij, wji = float(match.group(3)), float(match.group(4))
+            if i not in owners or j not in owners:
+                raise ValueError(f"Bond rule references unavailable port(s): {i}-{j}")
+            if not np.isfinite([wij, wji]).all() or wij < 0 or wji < 0:
+                raise ValueError("Bond rule weights must be finite and non-negative")
+            directed = [(i, j, wij)] if i == j else [(i, j, wij), (j, i, wji)]
+            for source_port, target_port, weight in directed:
+                raw[owners[source_port], owners[target_port]] += weight
+        row_sums = raw.sum(axis=1, keepdims=True)
+        if (row_sums <= 0).any():
+            raise ValueError("Each monomer must have at least one outgoing WDMPNN_Input bond rule")
+        return raw / row_sums
+
+    @staticmethod
     def _build_octamer_sequences(
         fracs: np.ndarray,
+        transition: np.ndarray,
         octamer_len: int,
         n_random_samples: int,
         rng_seed: int = 42,
     ) -> np.ndarray:
-        """Return shape (K, octamer_len) uint8 array of monomer-type sequences (0=A, 1=B).
-
-        n_A = round(octamer_len * fracs[0]), n_B = octamer_len - n_A.
-        First sequence is deterministic alternating-block; remaining K-1 are random shuffles.
-        """
         n_A = int(round(octamer_len * float(fracs[0])))
         n_A = max(1, min(octamer_len - 1, n_A))
-        n_B = octamer_len - n_A
-        base = np.array([0] * n_A + [1] * n_B, dtype=np.uint8)
+        candidates = np.ones((len(list(combinations(range(octamer_len), n_A))), octamer_len), dtype=np.uint8)
+        for row, a_positions in enumerate(combinations(range(octamer_len), n_A)):
+            candidates[row, list(a_positions)] = 0
+        pair_weights = transition[candidates[:, :-1], candidates[:, 1:]]
+        log_pair_weights = np.full_like(pair_weights, -np.inf)
+        np.log(pair_weights, out=log_pair_weights, where=pair_weights > 0)
+        log_weights = log_pair_weights.sum(axis=1)
+        if not np.isfinite(log_weights).any():
+            raise ValueError("WDMPNN_Input transition rules cannot produce an octamer at the requested composition")
+        stable_log_weights = log_weights - np.max(log_weights)
+        probabilities = np.exp(stable_log_weights)
+        probabilities /= probabilities.sum()
         rng = np.random.default_rng(rng_seed)
         sequences = np.empty((n_random_samples, octamer_len), dtype=np.uint8)
-        sequences[0] = base
-        for k in range(1, n_random_samples):
-            seq = base.copy()
-            rng.shuffle(seq)
-            sequences[k] = seq
+        sequences[0] = candidates[np.argmax(log_weights)]
+        if n_random_samples > 1:
+            sampled = rng.choice(len(candidates), size=n_random_samples - 1, replace=True, p=probabilities)
+            sequences[1:] = candidates[sampled]
         return sequences
 
     @staticmethod
@@ -222,7 +249,10 @@ class TwoStageHPGFeaturizer:
 
         octamer_sequences = None
         if stage2_mode == "octamer_sequence":
-            octamer_sequences = self._build_octamer_sequences(fracs, octamer_len, n_random_samples, octamer_rng_seed)
+            transition = self._octamer_transition_matrix(rules, owners)
+            octamer_sequences = self._build_octamer_sequences(
+                fracs, transition, octamer_len, n_random_samples, octamer_rng_seed
+            )
         elif stage2_mode != "transition_graph":
             raise ValueError(f"Unknown stage2_mode={stage2_mode!r}")
 

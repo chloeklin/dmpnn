@@ -74,6 +74,9 @@ class OctamerEncoder(nn.Module):
         self.d_h = d_h
         self.octamer_len = octamer_len
         self.layers = nn.ModuleList([OctamerPathLayer(d_h) for _ in range(n_layers)])
+        self.position_embeddings = nn.Parameter(torch.empty(octamer_len, d_h))
+        self.pool_score = nn.Linear(d_h, 1)
+        nn.init.normal_(self.position_embeddings, std=0.02)
 
     @staticmethod
     def _make_path_edge_index(n_reps: int, L: int, device: torch.device) -> Tensor:
@@ -90,15 +93,16 @@ class OctamerEncoder(nn.Module):
         n_reps, L = octamer_sequences.shape
         # Map sequence values (0/1) to global monomer indices 2p or 2p+1
         global_mon = 2 * octamer_polymer_batch.unsqueeze(1) + octamer_sequences  # (n_reps, L)
-        # Gather embeddings from shared monomer_embeds
-        h_flat = monomer_embeds[global_mon.reshape(-1)]  # (n_reps * L, d_h)
+        h = monomer_embeds[global_mon.reshape(-1)].reshape(n_reps, L, self.d_h)
+        h = h + self.position_embeddings.unsqueeze(0)
+        h_flat = h.reshape(n_reps * L, self.d_h)
         edge_index = self._make_path_edge_index(n_reps, L, device=h_flat.device)
         n_nodes = n_reps * L
         for layer in self.layers:
             h_flat = layer(h_flat, edge_index, n_nodes)
-        # Mean-pool per replicate over L positions
-        h_reps = h_flat.reshape(n_reps, L, self.d_h).mean(dim=1)  # (n_reps, d_h)
-        return h_reps
+        h = h_flat.reshape(n_reps, L, self.d_h)
+        attention = torch.softmax(self.pool_score(h).squeeze(-1), dim=1)
+        return torch.sum(h * attention.unsqueeze(-1), dim=1)
 
 
 class JunctionCouplingLayer(nn.Module):

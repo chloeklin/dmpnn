@@ -5,6 +5,7 @@
 #   ./submit_hpg_phase1_gates.sh               # submit 6 gate jobs
 #   ./submit_hpg_phase1_gates.sh --dry_run     # print qsub commands only
 #   ./submit_hpg_phase1_gates.sh --no-submit   # generate PBS scripts only
+#   ./submit_hpg_phase1_gates.sh --model hpg_hier_octamer --target EA --force
 set -euo pipefail
 
 PROJECT="ng76"
@@ -22,10 +23,16 @@ WALLTIME="24:00:00"
 
 DRY_RUN=false
 NO_SUBMIT=false
+MODEL_FILTER=""
+TARGET_FILTER=""
+FORCE=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry_run) DRY_RUN=true; shift ;;
         --no-submit) NO_SUBMIT=true; shift ;;
+        --model) MODEL_FILTER="$2"; shift 2 ;;
+        --target) TARGET_FILTER="$2"; shift 2 ;;
+        --force) FORCE=true; shift ;;
         *) printf 'Unknown argument: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
@@ -45,16 +52,32 @@ TARGET_TOKENS=(EA_vs_SHE_eV IP_vs_SHE_eV)
 MODELS=(hpg_hier_wedge hpg_hier_octamer hpg_hier_junction)
 
 for model_token in "${MODELS[@]}"; do
+    if [[ -n "$MODEL_FILTER" && "$model_token" != "$MODEL_FILTER" ]]; then
+        continue
+    fi
     for target_index in "${!TARGETS[@]}"; do
         target="${TARGETS[$target_index]}"
         target_token="${TARGET_TOKENS[$target_index]}"
-        printf '%s\t%s\tgroup_disjoint\t0\t--split_types group_disjoint --folds 0 --targets %q --models %s --stage1_pool sum --stage2_depth 2 --stage2_edge full --octamer_len 8 --n_random_samples 16 --n_coupling_steps 2 --seed 42\n' \
-            "$target_token" "$model_token" "$target" "$model_token" >> "$MANIFEST"
+        if [[ -n "$TARGET_FILTER" && "$target_token" != "${TARGET_FILTER}_vs_SHE_eV" ]]; then
+            continue
+        fi
+        force_arg=""
+        if [[ "$FORCE" == true ]]; then
+            force_arg=" --force"
+        fi
+        printf '%s\t%s\tgroup_disjoint\t0\t--split_types group_disjoint --folds 0 --targets %q --models %s --stage1_pool sum --stage2_depth 2 --stage2_edge full --octamer_len 8 --n_random_samples 16 --n_coupling_steps 2 --seed 42%s\n' \
+            "$target_token" "$model_token" "$target" "$model_token" "$force_arg" >> "$MANIFEST"
     done
 done
 
 TASK_COUNT="$(wc -l < "$MANIFEST" | tr -d ' ')"
 EXPECTED_COUNT=6
+if [[ -n "$MODEL_FILTER" ]]; then
+    EXPECTED_COUNT=$((EXPECTED_COUNT / 3))
+fi
+if [[ -n "$TARGET_FILTER" ]]; then
+    EXPECTED_COUNT=$((EXPECTED_COUNT / 2))
+fi
 if [[ "$TASK_COUNT" -ne "$EXPECTED_COUNT" ]]; then
     printf 'Expected %s gate tasks, found %s\n' "$EXPECTED_COUNT" "$TASK_COUNT" >&2
     exit 1
@@ -89,7 +112,7 @@ mkdir -p "\$TASK_LOG_DIR"
 exec > >(tee -a "\$TASK_LOG_DIR/gate_${task_index}_\${PBS_JOBID}.log") 2>&1
 
 PREDICTION_PATH="$PROJECT_DIR/predictions/ea_ip_group/ea_ip__${target_token}__${model_token}__${split}__fold${fold}__s42.npz"
-if [[ -f "\$PREDICTION_PATH" ]]; then
+if [[ -f "\$PREDICTION_PATH" && "$FORCE" != true ]]; then
     printf 'Skipping existing prediction: %s\\n' "\$PREDICTION_PATH"
     exit 0
 fi

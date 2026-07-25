@@ -1,8 +1,8 @@
 #!/bin/bash
-# Full Phase-1 HPG-hier variant array: 3 variants × 19 folds × 2 targets = 114 cells.
+# Full Phase-1 HPG-hier array for gate-cleared variants: 2 variants × 19 folds × 2 targets = 76 cells.
 # Run submit_hpg_phase1_gates.sh and confirm gate metrics before running this.
 # Usage:
-#   ./submit_hpg_phase1.sh                        # all 114 cells
+#   ./submit_hpg_phase1.sh                        # all 76 cleared-variant cells
 #   ./submit_hpg_phase1.sh --dry_run              # print qsub commands only
 #   ./submit_hpg_phase1.sh --no-submit            # generate PBS scripts only
 #   ./submit_hpg_phase1.sh --split monomer_heldout  # one split only
@@ -49,7 +49,7 @@ PBS_SCRIPT_DIR="$LOG_DIR/pbs"
 SPLITS=(group_disjoint pair_disjoint monomer_heldout)
 TARGETS=("EA vs SHE (eV)" "IP vs SHE (eV)")
 TARGET_TOKENS=(EA_vs_SHE_eV IP_vs_SHE_eV)
-MODELS=(hpg_hier_wedge hpg_hier_octamer hpg_hier_junction)
+MODELS=(hpg_hier_wedge hpg_hier_junction)
 
 for split in "${SPLITS[@]}"; do
     if [[ -n "$SPLIT_FILTER" && "$split" != "$SPLIT_FILTER" ]]; then
@@ -76,17 +76,17 @@ for split in "${SPLITS[@]}"; do
 done
 
 TASK_COUNT="$(wc -l < "$MANIFEST" | tr -d ' ')"
-# Full array: (5+5+9) folds × 2 targets × 3 models = 19 × 2 × 3 = 114
-EXPECTED_COUNT=114
+# Full array: (5+5+9) folds × 2 targets × 2 models = 19 × 2 × 2 = 76
+EXPECTED_COUNT=76
 if [[ -n "$SPLIT_FILTER" ]]; then
     case "$SPLIT_FILTER" in
-        group_disjoint|pair_disjoint) EXPECTED_COUNT=30 ;;
-        monomer_heldout)              EXPECTED_COUNT=54 ;;
+        group_disjoint|pair_disjoint) EXPECTED_COUNT=20 ;;
+        monomer_heldout)              EXPECTED_COUNT=36 ;;
         *) printf 'Unknown split filter: %s\n' "$SPLIT_FILTER" >&2; exit 2 ;;
     esac
 fi
 if [[ -n "$MODEL_FILTER" ]]; then
-    EXPECTED_COUNT=$((EXPECTED_COUNT / 3))
+    EXPECTED_COUNT=$((EXPECTED_COUNT / 2))
 fi
 if [[ "$TASK_COUNT" -ne "$EXPECTED_COUNT" ]]; then
     printf 'Expected %s tasks, found %s\n' "$EXPECTED_COUNT" "$TASK_COUNT" >&2

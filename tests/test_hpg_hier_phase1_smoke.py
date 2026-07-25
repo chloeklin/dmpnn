@@ -149,3 +149,20 @@ def test_junction_default_reproduces_baseline():
         out_var = variant(batch[0])
     assert torch.allclose(out_base, out_var, atol=1e-6), \
         f"Default junction differs from baseline:\n{out_base}\n{out_var}"
+
+
+def test_octamer_sequences_are_architecture_conditioned():
+    df = pd.read_csv(ROOT_DIR / "data" / "ea_ip.csv")
+    candidates = df[df["fracA"] == 0.5].groupby(["smiles_A", "smiles_B"])
+    _, matched = next((key, group) for key, group in candidates if {"alternating", "block", "random"} <= set(group["poly_type"]))
+    rows = matched.drop_duplicates("poly_type").set_index("poly_type")
+    featurizer = TwoStageHPGFeaturizer()
+    sequences = {
+        poly_type: featurizer(rows.loc[poly_type, "WDMPNN_Input"], stage2_mode="octamer_sequence", octamer_len=8, n_random_samples=16).octamer_sequences
+        for poly_type in ("alternating", "block", "random")
+    }
+    assert all(np.all(seq.sum(axis=1) == 4) for seq in sequences.values())
+    assert np.all(sequences["alternating"][:, 1:] != sequences["alternating"][:, :-1])
+    assert not np.array_equal(sequences["alternating"], sequences["block"])
+    assert not np.array_equal(sequences["alternating"], sequences["random"])
+    assert not np.array_equal(sequences["block"], sequences["random"])
