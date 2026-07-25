@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Optional
 
 import numpy as np
 from rdkit import Chem
@@ -20,6 +21,9 @@ class TwoStageHPGGraph:
     monomer_fracs: np.ndarray
     stage2_edge_index: np.ndarray
     stage2_edge_features: np.ndarray
+    octamer_sequences: Optional[np.ndarray] = None  # shape (K, octamer_len) uint8; None for transition_graph mode
+    junction_edge_index: Optional[np.ndarray] = None  # shape (2, n_junc) local indices: row0=A atom, row1=B atom
+    junction_edge_weights: Optional[np.ndarray] = None  # shape (n_junc,) float32 transition weights
 
 
 @dataclass
@@ -101,7 +105,7 @@ class TwoStageHPGFeaturizer:
 
         graph = self.atom_graph_featurizer(clean_mol, atom_features_extra=extras)
         graph = graph._replace(V=np.hstack([np.stack([base_features[idx] for idx in kept_indices]), extras]).astype(np.float32))
-        return graph, ports
+        return graph, ports, local_index
 
     @staticmethod
     def _stage2_edges(rule_text: str, owners: dict[int, int], stage2_edge: str) -> tuple[np.ndarray, np.ndarray]:
@@ -145,10 +149,94 @@ class TwoStageHPGFeaturizer:
             features.append(np.concatenate([port_features, np.asarray([weight], dtype=np.float32)]))
         return edge_index, np.asarray(features, dtype=np.float32)
 
-    def __call__(self, wdmpnn_input: str, stage2_edge: str = "full") -> TwoStageHPGGraph:
+    @staticmethod
+    def _build_octamer_sequences(
+        fracs: np.ndarray,
+        octamer_len: int,
+        n_random_samples: int,
+        rng_seed: int = 42,
+    ) -> np.ndarray:
+        """Return shape (K, octamer_len) uint8 array of monomer-type sequences (0=A, 1=B).
+
+        n_A = round(octamer_len * fracs[0]), n_B = octamer_len - n_A.
+        First sequence is deterministic alternating-block; remaining K-1 are random shuffles.
+        """
+        n_A = int(round(octamer_len * float(fracs[0])))
+        n_A = max(1, min(octamer_len - 1, n_A))
+        n_B = octamer_len - n_A
+        base = np.array([0] * n_A + [1] * n_B, dtype=np.uint8)
+        rng = np.random.default_rng(rng_seed)
+        sequences = np.empty((n_random_samples, octamer_len), dtype=np.uint8)
+        sequences[0] = base
+        for k in range(1, n_random_samples):
+            seq = base.copy()
+            rng.shuffle(seq)
+            sequences[k] = seq
+        return sequences
+
+    @staticmethod
+    def _build_junction_edges(
+        rule_text: str,
+        ports_a: dict[int, int],
+        ports_b: dict[int, int],
+        n_A_atoms: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build junction edge index in combined monomer-pair atom space and weights.
+
+        Atoms are indexed as: A atoms 0..n_A-1, B atoms n_A..n_A+n_B-1.
+        Returns edge_index shape (2, n_junc) and weights shape (n_junc,) float32.
+        During batch collation, a single polymer-level atom offset is added to edge_index.
+        """
+        rows_src, rows_dst, weights = [], [], []
+        for match in _PORT_RULE.finditer(rule_text):
+            i, j = int(match.group(1)), int(match.group(2))
+            wij, wji = float(match.group(3)), float(match.group(4))
+            if i in ports_a and j in ports_b:
+                a_atom, b_atom = ports_a[i], ports_b[j]
+                rows_src.append(a_atom);           rows_dst.append(n_A_atoms + b_atom); weights.append(wij)
+                rows_src.append(n_A_atoms + b_atom); rows_dst.append(a_atom);           weights.append(wji)
+            elif i in ports_b and j in ports_a:
+                b_atom, a_atom = ports_b[i], ports_a[j]
+                rows_src.append(n_A_atoms + b_atom); rows_dst.append(a_atom);           weights.append(wij)
+                rows_src.append(a_atom);           rows_dst.append(n_A_atoms + b_atom); weights.append(wji)
+        if not rows_src:
+            raise ValueError("No cross-monomer junction edges found in bond rules")
+        edge_index = np.array([rows_src, rows_dst], dtype=np.int64)
+        return edge_index, np.array(weights, dtype=np.float32)
+
+    def __call__(
+        self,
+        wdmpnn_input: str,
+        stage2_edge: str = "full",
+        stage2_mode: str = "transition_graph",
+        octamer_len: int = 8,
+        n_random_samples: int = 16,
+        octamer_rng_seed: int = 42,
+        junction_coupling: str = "off",
+    ) -> TwoStageHPGGraph:
         smiles_a, smiles_b, fracs, rules = self._parse_input(wdmpnn_input)
-        graph_a, ports_a = self._monomer_graph(smiles_a, {1, 2})
-        graph_b, ports_b = self._monomer_graph(smiles_b, {3, 4})
+        graph_a, ports_a, local_a = self._monomer_graph(smiles_a, {1, 2})
+        graph_b, ports_b, local_b = self._monomer_graph(smiles_b, {3, 4})
         owners = {**{port: 0 for port in ports_a}, **{port: 1 for port in ports_b}}
         edge_index, edge_features = self._stage2_edges(rules, owners, stage2_edge)
-        return TwoStageHPGGraph((graph_a, graph_b), fracs, edge_index, edge_features)
+
+        octamer_sequences = None
+        if stage2_mode == "octamer_sequence":
+            octamer_sequences = self._build_octamer_sequences(fracs, octamer_len, n_random_samples, octamer_rng_seed)
+        elif stage2_mode != "transition_graph":
+            raise ValueError(f"Unknown stage2_mode={stage2_mode!r}")
+
+        junction_edge_index = junction_edge_weights = None
+        if junction_coupling == "on":
+            ports_a_post = {port: local_a[atom_idx] for port, atom_idx in ports_a.items()}
+            ports_b_post = {port: local_b[atom_idx] for port, atom_idx in ports_b.items()}
+            junction_edge_index, junction_edge_weights = self._build_junction_edges(
+                rules, ports_a_post, ports_b_post, n_A_atoms=graph_a.V.shape[0]
+            )
+        elif junction_coupling != "off":
+            raise ValueError(f"Unknown junction_coupling={junction_coupling!r}")
+
+        return TwoStageHPGGraph(
+            (graph_a, graph_b), fracs, edge_index, edge_features,
+            octamer_sequences, junction_edge_index, junction_edge_weights,
+        )

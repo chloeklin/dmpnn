@@ -1,0 +1,196 @@
+<svg viewBox="0 0 1180 900" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif" role="img">
+<defs><marker id="arw" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#3A4A57"/></marker></defs>
+<rect x="0" y="0" width="1180" height="900" fill="#FFFFFF"/>
+<text x="30" y="34" font-size="22" fill="#12314E" text-anchor="start" font-weight="bold">Model architectures on an example copolymer</text>
+<rect x="30" y="50" width="1120" height="104" rx="8" fill="#F7FAFC" stroke="#D6DFE6" stroke-width="1.5"/>
+<text x="50" y="74" font-size="13.5" fill="#1F2D3A" text-anchor="start" font-weight="bold">Example: poly(phenylene-co-thiophene)  —  monomer A = benzene, monomer B = thiophene</text>
+<path d="M97.0,116.0 L88.5,101.3 L71.5,101.3 L63.0,116.0 L71.5,130.7 L88.5,130.7 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="2"/>
+<text x="80" y="121" font-size="13" font-weight="bold" fill="#3E6E8C" text-anchor="middle">A</text>
+<text x="80" y="146" font-size="10.5" fill="#6B7B8C" text-anchor="middle">benzene</text>
+<path d="M175.0,133.0 L191.2,121.3 L185.0,102.2 L165.0,102.2 L158.8,121.3 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="2"/>
+<circle cx="175.0" cy="133.0" r="8" fill="#C68A2E"/>
+<text x="175.0" y="137.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<text x="175" y="114" font-size="13" font-weight="bold" fill="#C68A2E" text-anchor="middle">B</text>
+<text x="175" y="146" font-size="10.5" fill="#6B7B8C" text-anchor="middle">thiophene</text>
+<text x="300" y="84" font-size="11" fill="#6B7B8C" text-anchor="start" font-weight="bold">block</text>
+<path d="M309.0,104.0 L304.5,96.2 L295.5,96.2 L291.0,104.0 L295.5,111.8 L304.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<path d="M339.0,104.0 L334.5,96.2 L325.5,96.2 L321.0,104.0 L325.5,111.8 L334.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<line x1="309" y1="104" x2="321" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M369.0,104.0 L364.5,96.2 L355.5,96.2 L351.0,104.0 L355.5,111.8 L364.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<line x1="339" y1="104" x2="351" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M390.0,113.0 L398.6,106.8 L395.3,96.7 L384.7,96.7 L381.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="390.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="390.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="369" y1="104" x2="381" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M420.0,113.0 L428.6,106.8 L425.3,96.7 L414.7,96.7 L411.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="420.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="420.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="399" y1="104" x2="411" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M450.0,113.0 L458.6,106.8 L455.3,96.7 L444.7,96.7 L441.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="450.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="450.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="429" y1="104" x2="441" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<text x="560" y="84" font-size="11" fill="#6B7B8C" text-anchor="start" font-weight="bold">alternating</text>
+<path d="M569.0,104.0 L564.5,96.2 L555.5,96.2 L551.0,104.0 L555.5,111.8 L564.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<path d="M590.0,113.0 L598.6,106.8 L595.3,96.7 L584.7,96.7 L581.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="590.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="590.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="569" y1="104" x2="581" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M629.0,104.0 L624.5,96.2 L615.5,96.2 L611.0,104.0 L615.5,111.8 L624.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<line x1="599" y1="104" x2="611" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M650.0,113.0 L658.6,106.8 L655.3,96.7 L644.7,96.7 L641.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="650.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="650.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="629" y1="104" x2="641" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M689.0,104.0 L684.5,96.2 L675.5,96.2 L671.0,104.0 L675.5,111.8 L684.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<line x1="659" y1="104" x2="671" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M710.0,113.0 L718.6,106.8 L715.3,96.7 L704.7,96.7 L701.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="710.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="710.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="689" y1="104" x2="701" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<text x="830" y="84" font-size="11" fill="#6B7B8C" text-anchor="start" font-weight="bold">random</text>
+<path d="M839.0,104.0 L834.5,96.2 L825.5,96.2 L821.0,104.0 L825.5,111.8 L834.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<path d="M860.0,113.0 L868.6,106.8 L865.3,96.7 L854.7,96.7 L851.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="860.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="860.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="839" y1="104" x2="851" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M890.0,113.0 L898.6,106.8 L895.3,96.7 L884.7,96.7 L881.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="890.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="890.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="869" y1="104" x2="881" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M929.0,104.0 L924.5,96.2 L915.5,96.2 L911.0,104.0 L915.5,111.8 L924.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<line x1="899" y1="104" x2="911" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M950.0,113.0 L958.6,106.8 L955.3,96.7 L944.7,96.7 L941.4,106.8 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="1.5"/>
+<circle cx="950.0" cy="113.0" r="8" fill="#C68A2E"/>
+<text x="950.0" y="117.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="929" y1="104" x2="941" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<path d="M989.0,104.0 L984.5,96.2 L975.5,96.2 L971.0,104.0 L975.5,111.8 L984.5,111.8 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="1.5"/>
+<line x1="959" y1="104" x2="971" y2="104" stroke="#8A97A2" stroke-width="1.5"/>
+<rect x="30" y="176" width="350" height="34" rx="6" fill="#12314E" stroke="#12314E" stroke-width="0"/>
+<text x="205" y="199" font-size="16" fill="#FFFFFF" text-anchor="middle" font-weight="bold">wDMPNN</text>
+<text x="205" y="230" font-size="12.5" fill="#6B7B8C" text-anchor="middle" font-style="italic">one flat atom graph · 1 pass</text>
+<rect x="65" y="242" width="280" height="116" rx="8" fill="#F3F6F9" stroke="#D6DFE6" stroke-width="1.5"/>
+<path d="M170.0,300.0 L160.0,282.7 L140.0,282.7 L130.0,300.0 L140.0,317.3 L160.0,317.3 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="2"/>
+<circle cx="170.0" cy="300.0" r="3" fill="#3E6E8C"/>
+<circle cx="160.0" cy="282.7" r="3" fill="#3E6E8C"/>
+<circle cx="140.0" cy="282.7" r="3" fill="#3E6E8C"/>
+<circle cx="130.0" cy="300.0" r="3" fill="#3E6E8C"/>
+<circle cx="140.0" cy="317.3" r="3" fill="#3E6E8C"/>
+<circle cx="160.0" cy="317.3" r="3" fill="#3E6E8C"/>
+<text x="150" y="305" font-size="13" font-weight="bold" fill="#3E6E8C" text-anchor="middle">A</text>
+<path d="M270.0,320.0 L289.0,306.2 L281.8,283.8 L258.2,283.8 L251.0,306.2 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="2"/>
+<circle cx="270.0" cy="320.0" r="8" fill="#C68A2E"/>
+<text x="270.0" y="324.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<text x="270" y="298" font-size="13" font-weight="bold" fill="#C68A2E" text-anchor="middle">B</text>
+<line x1="170" y1="300" x2="250" y2="300" stroke="#E8A33D" stroke-width="3.5" stroke-dasharray="5,4"/>
+<text x="210" y="288" font-size="10.5" fill="#9A6B12" text-anchor="middle" font-weight="bold">weighted junction</text>
+<text x="205" y="348" font-size="10.5" fill="#6B7B8C" text-anchor="middle">one connected graph (atoms)</text>
+<line x1="205" y1="358" x2="205" y2="376" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="100" y="378" width="210" height="34" rx="6" fill="#FFFFFF" stroke="#12314E" stroke-width="1.5"/>
+<text x="205" y="400" font-size="13" fill="#1F2D3A" text-anchor="middle">message passing × 1</text>
+<line x1="205" y1="412" x2="205" y2="430" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="140" y="432" width="130" height="30" rx="6" fill="#EAF1F5" stroke="#EAF1F5" stroke-width="0"/>
+<text x="205" y="452" font-size="12.5" fill="#1F2D3A" text-anchor="middle">pool</text>
+<line x1="205" y1="462" x2="205" y2="494" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="140" y="496" width="130" height="32" rx="6" fill="#12314E" stroke="#12314E" stroke-width="0"/>
+<text x="205" y="517" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">EA / IP</text>
+<text x="205" y="544" font-size="11.5" fill="#6B7B8C" text-anchor="middle">Architecture = edge weights;</text>
+<text x="205" y="560" font-size="11.5" fill="#6B7B8C" text-anchor="middle">junction bond kept.</text>
+<rect x="415" y="176" width="350" height="34" rx="6" fill="#1C7293" stroke="#1C7293" stroke-width="0"/>
+<text x="590" y="199" font-size="16" fill="#FFFFFF" text-anchor="middle" font-weight="bold">HPG (original)</text>
+<text x="590" y="230" font-size="12.5" fill="#6B7B8C" text-anchor="middle" font-style="italic">hierarchy fused in one graph · 1 pass</text>
+<rect x="450" y="242" width="280" height="116" rx="8" fill="#F3F6F9" stroke="#D6DFE6" stroke-width="1.5"/>
+<rect x="510" y="256" width="26" height="26" rx="5" fill="#E8A33D" stroke="#E8A33D" stroke-width="0"/>
+<text x="523" y="274" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">A</text>
+<rect x="644" y="256" width="26" height="26" rx="5" fill="#E8A33D" stroke="#E8A33D" stroke-width="0"/>
+<text x="657" y="274" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">B</text>
+<line x1="536" y1="269" x2="644" y2="269" stroke="#E8A33D" stroke-width="3"/>
+<text x="590" y="262" font-size="10" fill="#9A6B12" text-anchor="middle">chain edge (degree)</text>
+<path d="M538.0,326.0 L530.5,313.0 L515.5,313.0 L508.0,326.0 L515.5,339.0 L530.5,339.0 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="2"/>
+<path d="M657.0,341.0 L671.3,330.6 L665.8,313.9 L648.2,313.9 L642.7,330.6 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="2"/>
+<circle cx="657.0" cy="341.0" r="8" fill="#C68A2E"/>
+<text x="657.0" y="345.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="523" y1="311" x2="523" y2="282" stroke="#B9C4CD" stroke-width="1.3"/>
+<line x1="657" y1="311" x2="657" y2="282" stroke="#B9C4CD" stroke-width="1.3"/>
+<text x="590" y="351" font-size="10.5" fill="#B0503F" text-anchor="middle">(junction atoms dropped)</text>
+<line x1="590" y1="358" x2="590" y2="376" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="470" y="378" width="240" height="34" rx="6" fill="#FFFFFF" stroke="#1C7293" stroke-width="1.5"/>
+<text x="590" y="400" font-size="13" fill="#1F2D3A" text-anchor="middle">one GAT stack × 1 (all nodes)</text>
+<line x1="590" y1="412" x2="590" y2="430" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="520" y="432" width="140" height="30" rx="6" fill="#EAF1F5" stroke="#EAF1F5" stroke-width="0"/>
+<text x="590" y="452" font-size="12.5" fill="#1F2D3A" text-anchor="middle">sum-pool</text>
+<line x1="590" y1="462" x2="590" y2="494" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="525" y="496" width="130" height="32" rx="6" fill="#1C7293" stroke="#1C7293" stroke-width="0"/>
+<text x="590" y="517" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">EA / IP</text>
+<text x="590" y="544" font-size="11.5" fill="#6B7B8C" text-anchor="middle">Atoms + virtual monomer nodes,</text>
+<text x="590" y="560" font-size="11.5" fill="#6B7B8C" text-anchor="middle">one shared pass.</text>
+<rect x="800" y="176" width="350" height="34" rx="6" fill="#E8A33D" stroke="#E8A33D" stroke-width="0"/>
+<text x="975" y="199" font-size="16" fill="#FFFFFF" text-anchor="middle" font-weight="bold">HPG-hier  (ours)</text>
+<text x="975" y="230" font-size="12.5" fill="#6B7B8C" text-anchor="middle" font-style="italic">two separate message-passing stages</text>
+<rect x="820" y="240" width="310" height="84" rx="8" fill="#F3F6F9" stroke="#5B8FB0" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="830" y="256" font-size="10.5" fill="#3E6E8C" text-anchor="start" font-weight="bold">STAGE 1 · per-monomer chemistry (shared encoder)</text>
+<path d="M870.0,292.0 L862.5,279.0 L847.5,279.0 L840.0,292.0 L847.5,305.0 L862.5,305.0 Z" fill="#DCE7F0" stroke="#3E6E8C" stroke-width="2"/>
+<line x1="875" y1="292" x2="900" y2="292" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="900" y="280" width="34" height="24" rx="6" fill="#fff" stroke="#5B8FB0" stroke-width="1.2"/>
+<text x="917" y="296" font-size="10" fill="#1F2D3A" text-anchor="middle">enc</text>
+<line x1="934" y1="292" x2="950" y2="292" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<circle cx="965" cy="292" r="13" fill="#E8A33D"/>
+<text x="965" y="296" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">m&#8320;</text>
+<path d="M1005.0,307.0 L1019.3,296.6 L1013.8,279.9 L996.2,279.9 L990.7,296.6 Z" fill="#FBE9CF" stroke="#C68A2E" stroke-width="2"/>
+<circle cx="1005.0" cy="307.0" r="8" fill="#C68A2E"/>
+<text x="1005.0" y="311.0" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">S</text>
+<line x1="1025" y1="292" x2="1050" y2="292" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="1050" y="280" width="34" height="24" rx="6" fill="#fff" stroke="#5B8FB0" stroke-width="1.2"/>
+<text x="1067" y="296" font-size="10" fill="#1F2D3A" text-anchor="middle">enc</text>
+<line x1="1084" y1="292" x2="1100" y2="292" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<circle cx="1112" cy="292" r="13" fill="#E8A33D"/>
+<text x="1112" y="296" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">m&#8321;</text>
+<line x1="975" y1="324" x2="975" y2="340" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="820" y="342" width="310" height="80" rx="8" fill="#FBF3E4" stroke="#E8A33D" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="830" y="358" font-size="10.5" fill="#9A6B12" text-anchor="start" font-weight="bold">STAGE 2 · architecture graph (separate weights)</text>
+<circle cx="920" cy="390" r="13" fill="#E8A33D"/>
+<text x="920" y="394" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">m&#8320;</text>
+<circle cx="1030" cy="390" r="13" fill="#E8A33D"/>
+<text x="1030" y="394" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">m&#8321;</text>
+<path d="M933,384 Q975,371 1017,384" fill="none" stroke="#9A6B12" stroke-width="2" marker-end="url(#arw)"/>
+<path d="M1017,396 Q975,409 933,396" fill="none" stroke="#9A6B12" stroke-width="2" marker-end="url(#arw)"/>
+<text x="975" y="418" font-size="9.5" fill="#9A6B12" text-anchor="middle">edges = arch weights + junction (WDMPNN&#95;Input)</text>
+<line x1="975" y1="422" x2="975" y2="438" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="890" y="440" width="170" height="28" rx="6" fill="#EAF1F5" stroke="#EAF1F5" stroke-width="0"/>
+<text x="975" y="459" font-size="11.5" fill="#1F2D3A" text-anchor="middle">stoichiometry-weighted pool</text>
+<line x1="975" y1="468" x2="975" y2="494" stroke="#3A4A57" stroke-width="1.5" marker-end="url(#arw)"/>
+<rect x="910" y="496" width="130" height="32" rx="6" fill="#E8A33D" stroke="#E8A33D" stroke-width="0"/>
+<text x="975" y="517" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">EA / IP</text>
+<text x="30" y="610" font-size="15" fill="#12314E" text-anchor="start" font-weight="bold">At a glance</text>
+<rect x="30" y="622" width="1120" height="30" rx="0" fill="#12314E" stroke="#12314E" stroke-width="0"/>
+<text x="44" y="642" font-size="12.5" fill="#fff" text-anchor="start" font-weight="bold">Aspect</text>
+<text x="390" y="642" font-size="12.5" fill="#fff" text-anchor="start" font-weight="bold">wDMPNN</text>
+<text x="650" y="642" font-size="12.5" fill="#fff" text-anchor="start" font-weight="bold">HPG (original)</text>
+<text x="910" y="642" font-size="12.5" fill="#E8A33D" text-anchor="start" font-weight="bold">HPG-hier (ours)</text>
+<rect x="30" y="652" width="1120" height="30" rx="0" fill="#F3F6F9" stroke="none" stroke-width="0"/>
+<text x="44" y="671" font-size="12" fill="#1F2D3A" text-anchor="start" font-weight="bold">Graph</text>
+<text x="390" y="671" font-size="12" fill="#1F2D3A" text-anchor="start">one flat atom graph</text>
+<text x="650" y="671" font-size="12" fill="#1F2D3A" text-anchor="start">fused: atoms + monomer nodes</text>
+<text x="910" y="671" font-size="12" fill="#1F2D3A" text-anchor="start">monomer graphs + monomer graph</text>
+<rect x="30" y="682" width="1120" height="30" rx="0" fill="#FFFFFF" stroke="none" stroke-width="0"/>
+<text x="44" y="701" font-size="12" fill="#1F2D3A" text-anchor="start" font-weight="bold">Message-passing stages</text>
+<text x="390" y="701" font-size="12" fill="#1F2D3A" text-anchor="start">1</text>
+<text x="650" y="701" font-size="12" fill="#1F2D3A" text-anchor="start">1 (shared, all nodes)</text>
+<text x="910" y="701" font-size="12" fill="#9A6B12" text-anchor="start" font-weight="bold">2 (separate weights)</text>
+<rect x="30" y="712" width="1120" height="30" rx="0" fill="#F3F6F9" stroke="none" stroke-width="0"/>
+<text x="44" y="731" font-size="12" fill="#1F2D3A" text-anchor="start" font-weight="bold">Composition mixing</text>
+<text x="390" y="731" font-size="12" fill="#1F2D3A" text-anchor="start">atom-level, implicit</text>
+<text x="650" y="731" font-size="12" fill="#1F2D3A" text-anchor="start">atom → monomer pooling</text>
+<text x="910" y="731" font-size="12" fill="#1F2D3A" text-anchor="start">per-monomer, joined in Stage 2</text>
+<rect x="30" y="742" width="1120" height="30" rx="0" fill="#FFFFFF" stroke="none" stroke-width="0"/>
+<text x="44" y="761" font-size="12" fill="#1F2D3A" text-anchor="start" font-weight="bold">Architecture encoding</text>
+<text x="390" y="761" font-size="12" fill="#1F2D3A" text-anchor="start">weighted junction edges</text>
+<text x="650" y="761" font-size="12" fill="#1F2D3A" text-anchor="start">chain edges (degree)</text>
+<text x="910" y="761" font-size="12" fill="#9A6B12" text-anchor="start" font-weight="bold">explicit Stage-2 graph</text>
+<rect x="30" y="772" width="1120" height="30" rx="0" fill="#F3F6F9" stroke="none" stroke-width="0"/>
+<text x="44" y="791" font-size="12" fill="#1F2D3A" text-anchor="start" font-weight="bold">Junction chemistry</text>
+<text x="390" y="791" font-size="12" fill="#1F2D3A" text-anchor="start">kept (weighted bond)</text>
+<text x="650" y="791" font-size="12" fill="#B0503F" text-anchor="start">dropped</text>
+<text x="910" y="791" font-size="12" fill="#1F2D3A" text-anchor="start">Stage-2 edge feature</text>
+<rect x="30" y="622" width="1120" height="180" fill="none" stroke="#D6DFE6"/>
+</svg>

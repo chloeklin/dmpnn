@@ -77,13 +77,17 @@ _MODEL_TO_TOKEN = {
     "hpg_sum":                 "hpg_sum",
     "hpg_frac":                "hpg_frac",
     "hpg_hier":                "hpg_hier",
+    "hpg_hier_wedge":          "hpg_hier_wedge",
+    "hpg_hier_octamer":        "hpg_hier_octamer",
+    "hpg_hier_junction":       "hpg_hier_junction",
     # already canonical
     "frac":                    "frac",
     "globalarch":              "globalarch",
     "chemarch":                "chemarch",
 }
 
-CANONICAL_MODELS = ["frac", "wdmpnn", "globalarch", "chemarch", "hpg_sum", "hpg_frac", "hpg_hier"]
+CANONICAL_MODELS = ["frac", "wdmpnn", "globalarch", "chemarch", "hpg_sum", "hpg_frac", "hpg_hier",
+                    "hpg_hier_wedge", "hpg_hier_octamer", "hpg_hier_junction"]
 
 
 def standard_model_name(model: str) -> str:

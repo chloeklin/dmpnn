@@ -20,6 +20,10 @@ class BatchTwoStageHPG:
     monomer_fracs: Tensor = field(init=False)
     stage2_edge_index: Tensor = field(init=False)
     stage2_edge_features: Tensor = field(init=False)
+    octamer_sequences: Tensor | None = field(init=False)       # (n_polymers * K, octamer_len) long, or None
+    octamer_polymer_batch: Tensor | None = field(init=False)   # (n_polymers * K,) mapping replicate→polymer
+    junction_edge_index: Tensor | None = field(init=False)     # (2, total_junc_edges) global atom indices
+    junction_edge_weights: Tensor | None = field(init=False)   # (total_junc_edges,)
 
     def __post_init__(self):
         atom_graphs = [monomer_graph for graph in self.graphs for monomer_graph in graph.monomer_graphs]
@@ -27,12 +31,38 @@ class BatchTwoStageHPG:
         self.monomer_batch = torch.arange(len(self.graphs), dtype=torch.long).repeat_interleave(2)
         self.polymer_batch = self.monomer_batch
         self.monomer_fracs = torch.from_numpy(np.concatenate([graph.monomer_fracs for graph in self.graphs])).float()
+
         edge_indices, edge_features = [], []
         for polymer_idx, graph in enumerate(self.graphs):
             edge_indices.append(graph.stage2_edge_index + 2 * polymer_idx)
             edge_features.append(graph.stage2_edge_features)
         self.stage2_edge_index = torch.from_numpy(np.hstack(edge_indices)).long()
         self.stage2_edge_features = torch.from_numpy(np.concatenate(edge_features)).float()
+
+        if self.graphs[0].octamer_sequences is not None:
+            K = self.graphs[0].octamer_sequences.shape[0]
+            all_seqs = np.concatenate([g.octamer_sequences for g in self.graphs], axis=0)  # (N*K, L)
+            self.octamer_sequences = torch.from_numpy(all_seqs).long()
+            self.octamer_polymer_batch = torch.arange(len(self.graphs), dtype=torch.long).repeat_interleave(K)
+        else:
+            self.octamer_sequences = None
+            self.octamer_polymer_batch = None
+
+        has_junction = all(g.junction_edge_index is not None for g in self.graphs)
+        if has_junction:
+            junc_indices, junc_weights = [], []
+            atom_offset = 0
+            for graph in self.graphs:
+                n_A = graph.monomer_graphs[0].V.shape[0]
+                n_B = graph.monomer_graphs[1].V.shape[0]
+                junc_indices.append(graph.junction_edge_index + atom_offset)
+                junc_weights.append(graph.junction_edge_weights)
+                atom_offset += n_A + n_B
+            self.junction_edge_index = torch.from_numpy(np.hstack(junc_indices)).long()
+            self.junction_edge_weights = torch.from_numpy(np.concatenate(junc_weights)).float()
+        else:
+            self.junction_edge_index = None
+            self.junction_edge_weights = None
 
     def __len__(self) -> int:
         return len(self.graphs)
@@ -44,6 +74,12 @@ class BatchTwoStageHPG:
         self.monomer_fracs = self.monomer_fracs.to(device)
         self.stage2_edge_index = self.stage2_edge_index.to(device)
         self.stage2_edge_features = self.stage2_edge_features.to(device)
+        if self.octamer_sequences is not None:
+            self.octamer_sequences = self.octamer_sequences.to(device)
+            self.octamer_polymer_batch = self.octamer_polymer_batch.to(device)
+        if self.junction_edge_index is not None:
+            self.junction_edge_index = self.junction_edge_index.to(device)
+            self.junction_edge_weights = self.junction_edge_weights.to(device)
         return self
 
 

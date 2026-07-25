@@ -16,13 +16,16 @@ SEEDS: list[int] = [42, 43, 44]
 # ── Model definitions ────────────────────────────────────────────────────────
 MODELS = ['frac', 'wdmpnn', 'globalarch', 'chemarch', 'hpg_sum', 'hpg_frac', 'hpg_hier']
 MODEL_DISPLAY = {
-    'frac':       'Frac',
-    'wdmpnn':     'wDMPNN',
-    'globalarch': 'GlobalArch',
-    'chemarch':   'ChemArch',
-    'hpg_sum':    'HPG (sum)',
-    'hpg_frac':   'HPG (frac)',
-    'hpg_hier':   'HPG (hierarchical)',
+    'frac':              'Frac',
+    'wdmpnn':            'wDMPNN',
+    'globalarch':        'GlobalArch',
+    'chemarch':          'ChemArch',
+    'hpg_sum':           'HPG (sum)',
+    'hpg_frac':          'HPG (frac)',
+    'hpg_hier':          'HPG (hier)',
+    'hpg_hier_wedge':    'HPG (hier+wedge)',
+    'hpg_hier_octamer':  'HPG (hier+octamer)',
+    'hpg_hier_junction': 'HPG (hier+junction)',
 }
 
 # ── Splits ───────────────────────────────────────────────────────────────────
@@ -77,25 +80,34 @@ FOLD_MONOMER_NAMES = {
 
 # ── Plot style ───────────────────────────────────────────────────────────────
 COLORS = {
-    'frac':       '#1f77b4',
-    'wdmpnn':     '#7f7f7f',
-    'globalarch': '#ff7f0e',
-    'chemarch':   '#2ca02c',
-    'hpg_sum':    '#9467bd',
-    'hpg_frac':   '#d62728',
-    'hpg_hier':   '#8c564b',
+    'frac':              '#1f77b4',
+    'wdmpnn':            '#7f7f7f',
+    'globalarch':        '#ff7f0e',
+    'chemarch':          '#2ca02c',
+    'hpg_sum':           '#9467bd',
+    'hpg_frac':          '#d62728',
+    'hpg_hier':          '#8c564b',
+    'hpg_hier_wedge':    '#D4880A',
+    'hpg_hier_octamer':  '#F0C060',
+    'hpg_hier_junction': '#B8891D',
 }
 MARKERS = {
-    'frac':       'o',
-    'wdmpnn':     's',
-    'globalarch': '^',
-    'chemarch':   'D',
-    'hpg_sum':    'P',
-    'hpg_frac':   'X',
-    'hpg_hier':   'v',
+    'frac':              'o',
+    'wdmpnn':            's',
+    'globalarch':        '^',
+    'chemarch':          'D',
+    'hpg_sum':           'P',
+    'hpg_frac':          'X',
+    'hpg_hier':          'v',
+    'hpg_hier_wedge':    '<',
+    'hpg_hier_octamer':  '>',
+    'hpg_hier_junction': 'h',
 }
 
 DPI = 300
+
+
+PHASE1_VARIANT_MODELS = ['hpg_hier_wedge', 'hpg_hier_octamer', 'hpg_hier_junction']
 
 
 def set_models(models: list[str]) -> None:

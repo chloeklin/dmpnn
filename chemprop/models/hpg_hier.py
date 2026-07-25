@@ -15,20 +15,116 @@ def _scatter_sum(values: Tensor, index: Tensor, size: int) -> Tensor:
 
 
 class Stage2Layer(nn.Module):
-    def __init__(self, d_h: int, d_e: int):
+    """Single Stage-2 message-passing layer.
+
+    mode='feature'     : message = MLP([h_src; e_full])               (default, identical to original)
+    mode='multiplier'  : message = w * MLP([h_src; e_port])           (Variant 1 wedge)
+    mode='both'        : message = w * MLP([h_src; e_full])           (Variant 1 both)
+
+    e_full is the full d_e-dim edge feature vector; w = e_full[:, -1] (transition weight scalar);
+    e_port = e_full[:, :-1] (port-pair features, dim d_e-1).
+    """
+    def __init__(self, d_h: int, d_e: int, mode: str = "feature"):
         super().__init__()
-        self.message = nn.Sequential(nn.Linear(d_h + d_e, d_h), nn.ReLU(), nn.Linear(d_h, d_h))
+        if mode not in {"feature", "multiplier", "both"}:
+            raise ValueError(f"Unknown Stage2Layer mode={mode!r}")
+        self.mode = mode
+        d_msg_in = (d_h + d_e - 1) if mode == "multiplier" else (d_h + d_e)
+        self.message = nn.Sequential(nn.Linear(d_msg_in, d_h), nn.ReLU(), nn.Linear(d_h, d_h))
         self.update = nn.Sequential(nn.Linear(2 * d_h, d_h), nn.ReLU(), nn.Linear(d_h, d_h))
         self.norm = nn.LayerNorm(d_h)
 
     def forward(self, h: Tensor, edge_index: Tensor, edge_features: Tensor) -> Tensor:
         source, target = edge_index
-        messages = self.message(torch.cat([h[source], edge_features], dim=-1))
+        if self.mode == "feature":
+            messages = self.message(torch.cat([h[source], edge_features], dim=-1))
+        elif self.mode == "multiplier":
+            w = edge_features[:, -1:]
+            messages = w * self.message(torch.cat([h[source], edge_features[:, :-1]], dim=-1))
+        else:  # both
+            w = edge_features[:, -1:]
+            messages = w * self.message(torch.cat([h[source], edge_features], dim=-1))
         aggregate = _scatter_sum(messages, target, h.size(0))
         return self.norm(h + self.update(torch.cat([h, aggregate], dim=-1)))
 
 
+class OctamerPathLayer(nn.Module):
+    """One step of bidirectional path message passing for the octamer encoder (no edge features)."""
+    def __init__(self, d_h: int):
+        super().__init__()
+        self.msg = nn.Linear(d_h, d_h)
+        self.update = nn.Sequential(nn.Linear(2 * d_h, d_h), nn.ReLU(), nn.Linear(d_h, d_h))
+        self.norm = nn.LayerNorm(d_h)
+
+    def forward(self, h: Tensor, edge_index: Tensor, n_nodes: int) -> Tensor:
+        src, dst = edge_index
+        agg = _scatter_sum(self.msg(h[src]), dst, n_nodes)
+        return self.norm(h + self.update(torch.cat([h, agg], dim=-1)))
+
+
+class OctamerEncoder(nn.Module):
+    """Encode polymers as explicit octamer sequences; average head(encode(seq_k)) over K samples.
+
+    monomer_embeds: (2*n_polymers, d_h) -- h[2p]=A, h[2p+1]=B for polymer p
+    octamer_sequences: (n_polymers*K, octamer_len) long  -- values 0 (A) or 1 (B)
+    octamer_polymer_batch: (n_polymers*K,) long  -- which polymer each replicate belongs to
+    """
+    def __init__(self, d_h: int, octamer_len: int, n_layers: int):
+        super().__init__()
+        self.d_h = d_h
+        self.octamer_len = octamer_len
+        self.layers = nn.ModuleList([OctamerPathLayer(d_h) for _ in range(n_layers)])
+
+    @staticmethod
+    def _make_path_edge_index(n_reps: int, L: int, device: torch.device) -> Tensor:
+        fwd_src = torch.arange(L - 1, device=device)
+        fwd_dst = fwd_src + 1
+        tmpl_src = torch.cat([fwd_src, fwd_dst])   # fwd + bwd
+        tmpl_dst = torch.cat([fwd_dst, fwd_src])
+        offsets = (torch.arange(n_reps, device=device) * L).unsqueeze(1)  # (n_reps, 1)
+        src = (tmpl_src.unsqueeze(0) + offsets).reshape(-1)
+        dst = (tmpl_dst.unsqueeze(0) + offsets).reshape(-1)
+        return torch.stack([src, dst])  # (2, n_reps * 2*(L-1))
+
+    def forward(self, monomer_embeds: Tensor, octamer_sequences: Tensor, octamer_polymer_batch: Tensor) -> Tensor:
+        n_reps, L = octamer_sequences.shape
+        # Map sequence values (0/1) to global monomer indices 2p or 2p+1
+        global_mon = 2 * octamer_polymer_batch.unsqueeze(1) + octamer_sequences  # (n_reps, L)
+        # Gather embeddings from shared monomer_embeds
+        h_flat = monomer_embeds[global_mon.reshape(-1)]  # (n_reps * L, d_h)
+        edge_index = self._make_path_edge_index(n_reps, L, device=h_flat.device)
+        n_nodes = n_reps * L
+        for layer in self.layers:
+            h_flat = layer(h_flat, edge_index, n_nodes)
+        # Mean-pool per replicate over L positions
+        h_reps = h_flat.reshape(n_reps, L, self.d_h).mean(dim=1)  # (n_reps, d_h)
+        return h_reps
+
+
+class JunctionCouplingLayer(nn.Module):
+    """One step of weighted message passing on the combined (intra + junction) atom graph."""
+    def __init__(self, d_h: int):
+        super().__init__()
+        self.msg = nn.Linear(d_h, d_h)
+        self.update = nn.Sequential(nn.Linear(2 * d_h, d_h), nn.ReLU(), nn.Linear(d_h, d_h))
+        self.norm = nn.LayerNorm(d_h)
+
+    def forward(self, h: Tensor, edge_index: Tensor, weights: Tensor) -> Tensor:
+        src, dst = edge_index
+        msgs = weights.unsqueeze(-1) * self.msg(h[src])
+        agg = _scatter_sum(msgs, dst, h.size(0))
+        return self.norm(h + self.update(torch.cat([h, agg], dim=-1)))
+
+
 class HPGHierMPNN(pl.LightningModule):
+    """Two-stage hierarchical MPG-MPNN with Phase-1 variant toggles.
+
+    Defaults reproduce the original hpg_hier exactly.
+
+    Variant 1 — hpg_hier_wedge  : stage2_edge_weight in {"feature", "multiplier", "both"}
+    Variant 2 — hpg_hier_octamer: stage2_mode in {"transition_graph", "octamer_sequence"}
+    Variant 3 — hpg_hier_junction: junction_coupling in {"off", "on"}
+    """
     def __init__(
         self,
         atom_fdim: int,
@@ -40,19 +136,45 @@ class HPGHierMPNN(pl.LightningModule):
         stage2_edge_dim: int = 17,
         dropout: float = 0.2,
         init_lr: float = 1e-3,
+        stage2_edge_weight: str = "feature",
+        stage2_mode: str = "transition_graph",
+        octamer_len: int = 8,
+        n_random_samples: int = 16,
+        junction_coupling: str = "off",
+        n_coupling_steps: int = 2,
     ):
         super().__init__()
         if stage1_pool not in {"sum", "mean", "attention"}:
             raise ValueError(f"Unknown stage1_pool={stage1_pool!r}")
+        if stage2_edge_weight not in {"feature", "multiplier", "both"}:
+            raise ValueError(f"Unknown stage2_edge_weight={stage2_edge_weight!r}")
+        if stage2_mode not in {"transition_graph", "octamer_sequence"}:
+            raise ValueError(f"Unknown stage2_mode={stage2_mode!r}")
+        if junction_coupling not in {"off", "on"}:
+            raise ValueError(f"Unknown junction_coupling={junction_coupling!r}")
         self.save_hyperparameters()
         self.stage1_pool = stage1_pool
+        self.stage2_edge_weight = stage2_edge_weight
+        self.stage2_mode = stage2_mode
+        self.junction_coupling = junction_coupling
+        self.n_random_samples = n_random_samples
         self.stage1 = MABBondMessagePassing(
             d_v=atom_fdim, d_e=bond_fdim, d_h=d_h, depth=stage1_depth,
             return_vertex_embeddings=True, return_edge_embeddings=False,
         )
         self.atom_attention = nn.Linear(d_h, 1) if stage1_pool == "attention" else None
         self.stage2_input = nn.Linear(d_h + 1, d_h)
-        self.stage2 = nn.ModuleList([Stage2Layer(d_h, stage2_edge_dim) for _ in range(stage2_depth)])
+        self.stage2 = nn.ModuleList([
+            Stage2Layer(d_h, stage2_edge_dim, mode=stage2_edge_weight) for _ in range(stage2_depth)
+        ])
+        self.octamer_encoder = (
+            OctamerEncoder(d_h, octamer_len=octamer_len, n_layers=stage2_depth)
+            if stage2_mode == "octamer_sequence" else None
+        )
+        self.junction_layers = (
+            nn.ModuleList([JunctionCouplingLayer(d_h) for _ in range(n_coupling_steps)])
+            if junction_coupling == "on" else None
+        )
         self.head = nn.Sequential(nn.Linear(d_h, d_h), nn.ReLU(), nn.Dropout(dropout), nn.Linear(d_h, 1))
         self._output_transform = None
 
@@ -73,8 +195,29 @@ class HPGHierMPNN(pl.LightningModule):
 
     def forward(self, batch: BatchTwoStageHPG, _unused: Tensor | None = None) -> Tensor:
         atom_embeddings, _ = self.stage1(batch.atom_graph)
+
+        # Variant 3: junction coupling — spread info across A/B before pooling
+        if self.junction_coupling == "on" and batch.junction_edge_index is not None:
+            intra_ei = batch.atom_graph.edge_index  # (2, n_intra)
+            intra_w = torch.ones(intra_ei.size(1), device=atom_embeddings.device)
+            combined_ei = torch.cat([intra_ei, batch.junction_edge_index], dim=1)
+            combined_w = torch.cat([intra_w, batch.junction_edge_weights])
+            for layer in self.junction_layers:
+                atom_embeddings = layer(atom_embeddings, combined_ei, combined_w)
+
         monomers = self._pool_monomers(atom_embeddings, batch.atom_graph.batch, len(batch.monomer_batch))
         h = self.stage2_input(torch.cat([monomers, batch.monomer_fracs.unsqueeze(-1)], dim=-1))
+
+        # Variant 2: octamer sequence — yhat = mean_k( head( encode(octamer_k) ) )
+        if self.stage2_mode == "octamer_sequence" and batch.octamer_sequences is not None:
+            n_polymers = len(batch)
+            K = batch.octamer_sequences.size(0) // n_polymers
+            oct_embeds = self.octamer_encoder(h, batch.octamer_sequences, batch.octamer_polymer_batch)
+            all_preds = self.head(oct_embeds)  # (n_reps, 1)
+            pred_sum = _scatter_sum(all_preds, batch.octamer_polymer_batch, n_polymers)
+            return pred_sum / K
+
+        # Default / Variant 1: transition graph Stage 2
         for layer in self.stage2:
             h = layer(h, batch.stage2_edge_index, batch.stage2_edge_features)
         polymers = _scatter_sum(h * batch.monomer_fracs.unsqueeze(-1), batch.polymer_batch, len(batch))

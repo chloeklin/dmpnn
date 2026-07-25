@@ -52,6 +52,6 @@ def test_attachment_features_match_pre_deletion_chemprop_features():
     smiles_a, _, _, _ = featurizer._parse_input(value)
     original = Chem.MolFromSmiles(smiles_a)
     ports = featurizer._ports(original, {1, 2})
-    graph, _ = featurizer._monomer_graph(smiles_a, {1, 2})
+    graph, _, _ = featurizer._monomer_graph(smiles_a, {1, 2})
     original_base = featurizer.atom_graph_featurizer.atom_featurizer(original.GetAtomWithIdx(ports[1]))
     assert any(np.allclose(row[: len(original_base)], original_base) for row in graph.V)

@@ -61,6 +61,16 @@ MODEL_TO_POOLING = {
     "hpg_sum": "sum",
     "hpg_frac": "frac_weighted",
     "hpg_hier": "hpg_hier",
+    "hpg_hier_wedge": "hpg_hier",
+    "hpg_hier_octamer": "hpg_hier",
+    "hpg_hier_junction": "hpg_hier",
+}
+
+_VARIANT_FLAGS = {
+    "hpg_hier":         {"stage2_edge_weight": "feature",     "stage2_mode": "transition_graph", "junction_coupling": "off"},
+    "hpg_hier_wedge":   {"stage2_edge_weight": "multiplier",  "stage2_mode": "transition_graph", "junction_coupling": "off"},
+    "hpg_hier_octamer": {"stage2_edge_weight": "feature",     "stage2_mode": "octamer_sequence", "junction_coupling": "off"},
+    "hpg_hier_junction":{"stage2_edge_weight": "feature",     "stage2_mode": "transition_graph", "junction_coupling": "on"},
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -77,6 +87,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage1_pool", choices=("sum", "mean", "attention"), default="sum")
     parser.add_argument("--stage2_depth", type=int, choices=(1, 2, 3), default=2)
     parser.add_argument("--stage2_edge", choices=("full", "transition_only", "junction_only"), default="full")
+    parser.add_argument("--octamer_len", type=int, default=8)
+    parser.add_argument("--n_random_samples", type=int, default=16)
+    parser.add_argument("--n_coupling_steps", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=15)
@@ -141,14 +154,21 @@ def _dataset(graphs, values: np.ndarray, indices: np.ndarray) -> HPGDataset:
     ])
 
 
-def _build_hier_graphs(df: pd.DataFrame, stage2_edge: str):
+def _build_hier_graphs(df: pd.DataFrame, stage2_edge: str, stage2_mode: str = "transition_graph",
+                       octamer_len: int = 8, n_random_samples: int = 16, junction_coupling: str = "off"):
     if "WDMPNN_Input" not in df:
         raise ValueError("hpg_hier requires the WDMPNN_Input column")
     featurizer = TwoStageHPGFeaturizer()
-    return [featurizer(value, stage2_edge=stage2_edge) for value in df["WDMPNN_Input"].astype(str)]
+    return [
+        featurizer(
+            value, stage2_edge=stage2_edge, stage2_mode=stage2_mode,
+            octamer_len=octamer_len, n_random_samples=n_random_samples, junction_coupling=junction_coupling,
+        )
+        for value in df["WDMPNN_Input"].astype(str)
+    ]
 
 
-def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split_type, fold, args):
+def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split_type, fold, args, model_token="hpg_hier"):
     set_seed(args.seed + fold)
     build_dataset = lambda indices: TwoStageHPGDataset([
         TwoStageHPGDatapoint(graphs[index], np.asarray([values[index]], dtype=np.float32))
@@ -162,9 +182,18 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, collate_fn=two_stage_hpg_collate_fn, num_workers=args.num_workers),
         DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=two_stage_hpg_collate_fn, num_workers=args.num_workers),
     ]
-    checkpoint_path = CHECKPOINT_DIR / f"ea_ip__{standard_target_token(target)}__hpg_hier__{split_type}__fold{fold}__s{args.seed}"
-    model = HPGHierMPNN(atom_fdim=75, bond_fdim=graphs[0].monomer_graphs[0].E.shape[1], d_h=128,
-                         stage1_pool=args.stage1_pool, stage2_depth=args.stage2_depth)
+    variant = _VARIANT_FLAGS.get(model_token, _VARIANT_FLAGS["hpg_hier"])
+    checkpoint_path = CHECKPOINT_DIR / f"ea_ip__{standard_target_token(target)}__{model_token}__{split_type}__fold{fold}__s{args.seed}"
+    model = HPGHierMPNN(
+        atom_fdim=75, bond_fdim=graphs[0].monomer_graphs[0].E.shape[1], d_h=128,
+        stage1_pool=args.stage1_pool, stage2_depth=args.stage2_depth,
+        stage2_edge_weight=variant["stage2_edge_weight"],
+        stage2_mode=variant["stage2_mode"],
+        octamer_len=args.octamer_len,
+        n_random_samples=args.n_random_samples,
+        junction_coupling=variant["junction_coupling"],
+        n_coupling_steps=args.n_coupling_steps,
+    )
     model._output_transform = UnscaleTransform.from_standard_scaler(scaler)
     trainer = pl.Trainer(max_epochs=args.epochs, accelerator="auto", devices=1, logger=False,
                          default_root_dir=str(checkpoint_path), enable_model_summary=False,
@@ -228,8 +257,18 @@ def main() -> None:
         logger.info("All requested predictions already exist; exiting without loading data.")
         return
     df = pd.read_csv(DATA_PATH)
-    standard_graphs = _build_graphs(df) if any(model != "hpg_hier" for model in models) else None
-    hier_graphs = _build_hier_graphs(df, args.stage2_edge) if "hpg_hier" in models else None
+    hier_tokens = {m for m in models if MODEL_TO_POOLING.get(m) == "hpg_hier"}
+    standard_graphs = _build_graphs(df) if any(MODEL_TO_POOLING.get(m) != "hpg_hier" for m in models) else None
+    hier_graphs_by_token: dict = {}
+    for tok in hier_tokens:
+        vf = _VARIANT_FLAGS[tok]
+        hier_graphs_by_token[tok] = _build_hier_graphs(
+            df, args.stage2_edge,
+            stage2_mode=vf["stage2_mode"],
+            octamer_len=args.octamer_len,
+            n_random_samples=args.n_random_samples,
+            junction_coupling=vf["junction_coupling"],
+        )
     split_sets = {split_type: _build_splits(df, split_type) for split_type in split_types}
     for split_type, (trains, vals, tests) in split_sets.items():
         folds = list(range(len(trains))) if args.folds is None else [int(item) for item in args.folds.split(",")]
@@ -246,11 +285,18 @@ def main() -> None:
                         logger.info("Dry run: %s %s %s fold=%d", model_token, target, split_type, fold)
                         continue
                     prediction_dir.mkdir(parents=True, exist_ok=True)
-                    y_pred = (
-                        _train_hier_fold(hier_graphs, values, trains[fold], vals[fold], tests[fold], target, split_type, fold, args)
-                        if model_token == "hpg_hier" else
-                        _train_fold(standard_graphs, values, trains[fold], vals[fold], tests[fold], MODEL_TO_POOLING[model_token], target, split_type, fold, args)
-                    )
+                    is_hier = MODEL_TO_POOLING.get(model_token) == "hpg_hier"
+                    if is_hier:
+                        y_pred = _train_hier_fold(
+                            hier_graphs_by_token[model_token], values,
+                            trains[fold], vals[fold], tests[fold],
+                            target, split_type, fold, args, model_token=model_token,
+                        )
+                    else:
+                        y_pred = _train_fold(
+                            standard_graphs, values, trains[fold], vals[fold], tests[fold],
+                            MODEL_TO_POOLING[model_token], target, split_type, fold, args,
+                        )
                     y_true = values[tests[fold]].astype(np.float64)
                     if y_pred.shape != y_true.shape:
                         raise AssertionError(f"Prediction shape {y_pred.shape} != target shape {y_true.shape}")
