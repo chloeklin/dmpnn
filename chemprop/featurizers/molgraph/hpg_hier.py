@@ -193,13 +193,11 @@ class TwoStageHPGFeaturizer:
         stable_log_weights = log_weights - np.max(log_weights)
         probabilities = np.exp(stable_log_weights)
         probabilities /= probabilities.sum()
+        if not np.allclose(transition, np.full((2, 2), 0.5)):
+            return candidates[np.argmax(log_weights)].reshape(1, octamer_len)
         rng = np.random.default_rng(rng_seed)
-        sequences = np.empty((n_random_samples, octamer_len), dtype=np.uint8)
-        sequences[0] = candidates[np.argmax(log_weights)]
-        if n_random_samples > 1:
-            sampled = rng.choice(len(candidates), size=n_random_samples - 1, replace=True, p=probabilities)
-            sequences[1:] = candidates[sampled]
-        return sequences
+        sampled = rng.choice(len(candidates), size=n_random_samples, replace=True, p=probabilities)
+        return candidates[sampled]
 
     @staticmethod
     def _build_junction_edges(

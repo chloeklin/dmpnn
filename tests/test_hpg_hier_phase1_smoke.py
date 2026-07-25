@@ -76,10 +76,10 @@ def test_octamer_featurize_forward_backward():
     featurizer = TwoStageHPGFeaturizer()
     graph = featurizer(_WDMPNN_INPUT, stage2_mode="octamer_sequence", octamer_len=8, n_random_samples=4)
     assert graph.octamer_sequences is not None
-    assert graph.octamer_sequences.shape == (4, 8)
+    assert graph.octamer_sequences.shape == (1, 8)
     batch = _make_batch(graph)
     assert batch[0].octamer_sequences is not None
-    assert batch[0].octamer_sequences.shape == (8, 8)  # 2 polymers * 4 samples
+    assert batch[0].octamer_sequences.shape == (2, 8)
     model = HPGHierMPNN(
         atom_fdim=featurizer.atom_fdim, bond_fdim=featurizer.bond_fdim,
         d_h=32, stage1_depth=2, stage2_depth=2,
@@ -161,8 +161,23 @@ def test_octamer_sequences_are_architecture_conditioned():
         poly_type: featurizer(rows.loc[poly_type, "WDMPNN_Input"], stage2_mode="octamer_sequence", octamer_len=8, n_random_samples=16).octamer_sequences
         for poly_type in ("alternating", "block", "random")
     }
+    assert sequences["alternating"].shape == (1, 8)
+    assert sequences["block"].shape == (1, 8)
+    assert sequences["random"].shape == (16, 8)
     assert all(np.all(seq.sum(axis=1) == 4) for seq in sequences.values())
     assert np.all(sequences["alternating"][:, 1:] != sequences["alternating"][:, :-1])
     assert not np.array_equal(sequences["alternating"], sequences["block"])
     assert not np.array_equal(sequences["alternating"], sequences["random"])
     assert not np.array_equal(sequences["block"], sequences["random"])
+    batch = _make_batch(
+        featurizer(rows.loc["alternating", "WDMPNN_Input"], stage2_mode="octamer_sequence", octamer_len=8, n_random_samples=16),
+        featurizer(rows.loc["random", "WDMPNN_Input"], stage2_mode="octamer_sequence", octamer_len=8, n_random_samples=16),
+    )
+    assert batch[0].octamer_sequences.shape == (17, 8)
+    assert torch.equal(torch.bincount(batch[0].octamer_polymer_batch), torch.tensor([1, 16]))
+    model = HPGHierMPNN(
+        atom_fdim=featurizer.atom_fdim, bond_fdim=featurizer.bond_fdim,
+        d_h=32, stage1_depth=2, stage2_depth=2,
+        stage2_mode="octamer_sequence", octamer_len=8, n_random_samples=16,
+    )
+    assert model(batch[0]).shape == (2, 1)

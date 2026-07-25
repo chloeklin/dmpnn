@@ -215,11 +215,11 @@ class HPGHierMPNN(pl.LightningModule):
         # Variant 2: octamer sequence — yhat = mean_k( head( encode(octamer_k) ) )
         if self.stage2_mode == "octamer_sequence" and batch.octamer_sequences is not None:
             n_polymers = len(batch)
-            K = batch.octamer_sequences.size(0) // n_polymers
             oct_embeds = self.octamer_encoder(h, batch.octamer_sequences, batch.octamer_polymer_batch)
-            all_preds = self.head(oct_embeds)  # (n_reps, 1)
+            all_preds = self.head(oct_embeds)
             pred_sum = _scatter_sum(all_preds, batch.octamer_polymer_batch, n_polymers)
-            return pred_sum / K
+            replica_counts = torch.bincount(batch.octamer_polymer_batch, minlength=n_polymers)
+            return pred_sum / replica_counts.to(all_preds.dtype).unsqueeze(-1)
 
         # Default / Variant 1: transition graph Stage 2
         for layer in self.stage2:

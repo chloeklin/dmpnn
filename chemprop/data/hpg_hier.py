@@ -40,10 +40,12 @@ class BatchTwoStageHPG:
         self.stage2_edge_features = torch.from_numpy(np.concatenate(edge_features)).float()
 
         if self.graphs[0].octamer_sequences is not None:
-            K = self.graphs[0].octamer_sequences.shape[0]
-            all_seqs = np.concatenate([g.octamer_sequences for g in self.graphs], axis=0)  # (N*K, L)
+            all_seqs = np.concatenate([g.octamer_sequences for g in self.graphs], axis=0)
             self.octamer_sequences = torch.from_numpy(all_seqs).long()
-            self.octamer_polymer_batch = torch.arange(len(self.graphs), dtype=torch.long).repeat_interleave(K)
+            self.octamer_polymer_batch = torch.cat([
+                torch.full((g.octamer_sequences.shape[0],), polymer_idx, dtype=torch.long)
+                for polymer_idx, g in enumerate(self.graphs)
+            ])
         else:
             self.octamer_sequences = None
             self.octamer_polymer_batch = None
