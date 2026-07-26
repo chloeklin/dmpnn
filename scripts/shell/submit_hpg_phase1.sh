@@ -1,12 +1,13 @@
 #!/bin/bash
-# Full Phase-1 HPG-hier array for gate-cleared variants: 2 variants × 19 folds × 2 targets = 76 cells.
-# Run submit_hpg_phase1_gates.sh and confirm gate metrics before running this.
+# Full HPG-hier arrays for gate-cleared junction1 and octamer variants: 2 variants × 19 folds × 2 targets = 76 cells.
+# Run submit_hpg_phase1_gates.sh and confirm junction1 gate metrics before running junction1.
 # Usage:
-#   ./submit_hpg_phase1.sh                        # all 76 cleared-variant cells
-#   ./submit_hpg_phase1.sh --dry_run              # print qsub commands only
-#   ./submit_hpg_phase1.sh --no-submit            # generate PBS scripts only
-#   ./submit_hpg_phase1.sh --split monomer_heldout  # one split only
-#   ./submit_hpg_phase1.sh --model hpg_hier_wedge   # one model only
+#   ./submit_hpg_phase1.sh                              # both 38-cell arrays
+#   ./submit_hpg_phase1.sh --model hpg_hier_junction1   # one 38-cell array
+#   ./submit_hpg_phase1.sh --model hpg_hier_octamer     # one 38-cell array
+#   ./submit_hpg_phase1.sh --dry_run                    # print qsub commands only
+#   ./submit_hpg_phase1.sh --no-submit                  # generate PBS scripts only
+#   ./submit_hpg_phase1.sh --split monomer_heldout      # one split only
 set -euo pipefail
 
 PROJECT="ng76"
@@ -49,7 +50,7 @@ PBS_SCRIPT_DIR="$LOG_DIR/pbs"
 SPLITS=(group_disjoint pair_disjoint monomer_heldout)
 TARGETS=("EA vs SHE (eV)" "IP vs SHE (eV)")
 TARGET_TOKENS=(EA_vs_SHE_eV IP_vs_SHE_eV)
-MODELS=(hpg_hier_wedge hpg_hier_junction)
+MODELS=(hpg_hier_junction1 hpg_hier_octamer)
 
 for split in "${SPLITS[@]}"; do
     if [[ -n "$SPLIT_FILTER" && "$split" != "$SPLIT_FILTER" ]]; then
@@ -76,7 +77,7 @@ for split in "${SPLITS[@]}"; do
 done
 
 TASK_COUNT="$(wc -l < "$MANIFEST" | tr -d ' ')"
-# Full array: (5+5+9) folds × 2 targets × 2 models = 19 × 2 × 2 = 76
+# Both arrays: (5+5+9) folds × 2 targets × 2 models = 19 × 2 × 2 = 76
 EXPECTED_COUNT=76
 if [[ -n "$SPLIT_FILTER" ]]; then
     case "$SPLIT_FILTER" in

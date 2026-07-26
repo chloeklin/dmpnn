@@ -26,6 +26,7 @@ MODEL_DISPLAY = {
     'hpg_hier_wedge':    'HPG (hier+wedge)',
     'hpg_hier_octamer':  'HPG (hier+octamer)',
     'hpg_hier_junction': 'HPG (hier+junction)',
+    'hpg_hier_junction1': 'HPG (hier+junction-1)',
 }
 
 # ── Splits ───────────────────────────────────────────────────────────────────
@@ -90,6 +91,7 @@ COLORS = {
     'hpg_hier_wedge':    '#D4880A',
     'hpg_hier_octamer':  '#F0C060',
     'hpg_hier_junction': '#B8891D',
+    'hpg_hier_junction1': '#7A5A14',
 }
 MARKERS = {
     'frac':              'o',
@@ -102,12 +104,13 @@ MARKERS = {
     'hpg_hier_wedge':    '<',
     'hpg_hier_octamer':  '>',
     'hpg_hier_junction': 'h',
+    'hpg_hier_junction1': 'H',
 }
 
 DPI = 300
 
 
-PHASE1_VARIANT_MODELS = ['hpg_hier_wedge', 'hpg_hier_octamer', 'hpg_hier_junction']
+PHASE1_VARIANT_MODELS = ['hpg_hier_wedge', 'hpg_hier_octamer', 'hpg_hier_junction', 'hpg_hier_junction1']
 
 
 def set_models(models: list[str]) -> None:

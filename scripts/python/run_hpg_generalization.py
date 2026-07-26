@@ -64,13 +64,15 @@ MODEL_TO_POOLING = {
     "hpg_hier_wedge": "hpg_hier",
     "hpg_hier_octamer": "hpg_hier",
     "hpg_hier_junction": "hpg_hier",
+    "hpg_hier_junction1": "hpg_hier",
 }
 
 _VARIANT_FLAGS = {
-    "hpg_hier":         {"stage2_edge_weight": "feature",     "stage2_mode": "transition_graph", "junction_coupling": "off"},
-    "hpg_hier_wedge":   {"stage2_edge_weight": "multiplier",  "stage2_mode": "transition_graph", "junction_coupling": "off"},
-    "hpg_hier_octamer": {"stage2_edge_weight": "feature",     "stage2_mode": "octamer_sequence", "junction_coupling": "off"},
-    "hpg_hier_junction":{"stage2_edge_weight": "feature",     "stage2_mode": "transition_graph", "junction_coupling": "on"},
+    "hpg_hier":          {"stage2_edge_weight": "feature",    "stage2_mode": "transition_graph", "junction_coupling": "off", "n_coupling_steps": 0},
+    "hpg_hier_wedge":    {"stage2_edge_weight": "multiplier", "stage2_mode": "transition_graph", "junction_coupling": "off", "n_coupling_steps": 0},
+    "hpg_hier_octamer":  {"stage2_edge_weight": "feature",    "stage2_mode": "octamer_sequence", "junction_coupling": "off", "n_coupling_steps": 0},
+    "hpg_hier_junction": {"stage2_edge_weight": "feature",    "stage2_mode": "transition_graph", "junction_coupling": "on",  "n_coupling_steps": 2},
+    "hpg_hier_junction1": {"stage2_edge_weight": "feature",   "stage2_mode": "transition_graph", "junction_coupling": "on",  "n_coupling_steps": 1},
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -192,7 +194,7 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         octamer_len=args.octamer_len,
         n_random_samples=args.n_random_samples,
         junction_coupling=variant["junction_coupling"],
-        n_coupling_steps=args.n_coupling_steps,
+        n_coupling_steps=variant["n_coupling_steps"],
     )
     model._output_transform = UnscaleTransform.from_standard_scaler(scaler)
     trainer = pl.Trainer(max_epochs=args.epochs, accelerator="auto", devices=1, logger=False,

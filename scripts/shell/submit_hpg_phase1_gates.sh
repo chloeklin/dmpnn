@@ -1,11 +1,11 @@
 #!/bin/bash
-# Gate jobs for Phase-1 HPG-hier variants: fold-0 only, group_disjoint split, both targets.
+# Gate jobs for the one-step junction variant: fold-0 only, group_disjoint split, both targets.
 # Run these first; inspect fold-0 metrics before launching submit_hpg_phase1.sh.
 # Usage:
-#   ./submit_hpg_phase1_gates.sh               # submit 6 gate jobs
+#   ./submit_hpg_phase1_gates.sh               # submit 2 junction1 gate jobs
 #   ./submit_hpg_phase1_gates.sh --dry_run     # print qsub commands only
 #   ./submit_hpg_phase1_gates.sh --no-submit   # generate PBS scripts only
-#   ./submit_hpg_phase1_gates.sh --model hpg_hier_octamer --target EA --force
+#   ./submit_hpg_phase1_gates.sh --model hpg_hier_junction1 --target EA
 set -euo pipefail
 
 PROJECT="ng76"
@@ -49,7 +49,7 @@ PBS_SCRIPT_DIR="$LOG_DIR/pbs"
 : > "$MANIFEST"
 TARGETS=("EA vs SHE (eV)" "IP vs SHE (eV)")
 TARGET_TOKENS=(EA_vs_SHE_eV IP_vs_SHE_eV)
-MODELS=(hpg_hier_wedge hpg_hier_octamer hpg_hier_junction)
+MODELS=(hpg_hier_junction1)
 
 for model_token in "${MODELS[@]}"; do
     if [[ -n "$MODEL_FILTER" && "$model_token" != "$MODEL_FILTER" ]]; then
@@ -71,12 +71,12 @@ for model_token in "${MODELS[@]}"; do
 done
 
 TASK_COUNT="$(wc -l < "$MANIFEST" | tr -d ' ')"
-EXPECTED_COUNT=6
+EXPECTED_COUNT=2
 if [[ -n "$MODEL_FILTER" ]]; then
-    EXPECTED_COUNT=$((EXPECTED_COUNT / 3))
+    EXPECTED_COUNT=2
 fi
 if [[ -n "$TARGET_FILTER" ]]; then
-    EXPECTED_COUNT=$((EXPECTED_COUNT / 2))
+    EXPECTED_COUNT=1
 fi
 if [[ "$TASK_COUNT" -ne "$EXPECTED_COUNT" ]]; then
     printf 'Expected %s gate tasks, found %s\n' "$EXPECTED_COUNT" "$TASK_COUNT" >&2
