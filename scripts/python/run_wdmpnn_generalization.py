@@ -24,7 +24,9 @@ import argparse
 import json
 import logging
 import os
+import subprocess
 import sys
+import time
 import numpy as np
 import pandas as pd
 import torch
@@ -41,6 +43,7 @@ from chemprop.data import PolymerDatapoint, PolymerDataset, build_dataloader
 from chemprop.data.collate import collate_polymer_batch
 from chemprop.data.samplers import GroupAwareSampler
 from chemprop.nn.within_group_loss import within_group_residual_loss
+from frozen_splits import load_frozen_b_heldout_splits
 from utils import (
     set_seed, get_metric_list, pick_best_checkpoint,
     canonicalize_smiles, generate_a_held_out_splits,
@@ -60,6 +63,8 @@ DATA_PATH = ROOT_DIR / 'data' / 'ea_ip.csv'
 PREDICTIONS_DIR = ROOT_DIR / 'predictions'
 CHECKPOINT_DIR = ROOT_DIR / 'checkpoints' / 'wDMPNN_Gen'
 META_PATH = ROOT_DIR / 'metadata' / 'splits' / 'monomer_heldout.json'
+B_META_PATH = ROOT_DIR / 'metadata' / 'splits' / 'monomer_b_heldout.json'
+B_CLUSTERED_META_PATH = ROOT_DIR / 'metadata' / 'splits' / 'monomer_b_heldout_clustered.json'
 
 TARGETS = ['EA vs SHE (eV)', 'IP vs SHE (eV)']
 N_FOLDS = 5
@@ -333,16 +338,23 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     elif hasattr(y_pred, 'cpu'):
         y_pred = y_pred.cpu().numpy()
 
-    return y_true.flatten(), y_pred.flatten()
+    _, best_val_loss = pick_best_checkpoint(ckpt_path)
+    training_summary = {
+        'epochs_actually_run': trainer.current_epoch + 1,
+        'best_val_loss': best_val_loss,
+    }
+    return y_true.flatten(), y_pred.flatten(), training_summary
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════
 
-def _load_lomao_splits(df: pd.DataFrame):
+def _load_lomao_splits(df: pd.DataFrame, split_seed: int):
+    if split_seed != 42:
+        raise AssertionError(f'monomer_heldout requires fixed split_seed=42, got {split_seed}')
     train, val, test, _ = generate_a_held_out_splits(
-        df['smiles_A'].astype(str).values, len(df), seed=42,
+        df['smiles_A'].astype(str).values, len(df), seed=split_seed,
         protocol='leave_one_A_out', logger=logger,
     )
     metadata = json.loads(META_PATH.read_text())['folds']
@@ -370,7 +382,10 @@ def main():
     parser.add_argument('--results_subdir', type=str, default=None,
                        help='Override checkpoint/predictions subdirectory name')
     parser.add_argument('--seed', type=int, default=SEED,
-                       help='Training seed (default: 42). Split seed is always 42.')
+                       help='Training seed (default: 42).')
+    parser.add_argument('--split_seed', type=int, default=42,
+                       help='Fixed monomer-heldout split seed; must remain 42.')
+    parser.add_argument('--b_split_metadata', type=Path, default=None)
     cli_args = parser.parse_args()
 
     folds_to_run = [int(x) for x in cli_args.folds.split(',')]
@@ -430,7 +445,12 @@ def main():
             )
             verify_keys = pair_keys
         elif split_type == 'monomer_heldout':
-            train_indices, val_indices, test_indices = _load_lomao_splits(df)
+            train_indices, val_indices, test_indices = _load_lomao_splits(df, cli_args.split_seed)
+            splits[split_type] = (train_indices, val_indices, test_indices)
+            continue
+        elif split_type in {'monomer_b_heldout', 'monomer_b_heldout_clustered'}:
+            metadata_path = cli_args.b_split_metadata or (B_CLUSTERED_META_PATH if split_type.endswith('_clustered') else B_META_PATH)
+            train_indices, val_indices, test_indices = load_frozen_b_heldout_splits(df, cli_args.split_seed, metadata_path)
             splits[split_type] = (train_indices, val_indices, test_indices)
             continue
         else:
@@ -471,7 +491,8 @@ def main():
                     f"n_train={len(tr)} | n_val={len(va)} | n_test={len(te)}"
                 )
 
-                y_true, y_pred = train_wdmpnn_fold(
+                started_at = time.monotonic()
+                y_true, y_pred, training_summary = train_wdmpnn_fold(
                     df, smis_wdmpnn, target,
                     tr, va, te, fold_idx, split_type,
                     lambda_within=lambda_within,
@@ -507,11 +528,39 @@ def main():
                     n_test=len(te),
                     lambda_within=lambda_within,
                     prediction_scale="physical_units",
+                    split_seed=cli_args.split_seed,
                     smiles_A=df.iloc[te]['smiles_A'].values,
                     smiles_B=df.iloc[te]['smiles_B'].values,
                     fracA=df.iloc[te]['fracA'].values,
                     fracB=df.iloc[te]['fracB'].values,
                     poly_type=df.iloc[te]['poly_type'].values,
+                )
+                try:
+                    git_commit = subprocess.check_output(
+                        ['git', 'rev-parse', 'HEAD'], cwd=ROOT_DIR, text=True
+                    ).strip()
+                except (OSError, subprocess.CalledProcessError):
+                    git_commit = None
+                provenance = {
+                    'cli_args': vars(cli_args),
+                    'resolved_config': {
+                        'epochs': EPOCHS,
+                        'patience': PATIENCE,
+                        'batch_size': BATCH_SIZE,
+                        'split_type': split_type,
+                        'target': target,
+                        'fold': fold_idx,
+                        'seed': training_seed,
+                        'split_seed': cli_args.split_seed,
+                        'lambda_within': lambda_within,
+                    },
+                    'git_commit': git_commit,
+                    'pbs_job_id': os.environ.get('PBS_JOBID'),
+                    'wall_time_seconds': time.monotonic() - started_at,
+                    **training_summary,
+                }
+                pred_file.with_suffix('.config.json').write_text(
+                    json.dumps(provenance, indent=2, sort_keys=True, default=str) + '\n'
                 )
                 logger.info(f"    Saved: {pred_file.name}")
 

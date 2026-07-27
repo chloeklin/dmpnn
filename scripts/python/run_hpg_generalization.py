@@ -26,7 +26,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -50,10 +53,13 @@ from chemprop.models.hpg_hier import HPGHierMPNN
 from chemprop.nn.transforms import UnscaleTransform
 from evaluation.naming import make_prediction_filename, split_subdir, standard_model_name, standard_split_name, standard_target_token
 from run_stage2d_generalization import build_group_keys, build_pair_keys, generate_group_disjoint_splits, generate_pair_disjoint_splits, verify_no_leakage, verify_pair_disjoint_extra
+from frozen_splits import load_frozen_b_heldout_splits
 from utils import generate_a_held_out_splits, set_seed
 
 DATA_PATH = ROOT_DIR / "data" / "ea_ip.csv"
 META_PATH = ROOT_DIR / "metadata" / "splits" / "monomer_heldout.json"
+B_META_PATH = ROOT_DIR / "metadata" / "splits" / "monomer_b_heldout.json"
+B_CLUSTERED_META_PATH = ROOT_DIR / "metadata" / "splits" / "monomer_b_heldout_clustered.json"
 PREDICTIONS_DIR = ROOT_DIR / "predictions"
 CHECKPOINT_DIR = ROOT_DIR / "checkpoints" / "HPG_Gen"
 TARGETS = ["EA vs SHE (eV)", "IP vs SHE (eV)"]
@@ -63,16 +69,20 @@ MODEL_TO_POOLING = {
     "hpg_hier": "hpg_hier",
     "hpg_hier_wedge": "hpg_hier",
     "hpg_hier_octamer": "hpg_hier",
+    "hpg_hier_octamer_stoich": "hpg_hier",
+    "hpg_hier_attention": "hpg_hier",
     "hpg_hier_junction": "hpg_hier",
     "hpg_hier_junction1": "hpg_hier",
 }
 
 _VARIANT_FLAGS = {
-    "hpg_hier":          {"stage2_edge_weight": "feature",    "stage2_mode": "transition_graph", "junction_coupling": "off", "n_coupling_steps": 0},
-    "hpg_hier_wedge":    {"stage2_edge_weight": "multiplier", "stage2_mode": "transition_graph", "junction_coupling": "off", "n_coupling_steps": 0},
-    "hpg_hier_octamer":  {"stage2_edge_weight": "feature",    "stage2_mode": "octamer_sequence", "junction_coupling": "off", "n_coupling_steps": 0},
-    "hpg_hier_junction": {"stage2_edge_weight": "feature",    "stage2_mode": "transition_graph", "junction_coupling": "on",  "n_coupling_steps": 2},
-    "hpg_hier_junction1": {"stage2_edge_weight": "feature",   "stage2_mode": "transition_graph", "junction_coupling": "on",  "n_coupling_steps": 1},
+    "hpg_hier":          {"stage2_edge_weight": "feature",    "stage2_mode": "transition_graph", "stage2_readout": "stoich_weighted", "junction_coupling": "off", "n_coupling_steps": 0},
+    "hpg_hier_wedge":    {"stage2_edge_weight": "multiplier", "stage2_mode": "transition_graph", "stage2_readout": "stoich_weighted", "junction_coupling": "off", "n_coupling_steps": 0},
+    "hpg_hier_octamer":  {"stage2_edge_weight": "feature",    "stage2_mode": "octamer_sequence", "stage2_readout": "attention", "junction_coupling": "off", "n_coupling_steps": 0},
+    "hpg_hier_octamer_stoich": {"stage2_edge_weight": "feature", "stage2_mode": "octamer_sequence", "stage2_readout": "stoich_weighted", "junction_coupling": "off", "n_coupling_steps": 0},
+    "hpg_hier_attention": {"stage2_edge_weight": "feature", "stage2_mode": "transition_graph", "stage2_readout": "attention", "junction_coupling": "off", "n_coupling_steps": 0},
+    "hpg_hier_junction": {"stage2_edge_weight": "feature",    "stage2_mode": "transition_graph", "stage2_readout": "stoich_weighted", "junction_coupling": "on",  "n_coupling_steps": 2},
+    "hpg_hier_junction1": {"stage2_edge_weight": "feature",   "stage2_mode": "transition_graph", "stage2_readout": "stoich_weighted", "junction_coupling": "on",  "n_coupling_steps": 1},
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -89,10 +99,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage1_pool", choices=("sum", "mean", "attention"), default="sum")
     parser.add_argument("--stage2_depth", type=int, choices=(1, 2, 3), default=2)
     parser.add_argument("--stage2_edge", choices=("full", "transition_only", "junction_only"), default="full")
+    parser.add_argument("--stage2_readout", choices=("stoich_weighted", "attention"), default=None)
     parser.add_argument("--octamer_len", type=int, default=8)
     parser.add_argument("--n_random_samples", type=int, default=16)
     parser.add_argument("--n_coupling_steps", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split_seed", type=int, default=42)
+    parser.add_argument("--b_split_metadata", type=Path, default=None)
+    parser.add_argument("--prediction_dir", type=Path, default=PREDICTIONS_DIR)
+    parser.add_argument("--repeat", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -101,9 +116,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _load_lomao_splits(df: pd.DataFrame):
+def _load_lomao_splits(df: pd.DataFrame, split_seed: int):
+    if split_seed != 42:
+        raise AssertionError(f"monomer_heldout requires fixed split_seed=42, got {split_seed}")
     train, val, test, _ = generate_a_held_out_splits(
-        df["smiles_A"].astype(str).values, len(df), seed=42,
+        df["smiles_A"].astype(str).values, len(df), seed=split_seed,
         protocol="leave_one_A_out", logger=logger,
     )
     metadata = json.loads(META_PATH.read_text())["folds"]
@@ -112,11 +129,13 @@ def _load_lomao_splits(df: pd.DataFrame):
     for fold, indices in enumerate(test):
         expected = np.asarray(metadata[fold]["global_test_indices"], dtype=int)
         if not np.array_equal(indices, expected):
-            raise AssertionError(f"monomer_heldout fold {fold} test indices differ from metadata")
+            raise AssertionError(
+                f"monomer_heldout fold {fold} test indices differ from metadata for split_seed={split_seed}"
+            )
     return train, val, test
 
 
-def _build_splits(df: pd.DataFrame, split_type: str):
+def _build_splits(df: pd.DataFrame, split_type: str, split_seed: int, b_split_metadata: Path):
     if split_type == "group_disjoint":
         keys = build_group_keys(df)
         splits = generate_group_disjoint_splits(df, n_splits=5, seed=42)
@@ -124,7 +143,10 @@ def _build_splits(df: pd.DataFrame, split_type: str):
         keys = build_pair_keys(df)
         splits = generate_pair_disjoint_splits(df, n_splits=5, seed=42)
     elif split_type == "monomer_heldout":
-        return _load_lomao_splits(df)
+        return _load_lomao_splits(df, split_seed)
+    elif split_type in {"monomer_b_heldout", "monomer_b_heldout_clustered"}:
+        metadata_path = b_split_metadata or (B_CLUSTERED_META_PATH if split_type.endswith("_clustered") else B_META_PATH)
+        return load_frozen_b_heldout_splits(df, split_seed, metadata_path)
     else:
         raise ValueError(f"Unknown split type: {split_type}")
     train, val, test = splits
@@ -157,17 +179,54 @@ def _dataset(graphs, values: np.ndarray, indices: np.ndarray) -> HPGDataset:
 
 
 def _build_hier_graphs(df: pd.DataFrame, stage2_edge: str, stage2_mode: str = "transition_graph",
-                       octamer_len: int = 8, n_random_samples: int = 16, junction_coupling: str = "off"):
+                       octamer_len: int = 8, n_random_samples: int = 16, octamer_rng_seed: int = 42,
+                       junction_coupling: str = "off"):
     if "WDMPNN_Input" not in df:
         raise ValueError("hpg_hier requires the WDMPNN_Input column")
     featurizer = TwoStageHPGFeaturizer()
     return [
         featurizer(
             value, stage2_edge=stage2_edge, stage2_mode=stage2_mode,
-            octamer_len=octamer_len, n_random_samples=n_random_samples, junction_coupling=junction_coupling,
+            octamer_len=octamer_len, n_random_samples=n_random_samples, octamer_rng_seed=octamer_rng_seed,
+            junction_coupling=junction_coupling,
         )
         for value in df["WDMPNN_Input"].astype(str)
     ]
+
+
+def _repeat_suffix(args: argparse.Namespace) -> str:
+    return "" if args.repeat is None else f"__repeat{args.repeat}"
+
+
+def _prediction_path(prediction_dir: Path, target: str, model_token: str, split_type: str, fold: int, args: argparse.Namespace) -> Path:
+    filename = make_prediction_filename(target, model_token, split_type, fold, seed=args.seed)
+    return prediction_dir / (filename[:-4] + _repeat_suffix(args) + ".npz")
+
+
+def _runtime_environment() -> dict:
+    cuda_available = torch.cuda.is_available()
+    driver_version = None
+    if cuda_available:
+        try:
+            driver_version = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"], text=True
+            ).strip().splitlines()[0]
+        except (OSError, subprocess.CalledProcessError, IndexError):
+            driver_version = None
+    return {
+        "accelerator": "cuda" if cuda_available else ("mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"),
+        "device_name": torch.cuda.get_device_name(0) if cuda_available else None,
+        "device_capability": list(torch.cuda.get_device_capability(0)) if cuda_available else None,
+        "driver_version": driver_version,
+        "torch_version": torch.__version__,
+        "torch_cuda_version": torch.version.cuda,
+        "cudnn_version": torch.backends.cudnn.version(),
+        "trainer_deterministic": None,
+        "deterministic_kernels_requested": torch.backends.cudnn.deterministic,
+        "deterministic_algorithms_enabled": torch.are_deterministic_algorithms_enabled(),
+        "cudnn_deterministic": torch.backends.cudnn.deterministic,
+        "cudnn_benchmark": torch.backends.cudnn.benchmark,
+    }
 
 
 def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split_type, fold, args, model_token="hpg_hier"):
@@ -185,12 +244,13 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=two_stage_hpg_collate_fn, num_workers=args.num_workers),
     ]
     variant = _VARIANT_FLAGS.get(model_token, _VARIANT_FLAGS["hpg_hier"])
-    checkpoint_path = CHECKPOINT_DIR / f"ea_ip__{standard_target_token(target)}__{model_token}__{split_type}__fold{fold}__s{args.seed}"
+    checkpoint_path = CHECKPOINT_DIR / f"ea_ip__{standard_target_token(target)}__{model_token}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}"
     model = HPGHierMPNN(
         atom_fdim=75, bond_fdim=graphs[0].monomer_graphs[0].E.shape[1], d_h=128,
         stage1_pool=args.stage1_pool, stage2_depth=args.stage2_depth,
         stage2_edge_weight=variant["stage2_edge_weight"],
         stage2_mode=variant["stage2_mode"],
+        stage2_readout=args.stage2_readout or variant["stage2_readout"],
         octamer_len=args.octamer_len,
         n_random_samples=args.n_random_samples,
         junction_coupling=variant["junction_coupling"],
@@ -203,7 +263,11 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
                                     ModelCheckpoint(dirpath=str(checkpoint_path), monitor="val_loss", mode="min", save_top_k=1, save_last=True)])
     trainer.fit(model, loaders[0], loaders[1])
     batches = trainer.predict(model=model, dataloaders=loaders[2])
-    return torch.cat([batch.detach().cpu() for batch in batches]).numpy().reshape(-1)
+    callback = next(item for item in trainer.callbacks if isinstance(item, ModelCheckpoint))
+    return torch.cat([batch.detach().cpu() for batch in batches]).numpy().reshape(-1), {
+        "epochs_actually_run": trainer.current_epoch + 1,
+        "best_val_loss": float(callback.best_model_score) if callback.best_model_score is not None else None,
+    }
 
 
 def _train_fold(graphs, values, train_idx, val_idx, test_idx, pooling_type, target, split_type, fold, args):
@@ -216,7 +280,7 @@ def _train_fold(graphs, values, train_idx, val_idx, test_idx, pooling_type, targ
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=hpg_collate_fn, num_workers=args.num_workers)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, collate_fn=hpg_collate_fn, num_workers=args.num_workers)
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=hpg_collate_fn, num_workers=args.num_workers)
-    checkpoint_path = CHECKPOINT_DIR / f"ea_ip__{standard_target_token(target)}__{pooling_type}__{split_type}__fold{fold}__s{args.seed}"
+    checkpoint_path = CHECKPOINT_DIR / f"ea_ip__{standard_target_token(target)}__{pooling_type}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}"
     model = HPGMPNN(d_v=HPG_ATOM_FDIM, d_e=1, d_h=128, d_ffn=64, depth=6, num_heads=8,
                     dropout_mp=0.0, dropout_ffn=0.2, n_tasks=1, pooling_type=pooling_type,
                     task_type="regression")
@@ -231,7 +295,11 @@ def _train_fold(graphs, values, train_idx, val_idx, test_idx, pooling_type, targ
     )
     trainer.fit(model, train_loader, val_loader)
     batches = trainer.predict(model=model, dataloaders=test_loader)
-    return torch.cat([batch.detach().cpu() for batch in batches]).numpy().reshape(-1)
+    callback = next(item for item in trainer.callbacks if isinstance(item, ModelCheckpoint))
+    return torch.cat([batch.detach().cpu() for batch in batches]).numpy().reshape(-1), {
+        "epochs_actually_run": trainer.current_epoch + 1,
+        "best_val_loss": float(callback.best_model_score) if callback.best_model_score is not None else None,
+    }
 
 
 def main() -> None:
@@ -244,18 +312,17 @@ def main() -> None:
         raise ValueError(f"Unknown models: {sorted(invalid)}")
     requested_paths = []
     for split_type in split_types:
-        n_folds = 9 if split_type == "monomer_heldout" else 5
+        n_folds = 9 if split_type in {"monomer_heldout", "monomer_b_heldout", "monomer_b_heldout_clustered"} else 5
         folds = list(range(n_folds)) if args.folds is None else [int(item) for item in args.folds.split(",")]
         if any(fold < 0 or fold >= n_folds for fold in folds):
             raise ValueError(f"Invalid fold requested for {split_type}: {folds}")
         for target in targets:
             for model_token in models:
                 requested_paths.extend(
-                    PREDICTIONS_DIR / split_subdir(split_type) /
-                    make_prediction_filename(target, model_token, split_type, fold, seed=args.seed)
+                    _prediction_path(args.prediction_dir / split_subdir(split_type), target, model_token, split_type, fold, args)
                     for fold in folds
                 )
-    if not args.force and all(path.exists() for path in requested_paths):
+    if not args.force and not args.dry_run and all(path.exists() for path in requested_paths):
         logger.info("All requested predictions already exist; exiting without loading data.")
         return
     df = pd.read_csv(DATA_PATH)
@@ -269,17 +336,18 @@ def main() -> None:
             stage2_mode=vf["stage2_mode"],
             octamer_len=args.octamer_len,
             n_random_samples=args.n_random_samples,
+            octamer_rng_seed=args.seed,
             junction_coupling=vf["junction_coupling"],
         )
-    split_sets = {split_type: _build_splits(df, split_type) for split_type in split_types}
+    split_sets = {split_type: _build_splits(df, split_type, args.split_seed, args.b_split_metadata) for split_type in split_types}
     for split_type, (trains, vals, tests) in split_sets.items():
         folds = list(range(len(trains))) if args.folds is None else [int(item) for item in args.folds.split(",")]
         for target in targets:
             values = df[target].to_numpy(dtype=np.float32)
             for model_token in models:
                 for fold in folds:
-                    prediction_dir = PREDICTIONS_DIR / split_subdir(split_type)
-                    prediction_path = prediction_dir / make_prediction_filename(target, model_token, split_type, fold, seed=args.seed)
+                    prediction_dir = args.prediction_dir / split_subdir(split_type)
+                    prediction_path = _prediction_path(prediction_dir, target, model_token, split_type, fold, args)
                     if prediction_path.exists() and not args.force:
                         logger.info("Skipping existing prediction: %s", prediction_path)
                         continue
@@ -288,14 +356,15 @@ def main() -> None:
                         continue
                     prediction_dir.mkdir(parents=True, exist_ok=True)
                     is_hier = MODEL_TO_POOLING.get(model_token) == "hpg_hier"
+                    started_at = time.monotonic()
                     if is_hier:
-                        y_pred = _train_hier_fold(
+                        y_pred, training_summary = _train_hier_fold(
                             hier_graphs_by_token[model_token], values,
                             trains[fold], vals[fold], tests[fold],
                             target, split_type, fold, args, model_token=model_token,
                         )
                     else:
-                        y_pred = _train_fold(
+                        y_pred, training_summary = _train_fold(
                             standard_graphs, values, trains[fold], vals[fold], tests[fold],
                             MODEL_TO_POOLING[model_token], target, split_type, fold, args,
                         )
@@ -306,11 +375,33 @@ def main() -> None:
                         prediction_path, y_true=y_true, y_pred=y_pred.astype(np.float64), test_indices=tests[fold],
                         split_type=standard_split_name(split_type), model=standard_model_name(model_token),
                         target=standard_target_token(target), fold=fold, seed=args.seed,
+                        repeat=(-1 if args.repeat is None else args.repeat),
                         n_train=len(trains[fold]), n_val=len(vals[fold]), n_test=len(tests[fold]),
-                        prediction_scale="physical_units", smiles_A=df.iloc[tests[fold]]["smiles_A"].to_numpy(),
+                        prediction_scale="physical_units",
+                        split_seed=args.split_seed,
+                        stage2_readout=(args.stage2_readout or _VARIANT_FLAGS.get(model_token, {}).get("stage2_readout")),
+                        smiles_A=df.iloc[tests[fold]]["smiles_A"].to_numpy(),
                         smiles_B=df.iloc[tests[fold]]["smiles_B"].to_numpy(), fracA=df.iloc[tests[fold]]["fracA"].to_numpy(),
                         fracB=df.iloc[tests[fold]]["fracB"].to_numpy(), poly_type=df.iloc[tests[fold]]["poly_type"].to_numpy(),
                     )
+                    try:
+                        git_commit = subprocess.check_output(
+                            ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
+                        ).strip()
+                    except (OSError, subprocess.CalledProcessError):
+                        git_commit = None
+                    resolved_variant = _VARIANT_FLAGS.get(model_token, {})
+                    provenance = {
+                        "cli_args": vars(args),
+                        "resolved_variant": resolved_variant,
+                        "resolved_stage2_readout": args.stage2_readout or resolved_variant.get("stage2_readout"),
+                        "git_commit": git_commit,
+                        "pbs_job_id": os.environ.get("PBS_JOBID"),
+                        "runtime_environment": _runtime_environment(),
+                        "wall_time_seconds": time.monotonic() - started_at,
+                        **training_summary,
+                    }
+                    prediction_path.with_suffix(".config.json").write_text(json.dumps(provenance, indent=2, sort_keys=True, default=str) + "\n")
                     logger.info("Saved: %s", prediction_path)
 
 

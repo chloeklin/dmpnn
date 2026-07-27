@@ -116,14 +116,18 @@ _SPLIT_TO_TOKEN = {
     "LOMAO":                   "monomer_heldout",
     "leave_one_monomer_out":   "monomer_heldout",
     "monomer_heldout":         "monomer_heldout",
+    "monomer_b_heldout":       "monomer_b_heldout",
+    "monomer_b_heldout_clustered": "monomer_b_heldout_clustered",
 }
 
-CANONICAL_SPLITS = ["group_disjoint", "pair_disjoint", "monomer_heldout"]
+CANONICAL_SPLITS = ["group_disjoint", "pair_disjoint", "monomer_heldout", "monomer_b_heldout", "monomer_b_heldout_clustered"]
 
 _SPLIT_DIRS = {
     "group_disjoint":  "ea_ip_group",
     "pair_disjoint":   "ea_ip_pair",
     "monomer_heldout": "ea_ip_lomo",
+    "monomer_b_heldout": "ea_ip_lomo_b",
+    "monomer_b_heldout_clustered": "ea_ip_lomo_b_clustered",
 }
 
 

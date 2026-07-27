@@ -1,0 +1,16 @@
+#!/bin/bash
+#PBS -q gpuvolta
+#PBS -P um09
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=24:00:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N b1_hpg_hier_f5
+#PBS -r y
+set -euo pipefail
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+python scripts/python/run_hpg_generalization.py --split_types monomer_b_heldout --folds 5 --targets 'IP vs SHE (eV)' --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --octamer_len 8 --n_random_samples 16 --n_coupling_steps 2 --seed 42 --split_seed 42

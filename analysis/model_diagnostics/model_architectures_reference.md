@@ -78,6 +78,19 @@ Full input / representation / architecture / output for every model compared on 
   - Encode the octamer with a small sequence model (path GNN / mini-transformer / RNN over 8 positions) → sequence representation → pool over positions.
 - **Output head:** MLP → EA, IP (for random, mean over K sampled octamers).
 - **Key idea:** replace the 2-node *ensemble-average* representation with the **explicit sequence**. Tests a core wDMPNN assumption: `property(average structure)` (weighted edges) vs `average(property(sampled sequences))` (octamers) — which differ because the model is nonlinear, potentially most for random copolymers. Captures positional/neighbour effects the transition matrix cannot.
+- **As built:** sequences are **architecture-conditioned from the `WDMPNN_Input` bond rules** (an early bug that used fractions only — making all architectures identical — was fixed). Block/alternating use the deterministic canonical sequence; random uses K=16 transition-weighted samples with **prediction averaging**. Encoder = path-GNN with **positional embeddings + attention pooling** (order-aware).
+
+## 7. HPG-hier + junction coupling  (chemistry fix — Stage 1 change)
+
+- **Stage 2 unchanged** (baseline transition-graph, feature).
+- **Stage 1 modified:** after encoding each monomer's atoms independently, **insert the inter-monomer junction bonds** (connecting the real attachment atoms of A and B, from the `WDMPNN_Input` cross-monomer bond rules, weighted by connection probability) and run **`n_coupling_steps`** extra message-passing steps on the **combined graph (intra-monomer bonds + junction edges)** — so cross-junction context propagates *into* each monomer — then pool to `m_A`, `m_B`.
+- **Output head:** MLP → EA, IP.
+- **Key idea:** give the isolated Stage-1 encoding a **limited atom-level view across the junction** (what wDMPNN has), to fix the chemistry-baseline mis-placement for hard monomers — *without* collapsing into a flat graph. This is the targeted fix for the fold-1 (dibenzothiophene sulfone) EA failure. Tunable via `n_coupling_steps` (2 over-couples; 1 pending).
+
+## 8. HPG-hier + wDMPNN ensemble  (no training — post-hoc average)
+
+- **Not a new model:** the arithmetic mean of the `HPG-hier` and `wDMPNN` predictions.
+- **Key idea:** the two representations fail on *different* held-out monomers (complementary blind spots), so averaging their predictions covers both — tests and exploits the complementarity directly.
 
 ---
 
@@ -94,3 +107,18 @@ Full input / representation / architecture / output for every model compared on 
 | Output | FFN → EA/IP | FFN → EA/IP | MLP → EA/IP | MLP → EA/IP | MLP → EA/IP | MLP → EA/IP (mean over K for random) |
 
 **Where each is strong/weak (seed-42):** wDMPNN — best chemistry extrapolation, weak architecture; ChemArch — best in-distribution architecture, collapses on unseen chemistry; HPG-hier — best architecture on unseen chemistry, chemistry ≈ wDMPNN except hard-monomer baseline placement. Q1/Q2 target the *architecture* axis; the chemistry-baseline gap needs Stage-1 **junction coupling**, which is a separate change.
+
+---
+
+## Variant status (Phase 1, seed 42)
+
+| Variant | Axis targeted | Status | One-line result |
+|---|---|---|---|
+| **HPG-hier** (baseline) | — | ✅ done | best architecture on unseen chemistry; chemistry ≈ wDMPNN except fold-1 |
+| **+Q1 wedge** (weighted edge) | architecture | ❌ **dropped** | helped in-distribution, but architecture **collapsed OOD** (IP ΔR² 0.82→0.56) |
+| **+Q2 octamer** (explicit sequence) | architecture | ⏳ **re-gated, LOMO pending** | construction bug fixed; in-distribution ΔR² recovered to 0.92; unseen-chemistry unknown |
+| **+junction coupling (n=2)** | chemistry | ✅ **works, over-couples** | fold-1 EA 0.575→0.925; EA LOMO **beats wDMPNN**; IP mixed + slight architecture cost |
+| **+junction coupling (n=1)** | chemistry | ⏳ **pending** | tuning run — keep EA gain, recover IP/architecture cost? |
+| **HPG-hier + wDMPNN ensemble** | both | ✅ done | beats both on almost everything (complementary blind spots) |
+
+Full numbers, per-fold breakdowns and verdicts: see `variant_results_report.md`.
