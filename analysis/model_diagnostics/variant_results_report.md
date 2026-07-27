@@ -13,16 +13,30 @@ overall R²/MAE = bottom line. Architecture definitions: `model_architectures_re
 Three things limit every comparison below. None of them was known when the earlier version of this
 report was written.
 
-**0.1 The baseline predictions may not be reproducible.** Rerunning `hpg_hier`, EA, A-heldout fold 0,
-seed 42 against the frozen split reproduced the split, test indices and targets bitwise but **not the
-predictions**: max difference 0.364 eV, R² 0.92411 → 0.95877, MAE 0.10681 → 0.08451. The rerun is
-materially *better*. The baseline and wDMPNN NPZs date from 2026-07-20; junction n=1 and octamer from
-2026-07-26. Two candidate causes — code drift between those dates, or training nondeterminism — are
-under investigation (`windsurf_prompt_code_drift_vs_noise.md`). Until resolved:
+**0.1 MEASURED: training is unstable, and the noise exceeds every effect in this report.**
+Six Gadi V100 runs of `hpg_hier`, EA, A-heldout, seed 42, current code, varying only the repeat label
+(`_code_drift_investigation.md`, noise-floor analysis):
 
-> **Every baseline-versus-variant comparison in this report is provisional.** If it is code drift, the
-> variants were compared against a stale baseline. If it is nondeterminism, the run-to-run noise floor
-> is unmeasured and may exceed most of the differences reported as findings.
+| fold | group-mean R² across 3 repeats | MAE (eV) across 3 repeats | MAE SD |
+|---|---|---|---|
+| 0 | 0.962 / 0.982 / 0.986 | 0.084 / 0.055 / 0.052 | 0.018 |
+| 1 | **0.790 / 0.450 / 0.978** | 0.146 / 0.226 / 0.045 | **0.091** |
+
+Committed code drift was excluded (post-20-July commits are gated behind the octamer and junction
+paths). This is run-to-run instability at fixed seed. Wall times spanned 2,866–5,214 s, so runs
+terminate at very different points; the leading hypothesis is that early stopping is driven by a
+validation set consisting of a single held-out A monomer, making the stopping signal noisy and
+monomer-specific (`windsurf_prompt_training_stability.md`).
+
+> **Consequence: no single-run comparison in this report is interpretable.** Under the optimistic
+> fold-0 noise estimate (±2 SD = ±0.035 eV) roughly half the octamer's per-fold MAE gains survive;
+> under the fold-1 estimate (±0.182 eV) one of nine does. Every conclusion below that rests on
+> differences smaller than these bands is withdrawn pending repeat-measured results.
+
+**0.1b The "pathological folds" are probably variance, not chemistry.** Fold-1 MAE SD is 5× fold-0's.
+The folds this project has repeatedly treated as chemically interesting — EA 1, EA 6, IP 5, IP 2 —
+are candidates for simply being the high-variance folds. This must be tested by repeating them before
+any fold-specific chemical interpretation stands.
 
 **0.2 Single seed.** Everything here is seed 42. Seeds 43/44 do not exist yet.
 
@@ -303,7 +317,17 @@ ablation (2-node Stage-2 + attention pooling) is specified in
 **Consequence for §5.4 below:** if the fold-1 gap is fixable by a Stage-2-only change, the
 "missing cross-junction conjugation in Stage-1" diagnosis cannot be the whole story.
 
-### 5.4 The fold-1 chemistry weakness — mechanism now in question
+### 5.4 The fold-1 chemistry weakness — ❌ WITHDRAWN, it is run-to-run variance
+
+**The baseline solves fold 1 unaided in roughly one run out of three.** Three repeats of the plain
+baseline at seed 42 gave group-mean R² 0.790 / 0.450 / **0.978** (§0.1). The canonical 0.575 sits
+inside that spread, and the best repeat (0.978) is comparable to the octamer (0.989) and better than
+junction n=2 (0.925).
+
+There is no established systematic chemistry gap on this fold. The "isolated Stage-1 encoding misses
+cross-junction conjugation" diagnosis, the junction-coupling programme built to fix it, and the
+octamer's largest single EA contribution (fold 1, +0.414) all rest on a single unstable draw. The
+table below is retained only as a record of what those single runs produced.
 
 **EA fold 1 (dibenzothiophene sulfone):**
 | Model | group-mean R² | MAE (eV) | bias (eV) |

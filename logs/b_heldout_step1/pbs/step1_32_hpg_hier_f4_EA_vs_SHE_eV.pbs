@@ -13,4 +13,6 @@ set -euo pipefail
 module load python3/3.12.1 cuda/12.0.0
 source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn
+test -f metadata/splits/monomer_b_heldout.json || { echo 'Missing metadata/splits/monomer_b_heldout.json' >&2; exit 1; }
+test -f metadata/splits/monomer_b_heldout_clustered.json || { echo 'Missing metadata/splits/monomer_b_heldout_clustered.json' >&2; exit 1; }
 python scripts/python/run_hpg_generalization.py --split_types monomer_b_heldout --folds 4 --targets 'EA vs SHE (eV)' --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --octamer_len 8 --n_random_samples 16 --n_coupling_steps 2 --seed 42 --split_seed 42

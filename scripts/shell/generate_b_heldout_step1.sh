@@ -63,6 +63,8 @@ set -euo pipefail
 module load $MODULE_PYTHON $MODULE_CUDA
 source $VENV_ACTIVATE
 cd $PROJECT_DIR
+test -f metadata/splits/monomer_b_heldout.json || { echo 'Missing metadata/splits/monomer_b_heldout.json' >&2; exit 1; }
+test -f metadata/splits/monomer_b_heldout_clustered.json || { echo 'Missing metadata/splits/monomer_b_heldout_clustered.json' >&2; exit 1; }
 $command
 EOF
     chmod +x "$pbs"

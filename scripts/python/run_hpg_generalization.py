@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 import torch
 from lightning import pytorch as pl
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from torch.utils.data import DataLoader
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -108,6 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--b_split_metadata", type=Path, default=None)
     parser.add_argument("--prediction_dir", type=Path, default=PREDICTIONS_DIR)
     parser.add_argument("--repeat", type=int, default=None)
+    parser.add_argument("--stability_fix", choices=("none", "best_checkpoint", "row_val_best", "fixed_epochs"), default="none")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -195,7 +196,35 @@ def _build_hier_graphs(df: pd.DataFrame, stage2_edge: str, stage2_mode: str = "t
 
 
 def _repeat_suffix(args: argparse.Namespace) -> str:
-    return "" if args.repeat is None else f"__repeat{args.repeat}"
+    repeat = "" if args.repeat is None else f"__repeat{args.repeat}"
+    fix = "" if args.stability_fix == "none" else f"__{args.stability_fix}"
+    return repeat + fix
+
+
+class ValidationLossHistory(Callback):
+    def __init__(self):
+        self.values = []
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if trainer.sanity_checking:
+            return
+        value = trainer.callback_metrics.get("val_loss")
+        if value is not None:
+            self.values.append(float(value.detach().cpu()))
+
+
+def _row_validation_split(df: pd.DataFrame, train_idx: np.ndarray, val_idx: np.ndarray, fold: int, split_seed: int):
+    pool = np.sort(np.concatenate([train_idx, val_idx]))
+    groups = df.iloc[pool]["smiles_A"].astype(str).to_numpy()
+    rng = np.random.default_rng(split_seed + fold)
+    selected = []
+    for group in np.unique(groups):
+        candidates = pool[groups == group]
+        count = max(1, int(round(0.1 * len(candidates))))
+        selected.extend(rng.choice(candidates, size=count, replace=False).tolist())
+    new_val = np.sort(np.asarray(selected, dtype=int))
+    new_train = np.setdiff1d(pool, new_val, assume_unique=True)
+    return new_train, new_val
 
 
 def _prediction_path(prediction_dir: Path, target: str, model_token: str, split_type: str, fold: int, args: argparse.Namespace) -> Path:
@@ -257,16 +286,30 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         n_coupling_steps=variant["n_coupling_steps"],
     )
     model._output_transform = UnscaleTransform.from_standard_scaler(scaler)
+    checkpoint = ModelCheckpoint(dirpath=str(checkpoint_path), monitor="val_loss", mode="min", save_top_k=1, save_last=True)
+    history = ValidationLossHistory()
+    callbacks = [checkpoint, history]
+    if args.stability_fix != "fixed_epochs":
+        callbacks.append(EarlyStopping(monitor="val_loss", patience=args.patience, mode="min"))
     trainer = pl.Trainer(max_epochs=args.epochs, accelerator="auto", devices=1, logger=False,
-                         default_root_dir=str(checkpoint_path), enable_model_summary=False,
-                         callbacks=[EarlyStopping(monitor="val_loss", patience=args.patience, mode="min"),
-                                    ModelCheckpoint(dirpath=str(checkpoint_path), monitor="val_loss", mode="min", save_top_k=1, save_last=True)])
+                         default_root_dir=str(checkpoint_path), enable_model_summary=False, callbacks=callbacks)
     trainer.fit(model, loaders[0], loaders[1])
-    batches = trainer.predict(model=model, dataloaders=loaders[2])
-    callback = next(item for item in trainer.callbacks if isinstance(item, ModelCheckpoint))
-    return torch.cat([batch.detach().cpu() for batch in batches]).numpy().reshape(-1), {
-        "epochs_actually_run": trainer.current_epoch + 1,
-        "best_val_loss": float(callback.best_model_score) if callback.best_model_score is not None else None,
+    compare_checkpoints = args.stability_fix in {"best_checkpoint", "row_val_best"}
+    final_batches = trainer.predict(model=model, dataloaders=loaders[2])
+    final_predictions = torch.cat([batch.detach().cpu() for batch in final_batches]).numpy().reshape(-1)
+    if compare_checkpoints:
+        best_batches = trainer.predict(model=model, dataloaders=loaders[2], ckpt_path=checkpoint.best_model_path)
+        predictions = torch.cat([batch.detach().cpu() for batch in best_batches]).numpy().reshape(-1)
+    else:
+        predictions = final_predictions
+    best_epoch = int(np.argmin(history.values)) + 1 if history.values else None
+    return predictions, {
+        "_final_y_pred": final_predictions if compare_checkpoints else None,
+        "epochs_actually_run": len(history.values),
+        "best_epoch": best_epoch,
+        "best_val_loss": float(checkpoint.best_model_score) if checkpoint.best_model_score is not None else None,
+        "prediction_checkpoint": "best" if compare_checkpoints else "final",
+        "validation_loss_curve": history.values,
     }
 
 
@@ -340,6 +383,12 @@ def main() -> None:
             junction_coupling=vf["junction_coupling"],
         )
     split_sets = {split_type: _build_splits(df, split_type, args.split_seed, args.b_split_metadata) for split_type in split_types}
+    if args.stability_fix == "row_val_best":
+        if set(split_types) != {"monomer_heldout"}:
+            raise ValueError("row_val_best is restricted to monomer_heldout stability tests")
+        trains, vals, tests = split_sets["monomer_heldout"]
+        adjusted = [_row_validation_split(df, trains[fold], vals[fold], fold, args.split_seed) for fold in range(len(trains))]
+        split_sets["monomer_heldout"] = ([item[0] for item in adjusted], [item[1] for item in adjusted], tests)
     for split_type, (trains, vals, tests) in split_sets.items():
         folds = list(range(len(trains))) if args.folds is None else [int(item) for item in args.folds.split(",")]
         for target in targets:
@@ -369,10 +418,15 @@ def main() -> None:
                             MODEL_TO_POOLING[model_token], target, split_type, fold, args,
                         )
                     y_true = values[tests[fold]].astype(np.float64)
+                    final_y_pred = training_summary.pop("_final_y_pred", None)
                     if y_pred.shape != y_true.shape:
                         raise AssertionError(f"Prediction shape {y_pred.shape} != target shape {y_true.shape}")
+                    if final_y_pred is not None and final_y_pred.shape != y_true.shape:
+                        raise AssertionError(f"Final prediction shape {final_y_pred.shape} != target shape {y_true.shape}")
                     np.savez_compressed(
-                        prediction_path, y_true=y_true, y_pred=y_pred.astype(np.float64), test_indices=tests[fold],
+                        prediction_path, y_true=y_true, y_pred=y_pred.astype(np.float64),
+                        y_pred_final=(np.asarray([], dtype=np.float64) if final_y_pred is None else final_y_pred.astype(np.float64)),
+                        test_indices=tests[fold],
                         split_type=standard_split_name(split_type), model=standard_model_name(model_token),
                         target=standard_target_token(target), fold=fold, seed=args.seed,
                         repeat=(-1 if args.repeat is None else args.repeat),

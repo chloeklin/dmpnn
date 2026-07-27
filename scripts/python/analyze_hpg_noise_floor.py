@@ -16,7 +16,8 @@ DATA_PATH = ROOT / "data" / "ea_ip.csv"
 OUTPUT_PATH = ROOT / "analysis" / "model_diagnostics" / "_noise_floor_results.md"
 CANONICAL_PATH = ROOT / "predictions" / "ea_ip_lomo" / "ea_ip__EA_vs_SHE_eV__hpg_hier__monomer_heldout__fold0__s42.npz"
 BASE = "ea_ip__EA_vs_SHE_eV__hpg_hier__monomer_heldout__fold{fold}__s42__repeat{repeat}"
-AGREEMENT_ATOL_EV = 1e-6
+REPRODUCIBLE_ATOL_EV = 1e-6
+PRACTICAL_MAE_SD_EV = 0.005
 OCTAMER_MAE_DIFFERENCES = np.asarray([0.071, 0.183, 0.083, 0.010, -0.035, 0.025, 0.002, 0.100, 0.051])
 METRICS = ["group_mean_r2", "delta_r2", "ordering", "overall_r2", "mae"]
 
@@ -123,17 +124,18 @@ def main() -> None:
             "deterministic_enabled": environment_row.deterministic_enabled,
         })
     canonical_comparison = pd.DataFrame(canonical_rows)
-    cuda_agree = bool((summary.max_pairwise_prediction_difference_eV <= AGREEMENT_ATOL_EV).all())
-    canonical_agree = bool((canonical_comparison.max_abs_difference_eV <= AGREEMENT_ATOL_EV).all())
-    if cuda_agree and canonical_agree:
-        outcome_case = "Case 1: the three CUDA runs agree with each other and with canonical. The earlier discrepancy was Apple MPS; the old results stand."
-    elif cuda_agree:
-        outcome_case = "Case 2: the three CUDA runs agree with each other but not with canonical. The July-20 setup no longer reproduces; all A-split baselines must be regenerated, and nondeterminism is not the cause."
+    reproducible = bool((summary.max_pairwise_prediction_difference_eV <= REPRODUCIBLE_ATOL_EV).all())
+    practically_equivalent = bool((summary.mae_sd < PRACTICAL_MAE_SD_EV).all())
+    if reproducible:
+        variability_tier = "Reproducible: maximum absolute prediction difference is at most 1e-6 eV in both folds."
+    elif practically_equivalent:
+        variability_tier = "Practically equivalent: predictions are not reproducible to 1e-6 eV, but MAE SD is below 0.005 eV in both folds."
     else:
-        outcome_case = "Case 3: the CUDA runs disagree with each other. This is genuine nondeterminism; report the measured SD and proceed to Step 4."
-    mae_band = float(summary.mae_sd.max())
-    inside_all = np.abs(OCTAMER_MAE_DIFFERENCES) <= mae_band
-    matched_inside = [abs(OCTAMER_MAE_DIFFERENCES[fold]) <= summary.loc[summary.fold == fold, "mae_sd"].iloc[0] for fold in (0, 1)]
+        variability_tier = "Materially variable: MAE SD is at least 0.005 eV in one or both folds."
+    primary_sd = summary[["fold", "mae_sd", "overall_r2_sd", "delta_r2_sd", "max_pairwise_prediction_difference_eV"]].copy()
+    mae_sd_for_all_nine = float(summary.mae_sd.max())
+    two_sd_band = 2.0 * mae_sd_for_all_nine
+    inside_all = np.abs(OCTAMER_MAE_DIFFERENCES) <= two_sd_band
     environment = environments[0]
     detail.to_csv(OUTPUT_PATH.with_suffix(".csv"), index=False)
     report = [
@@ -145,15 +147,13 @@ def main() -> None:
         "",
         "Every run used current code, A-heldout EA, seed 42, and changed only the independent process/repeat label. SD is the sample SD across three repeats.",
         "",
-        "## Pre-registered reading",
+        "## Pre-registered variability tier",
         "",
-        f"Agreement was pre-registered as a maximum absolute prediction difference no greater than {AGREEMENT_ATOL_EV:.1e} eV. CUDA agreement requires this threshold within both folds; canonical agreement requires it for all three fold-0 CUDA runs against the July-20 artifact.",
+        f"- Reproducible: maximum absolute prediction difference no greater than {REPRODUCIBLE_ATOL_EV:.1e} eV in both folds.",
+        f"- Practically equivalent: not reproducible to {REPRODUCIBLE_ATOL_EV:.1e} eV, but each fold's three-repeat MAE SD is below {PRACTICAL_MAE_SD_EV:.3f} eV.",
+        f"- Materially variable: either fold's three-repeat MAE SD is at least {PRACTICAL_MAE_SD_EV:.3f} eV.",
         "",
-        "- Case 1: CUDA runs agree with one another and canonical: attribute the earlier discrepancy to Apple MPS; old results stand.",
-        "- Case 2: CUDA runs agree with one another but not canonical: July-20 no longer reproduces; regenerate every A-split baseline; nondeterminism is not the cause.",
-        "- Case 3: CUDA runs disagree with one another: genuine nondeterminism; report SD and proceed to Step 4.",
-        "",
-        f"**Observed classification: {outcome_case}**",
+        f"**Observed classification: {variability_tier}**",
         "",
         "## Direct fold-0 comparison with the canonical July-20 artifact",
         "",
@@ -161,19 +161,25 @@ def main() -> None:
         "",
         markdown(canonical_comparison),
         "",
+        "## Primary fold-level spread",
+        "",
+        "MAE SD, overall-R² SD, and delta-R² SD are the primary outputs.",
+        "",
+        markdown(primary_sd),
+        "",
         "## Per-run metrics and V100 wall time",
         "",
         markdown(detail),
         "",
-        "## Per-fold noise floor",
+        "## Full per-fold noise floor",
         "",
         markdown(summary),
         "",
         "## Octamer-versus-baseline EA MAE differences",
         "",
-        f"Only folds 0 and 1 have fold-matched noise estimates. {sum(matched_inside)} of those 2 differences are within their own fold's one-SD MAE noise band.",
+        f"**Finding: {int(inside_all.sum())} of 9 recorded octamer-versus-baseline EA MAE differences fall inside ±2 SD.** The band is ±{two_sd_band:.8f} eV, using twice the larger of the measured fold-0 and fold-1 MAE SDs ({mae_sd_for_all_nine:.8f} eV).",
         "",
-        f"For an explicit all-nine sensitivity count, using the larger measured fold-0/fold-1 MAE SD ({mae_band:.8f} eV) as a common conservative one-SD band places {int(inside_all.sum())} of 9 recorded differences inside the band. This extrapolation is not a fold-matched estimate for folds 2-8.",
+        "This common conservative band provides the requested all-nine count; folds 2-8 do not have fold-matched repeat SDs, so the count extrapolates the larger measured SD rather than claiming nine fold-specific noise estimates.",
         "",
         "Recorded signed differences: `" + ", ".join(f"{value:+.3f}" for value in OCTAMER_MAE_DIFFERENCES) + "` eV.",
         "",
