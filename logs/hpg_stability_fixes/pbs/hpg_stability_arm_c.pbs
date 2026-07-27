@@ -1,0 +1,31 @@
+#!/bin/bash
+#PBS -q gpuvolta
+#PBS -P um09
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=06:00:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N hpg_stab_c
+#PBS -r y
+#PBS -J 0-5
+
+set -euo pipefail
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+test -f metadata/splits/monomer_heldout.json || { echo 'Missing metadata/splits/monomer_heldout.json' >&2; exit 1; }
+TASK_LOG_DIR="/scratch/um09/hl4138/dmpnn/logs/hpg_stability_fixes/tasks"
+mkdir -p "$TASK_LOG_DIR"
+exec > >(tee -a "$TASK_LOG_DIR/arm_c_${PBS_ARRAY_INDEX}_${PBS_JOBID}.log") 2>&1
+MANIFEST="/scratch/um09/hl4138/dmpnn/logs/hpg_stability_fixes/manifests/hpg_stability_arm_c.manifest"
+LINE="$(sed -n "$((PBS_ARRAY_INDEX + 1))p" "$MANIFEST")"
+IFS=$'\t' read -r FOLD REPEAT OUTPUT <<< "$LINE"
+[[ -n "$FOLD" && -n "$REPEAT" ]] || { printf 'Missing manifest entry\n' >&2; exit 2; }
+if [[ -f "$OUTPUT" ]]; then
+    printf 'Skipping completed artifact: %s\n' "$OUTPUT"
+    exit 0
+fi
+nvidia-smi
+python scripts/python/run_hpg_generalization.py     --split_types monomer_heldout     --folds "$FOLD"     --targets 'EA vs SHE (eV)'     --models hpg_hier     --stage1_pool sum     --stage2_depth 2     --stage2_edge full     --stage2_readout stoich_weighted     --seed 42     --split_seed 42     --epochs 100     --min_epochs 40     --patience 30     --batch_size 64     --repeat "$REPEAT"     --stability_fix arm_c     --prediction_dir "/scratch/um09/hl4138/dmpnn/predictions/stability_fixes"

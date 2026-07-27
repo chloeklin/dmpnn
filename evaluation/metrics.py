@@ -37,6 +37,42 @@ def compute_overall_mae(y_true: Sequence, y_pred: Sequence) -> float:
     return float(mean_absolute_error(yt, yp))
 
 
+def compute_copolymer_metrics(
+    df: pd.DataFrame,
+    y_true: Sequence,
+    y_pred: Sequence,
+    global_indices: Sequence[int],
+) -> tuple[dict, pd.DataFrame]:
+    validate_prediction_inputs(df, y_true, y_pred, global_indices)
+    rows = df.iloc[np.asarray(global_indices, dtype=int)].reset_index(drop=True)
+    frame = rows[["smiles_A", "smiles_B", "fracA", "poly_type"]].copy()
+    frame["y_true"] = np.asarray(y_true, dtype=np.float64)
+    frame["y_pred"] = np.asarray(y_pred, dtype=np.float64)
+    frame["group"] = frame.smiles_A.astype(str) + "||" + frame.smiles_B.astype(str) + "||" + frame.fracA.astype(str)
+    valid = frame.groupby("group").poly_type.nunique()
+    matched = frame[frame.group.isin(valid[valid >= 2].index)].copy()
+    group_means = matched.groupby("group", as_index=False)[["y_true", "y_pred"]].mean()
+    delta_true = matched.y_true - matched.groupby("group").y_true.transform("mean")
+    delta_pred = matched.y_pred - matched.groupby("group").y_pred.transform("mean")
+    ordering_scores = []
+    for _, group in matched.groupby("group"):
+        true_values = group.y_true.to_numpy()
+        pred_values = group.y_pred.to_numpy()
+        pairs = [(i, j) for i in range(len(group)) for j in range(i + 1, len(group)) if true_values[i] != true_values[j]]
+        if pairs:
+            ordering_scores.append(np.mean([(true_values[i] - true_values[j]) * (pred_values[i] - pred_values[j]) > 0 for i, j in pairs]))
+    metrics = {
+        "group_mean_r2": float(r2_score(group_means.y_true, group_means.y_pred)),
+        "delta_r2": float(r2_score(delta_true, delta_pred)),
+        "ordering": float(np.mean(ordering_scores)) if ordering_scores else np.nan,
+        "overall_r2": compute_overall_r2(y_true, y_pred),
+        "mae": compute_overall_mae(y_true, y_pred),
+        "mean_signed_bias": float((np.asarray(y_pred, dtype=np.float64) - np.asarray(y_true, dtype=np.float64)).mean()),
+        "compression_ratio": float(group_means.y_pred.std(ddof=0) / group_means.y_true.std(ddof=0)),
+    }
+    return metrics, group_means
+
+
 # ── Architecture-deviation metric ────────────────────────────────────────────
 
 def compute_archdev_r2(

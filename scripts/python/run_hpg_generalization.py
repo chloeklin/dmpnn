@@ -54,6 +54,7 @@ from chemprop.nn.transforms import UnscaleTransform
 from evaluation.naming import make_prediction_filename, split_subdir, standard_model_name, standard_split_name, standard_target_token
 from run_stage2d_generalization import build_group_keys, build_pair_keys, generate_group_disjoint_splits, generate_pair_disjoint_splits, verify_no_leakage, verify_pair_disjoint_extra
 from frozen_splits import load_frozen_b_heldout_splits
+from regeneration import checkpoint_record, runtime_environment, split_indices_sha256
 from utils import generate_a_held_out_splits, set_seed
 
 DATA_PATH = ROOT_DIR / "data" / "ea_ip.csv"
@@ -107,10 +108,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split_seed", type=int, default=42)
     parser.add_argument("--b_split_metadata", type=Path, default=None)
     parser.add_argument("--prediction_dir", type=Path, default=PREDICTIONS_DIR)
+    parser.add_argument("--checkpoint_dir", type=Path, default=CHECKPOINT_DIR)
+    parser.add_argument("--frozen_protocol", action="store_true")
     parser.add_argument("--repeat", type=int, default=None)
-    parser.add_argument("--stability_fix", choices=("none", "best_checkpoint", "row_val_best", "fixed_epochs"), default="none")
+    parser.add_argument("--stability_fix", choices=("none", "best_checkpoint", "row_val_best", "fixed_epochs", "arm_c"), default="none")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=15)
+    parser.add_argument("--min_epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--force", action="store_true")
@@ -259,7 +263,7 @@ def _runtime_environment() -> dict:
 
 
 def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split_type, fold, args, model_token="hpg_hier"):
-    set_seed(args.seed + fold)
+    set_seed(args.seed if args.frozen_protocol else args.seed + fold)
     build_dataset = lambda indices: TwoStageHPGDataset([
         TwoStageHPGDatapoint(graphs[index], np.asarray([values[index]], dtype=np.float32))
         for index in indices
@@ -273,7 +277,7 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=two_stage_hpg_collate_fn, num_workers=args.num_workers),
     ]
     variant = _VARIANT_FLAGS.get(model_token, _VARIANT_FLAGS["hpg_hier"])
-    checkpoint_path = CHECKPOINT_DIR / f"ea_ip__{standard_target_token(target)}__{model_token}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}"
+    checkpoint_path = args.checkpoint_dir / f"ea_ip__{standard_target_token(target)}__{model_token}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}"
     model = HPGHierMPNN(
         atom_fdim=75, bond_fdim=graphs[0].monomer_graphs[0].E.shape[1], d_h=128,
         stage1_pool=args.stage1_pool, stage2_depth=args.stage2_depth,
@@ -291,13 +295,15 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
     callbacks = [checkpoint, history]
     if args.stability_fix != "fixed_epochs":
         callbacks.append(EarlyStopping(monitor="val_loss", patience=args.patience, mode="min"))
-    trainer = pl.Trainer(max_epochs=args.epochs, accelerator="auto", devices=1, logger=False,
+    trainer = pl.Trainer(max_epochs=args.epochs, min_epochs=args.min_epochs, accelerator="auto", devices=1, logger=False,
                          default_root_dir=str(checkpoint_path), enable_model_summary=False, callbacks=callbacks)
     trainer.fit(model, loaders[0], loaders[1])
-    compare_checkpoints = args.stability_fix in {"best_checkpoint", "row_val_best"}
+    compare_checkpoints = args.frozen_protocol or args.stability_fix in {"best_checkpoint", "row_val_best", "arm_c"}
     final_batches = trainer.predict(model=model, dataloaders=loaders[2])
     final_predictions = torch.cat([batch.detach().cpu() for batch in final_batches]).numpy().reshape(-1)
     if compare_checkpoints:
+        if not checkpoint.best_model_path:
+            raise RuntimeError(f"No best checkpoint was saved for {checkpoint_path}")
         best_batches = trainer.predict(model=model, dataloaders=loaders[2], ckpt_path=checkpoint.best_model_path)
         predictions = torch.cat([batch.detach().cpu() for batch in best_batches]).numpy().reshape(-1)
     else:
@@ -308,13 +314,14 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         "epochs_actually_run": len(history.values),
         "best_epoch": best_epoch,
         "best_val_loss": float(checkpoint.best_model_score) if checkpoint.best_model_score is not None else None,
-        "prediction_checkpoint": "best" if compare_checkpoints else "final",
+        "prediction_checkpoint": checkpoint_record(checkpoint.best_model_path) if compare_checkpoints else checkpoint_record(checkpoint.last_model_path),
+        "final_prediction_checkpoint": checkpoint_record(checkpoint.last_model_path),
         "validation_loss_curve": history.values,
     }
 
 
 def _train_fold(graphs, values, train_idx, val_idx, test_idx, pooling_type, target, split_type, fold, args):
-    set_seed(args.seed + fold)
+    set_seed(args.seed if args.frozen_protocol else args.seed + fold)
     train_ds = _dataset(graphs, values, train_idx)
     val_ds = _dataset(graphs, values, val_idx)
     test_ds = _dataset(graphs, values, test_idx)
@@ -323,31 +330,45 @@ def _train_fold(graphs, values, train_idx, val_idx, test_idx, pooling_type, targ
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=hpg_collate_fn, num_workers=args.num_workers)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, collate_fn=hpg_collate_fn, num_workers=args.num_workers)
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=hpg_collate_fn, num_workers=args.num_workers)
-    checkpoint_path = CHECKPOINT_DIR / f"ea_ip__{standard_target_token(target)}__{pooling_type}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}"
+    checkpoint_path = args.checkpoint_dir / f"ea_ip__{standard_target_token(target)}__{pooling_type}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}"
     model = HPGMPNN(d_v=HPG_ATOM_FDIM, d_e=1, d_h=128, d_ffn=64, depth=6, num_heads=8,
                     dropout_mp=0.0, dropout_ffn=0.2, n_tasks=1, pooling_type=pooling_type,
                     task_type="regression")
     model._output_transform = UnscaleTransform.from_standard_scaler(scaler)
+    history = ValidationLossHistory()
+    checkpoint = ModelCheckpoint(dirpath=str(checkpoint_path), monitor="val_loss", mode="min", save_top_k=1, save_last=True)
     trainer = pl.Trainer(
         max_epochs=args.epochs, accelerator="auto", devices=1, logger=False,
         default_root_dir=str(checkpoint_path), enable_model_summary=False,
-        callbacks=[
-            EarlyStopping(monitor="val_loss", patience=args.patience, mode="min"),
-            ModelCheckpoint(dirpath=str(checkpoint_path), monitor="val_loss", mode="min", save_top_k=1, save_last=True),
-        ],
+        callbacks=[EarlyStopping(monitor="val_loss", patience=args.patience, mode="min"), checkpoint, history],
     )
     trainer.fit(model, train_loader, val_loader)
-    batches = trainer.predict(model=model, dataloaders=test_loader)
-    callback = next(item for item in trainer.callbacks if isinstance(item, ModelCheckpoint))
-    return torch.cat([batch.detach().cpu() for batch in batches]).numpy().reshape(-1), {
-        "epochs_actually_run": trainer.current_epoch + 1,
-        "best_val_loss": float(callback.best_model_score) if callback.best_model_score is not None else None,
+    final_batches = trainer.predict(model=model, dataloaders=test_loader)
+    final_predictions = torch.cat([batch.detach().cpu() for batch in final_batches]).numpy().reshape(-1)
+    if args.frozen_protocol:
+        best_batches = trainer.predict(model=model, dataloaders=test_loader, ckpt_path=checkpoint.best_model_path)
+        predictions = torch.cat([batch.detach().cpu() for batch in best_batches]).numpy().reshape(-1)
+    else:
+        predictions = final_predictions
+    return predictions, {
+        "_final_y_pred": final_predictions if args.frozen_protocol else None,
+        "epochs_actually_run": len(history.values),
+        "best_epoch": int(np.argmin(history.values)) + 1 if history.values else None,
+        "best_val_loss": float(checkpoint.best_model_score) if checkpoint.best_model_score is not None else None,
+        "prediction_checkpoint": checkpoint_record(checkpoint.best_model_path if args.frozen_protocol else checkpoint.last_model_path),
+        "final_prediction_checkpoint": checkpoint_record(checkpoint.last_model_path),
+        "validation_loss_curve": history.values,
     }
 
 
 def main() -> None:
     args = parse_args()
     split_types = [item.strip() for item in args.split_types.split(",")]
+    if args.frozen_protocol:
+        if args.stability_fix != "none" or args.repeat is not None or args.min_epochs != 1 or args.patience != 15:
+            raise ValueError("Frozen protocol requires stability_fix=none, no repeat, min_epochs=1, and patience=15")
+        if args.prediction_dir.resolve() == PREDICTIONS_DIR.resolve() or args.checkpoint_dir.resolve() == CHECKPOINT_DIR.resolve():
+            raise ValueError("Frozen protocol requires fresh prediction and checkpoint directories")
     models = [item.strip() for item in args.models.split(",")]
     targets = TARGETS if args.targets is None else [item.strip() for item in args.targets.split(",")]
     invalid = set(models) - set(MODEL_TO_POOLING)
@@ -433,6 +454,7 @@ def main() -> None:
                         n_train=len(trains[fold]), n_val=len(vals[fold]), n_test=len(tests[fold]),
                         prediction_scale="physical_units",
                         split_seed=args.split_seed,
+                        split_indices_sha256=split_indices_sha256(trains[fold], vals[fold], tests[fold]),
                         stage2_readout=(args.stage2_readout or _VARIANT_FLAGS.get(model_token, {}).get("stage2_readout")),
                         smiles_A=df.iloc[tests[fold]]["smiles_A"].to_numpy(),
                         smiles_B=df.iloc[tests[fold]]["smiles_B"].to_numpy(), fracA=df.iloc[tests[fold]]["fracA"].to_numpy(),
@@ -447,11 +469,18 @@ def main() -> None:
                     resolved_variant = _VARIANT_FLAGS.get(model_token, {})
                     provenance = {
                         "cli_args": vars(args),
+                        "resolved_config": {
+                            "model": model_token, "target": target, "split_type": split_type, "fold": fold,
+                            "seed": args.seed, "split_seed": args.split_seed, "epochs": args.epochs,
+                            "patience": args.patience, "min_epochs": args.min_epochs, "batch_size": args.batch_size,
+                            "frozen_protocol": args.frozen_protocol,
+                            "split_indices_sha256": split_indices_sha256(trains[fold], vals[fold], tests[fold]),
+                        },
                         "resolved_variant": resolved_variant,
                         "resolved_stage2_readout": args.stage2_readout or resolved_variant.get("stage2_readout"),
                         "git_commit": git_commit,
                         "pbs_job_id": os.environ.get("PBS_JOBID"),
-                        "runtime_environment": _runtime_environment(),
+                        "runtime_environment": runtime_environment(),
                         "wall_time_seconds": time.monotonic() - started_at,
                         **training_summary,
                     }

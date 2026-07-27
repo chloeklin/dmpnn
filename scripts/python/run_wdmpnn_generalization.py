@@ -30,6 +30,8 @@ import time
 import numpy as np
 import pandas as pd
 import torch
+from lightning import pytorch as pl
+from lightning.pytorch.callbacks import Callback
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -57,6 +59,7 @@ from evaluation.naming import (
     make_prediction_filename, standard_model_name, standard_split_name,
     standard_target_token, split_subdir,
 )
+from regeneration import checkpoint_record, runtime_environment, split_indices_sha256
 
 # ── Configuration ────────────────────────────────────────────────────
 DATA_PATH = ROOT_DIR / 'data' / 'ea_ip.csv'
@@ -146,6 +149,18 @@ class WDMPNNWithinGroupLoss(models.MPNN):
         return l_total
 
 
+class ValidationLossHistory(Callback):
+    def __init__(self):
+        self.values = []
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if trainer.sanity_checking:
+            return
+        value = trainer.callback_metrics.get("val_loss")
+        if value is not None:
+            self.values.append(float(value.detach().cpu()))
+
+
 class _GroupBatchSampler(torch.utils.data.Sampler):
     """Batch sampler that yields complete group-aware batches each epoch.
 
@@ -185,7 +200,8 @@ def build_wdmpnn_model(n_targets=1):
 def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
                       fold_idx, split_type, lambda_within=0.0,
                       all_group_ids=None, results_subdir=None,
-                      training_seed=42):
+                      training_seed=42, checkpoint_dir=None,
+                      frozen_protocol=False, epochs=EPOCHS, patience=PATIENCE):
     """Train wDMPNN for a single fold and return predictions + metadata.
 
     Parameters
@@ -232,7 +248,7 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     target_short = target.replace(' ', '_').replace('(', '').replace(')', '')
     include_tag = (lambda_within > 0.0) or (results_subdir is not None)
     lambda_suffix = f"__lw{_lambda_tag(lambda_within)}" if include_tag else ""
-    ckpt_base = (ROOT_DIR / 'checkpoints' / results_subdir) if results_subdir else CHECKPOINT_DIR
+    ckpt_base = Path(checkpoint_dir) if checkpoint_dir is not None else ((ROOT_DIR / 'checkpoints' / results_subdir) if results_subdir else CHECKPOINT_DIR)
     ckpt_path = ckpt_base / f'ea_ip__{target_short}__wDMPNN__{split_type}__fold{fold_idx}{lambda_suffix}__s{training_seed}'
     ckpt_path.mkdir(parents=True, exist_ok=True)
 
@@ -261,20 +277,21 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     else:
         mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)
 
-    # Trainer
-    from lightning import pytorch as pl
+    history = ValidationLossHistory()
+    checkpoint = pl.callbacks.ModelCheckpoint(
+        dirpath=str(ckpt_path / 'logs' / 'checkpoints'),
+        monitor='val_loss', mode='min', save_top_k=1, save_last=True,
+    )
     trainer = pl.Trainer(
-        max_epochs=EPOCHS,
+        max_epochs=epochs,
         enable_progress_bar=True,
         accelerator='auto',
         devices=1,
         default_root_dir=str(ckpt_path / 'logs'),
         callbacks=[
-            pl.callbacks.EarlyStopping(monitor='val_loss', patience=PATIENCE, mode='min'),
-            pl.callbacks.ModelCheckpoint(
-                dirpath=str(ckpt_path / 'logs' / 'checkpoints'),
-                monitor='val_loss', mode='min', save_top_k=1,
-            ),
+            pl.callbacks.EarlyStopping(monitor='val_loss', patience=patience, mode='min'),
+            checkpoint,
+            history,
         ],
         logger=pl.loggers.TensorBoardLogger(str(ckpt_path), name='logs'),
     )
@@ -299,16 +316,11 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
 
     if done_flag.exists():
         best_ckpt_path, _ = pick_best_checkpoint(ckpt_path)
-        if best_ckpt_path is not None:
+        last_ckpt_path = ckpt_path / 'logs' / 'checkpoints' / 'last.ckpt'
+        if best_ckpt_path is not None and last_ckpt_path.is_file():
             logger.info(f"  Skipping training (COMPLETE): {ckpt_path.name}")
-            map_location = None if torch.cuda.is_available() else torch.device("cpu")
-            checkpoint = torch.load(best_ckpt_path, map_location=map_location, weights_only=False)
-            mpnn.load_state_dict(checkpoint['state_dict'])
-            if torch.cuda.is_available():
-                mpnn = mpnn.to(torch.device("cuda"))
-            mpnn.eval()
         else:
-            logger.warning(f"  TRAINING_COMPLETE but no checkpoint. Retraining.")
+            logger.warning(f"  TRAINING_COMPLETE but required checkpoints are missing. Retraining.")
             done_flag.unlink()
 
     if not done_flag.exists():
@@ -316,34 +328,53 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
         inprog_flag.touch(exist_ok=True)
         try:
             trainer.fit(mpnn, train_loader, val_loader)
-            best_ckpt_path, best_val_loss = pick_best_checkpoint(ckpt_path)
+            best_ckpt_path = checkpoint.best_model_path
+            best_val_loss = float(checkpoint.best_model_score) if checkpoint.best_model_score is not None else None
             if best_ckpt_path:
+                training_state = {
+                    "epochs_actually_run": len(history.values),
+                    "best_epoch": int(np.argmin(history.values)) + 1 if history.values else None,
+                    "best_val_loss": best_val_loss,
+                    "validation_loss_curve": history.values,
+                }
                 with open(ckpt_path / "best.json", "w") as f:
                     json.dump(
                         {"best_ckpt": str(best_ckpt_path), "best_val_loss": best_val_loss,
                          "lambda_within": lambda_within},
                         f, indent=2,
                     )
+                (ckpt_path / "training_summary.json").write_text(json.dumps(training_state, indent=2) + "\n")
                 done_flag.touch()
         finally:
             if inprog_flag.exists():
                 inprog_flag.unlink(missing_ok=True)
 
-    # Get predictions (real scale via output_transform)
-    y_pred = trainer.predict(model=mpnn, dataloaders=test_loader)
-    y_true = np.array([test_ds[j].y for j in range(len(test_ds))], dtype=float)
-
-    if isinstance(y_pred, list):
-        y_pred = torch.cat(y_pred, dim=0).cpu().numpy()
-    elif hasattr(y_pred, 'cpu'):
-        y_pred = y_pred.cpu().numpy()
-
-    _, best_val_loss = pick_best_checkpoint(ckpt_path)
-    training_summary = {
-        'epochs_actually_run': trainer.current_epoch + 1,
-        'best_val_loss': best_val_loss,
+    best_ckpt_path, best_val_loss = pick_best_checkpoint(ckpt_path)
+    last_ckpt_path = ckpt_path / 'logs' / 'checkpoints' / 'last.ckpt'
+    if best_ckpt_path is None or not last_ckpt_path.is_file():
+        raise RuntimeError(f"Required best/final checkpoints are missing under {ckpt_path}")
+    final_batches = trainer.predict(model=mpnn, dataloaders=test_loader, ckpt_path=str(last_ckpt_path))
+    final_predictions = torch.cat(final_batches, dim=0).detach().cpu().numpy().reshape(-1)
+    if frozen_protocol:
+        best_batches = trainer.predict(model=mpnn, dataloaders=test_loader, ckpt_path=str(best_ckpt_path))
+        predictions = torch.cat(best_batches, dim=0).detach().cpu().numpy().reshape(-1)
+    else:
+        predictions = final_predictions
+    y_true = np.array([test_ds[j].y for j in range(len(test_ds))], dtype=float).reshape(-1)
+    summary_path = ckpt_path / "training_summary.json"
+    training_state = json.loads(summary_path.read_text()) if summary_path.is_file() else {
+        "epochs_actually_run": len(history.values),
+        "best_epoch": int(np.argmin(history.values)) + 1 if history.values else None,
+        "best_val_loss": best_val_loss,
+        "validation_loss_curve": history.values,
     }
-    return y_true.flatten(), y_pred.flatten(), training_summary
+    training_summary = {
+        **training_state,
+        "_final_y_pred": final_predictions if frozen_protocol else None,
+        "prediction_checkpoint": checkpoint_record(best_ckpt_path if frozen_protocol else last_ckpt_path),
+        "final_prediction_checkpoint": checkpoint_record(last_ckpt_path),
+    }
+    return y_true, predictions, training_summary
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -381,6 +412,11 @@ def main():
                        help='Weight for normalized within-group residual loss (default: 0.0)')
     parser.add_argument('--results_subdir', type=str, default=None,
                        help='Override checkpoint/predictions subdirectory name')
+    parser.add_argument('--prediction_dir', type=Path, default=PREDICTIONS_DIR)
+    parser.add_argument('--checkpoint_dir', type=Path, default=CHECKPOINT_DIR)
+    parser.add_argument('--frozen_protocol', action='store_true')
+    parser.add_argument('--epochs', type=int, default=EPOCHS)
+    parser.add_argument('--patience', type=int, default=PATIENCE)
     parser.add_argument('--seed', type=int, default=SEED,
                        help='Training seed (default: 42).')
     parser.add_argument('--split_seed', type=int, default=42,
@@ -394,9 +430,14 @@ def main():
     lambda_within = cli_args.lambda_within
     results_subdir = cli_args.results_subdir
     training_seed = cli_args.seed
+    if cli_args.frozen_protocol:
+        if lambda_within != 0.0 or results_subdir is not None or cli_args.patience != 15:
+            raise ValueError("Frozen protocol requires lambda_within=0, no results_subdir, and patience=15")
+        if cli_args.prediction_dir.resolve() == PREDICTIONS_DIR.resolve() or cli_args.checkpoint_dir.resolve() == CHECKPOINT_DIR.resolve():
+            raise ValueError("Frozen protocol requires fresh prediction and checkpoint directories")
 
-    PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
-    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    cli_args.prediction_dir.mkdir(parents=True, exist_ok=True)
+    cli_args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
     print("wDMPNN GENERALIZATION EXPERIMENTS")
@@ -491,6 +532,14 @@ def main():
                     f"n_train={len(tr)} | n_val={len(va)} | n_test={len(te)}"
                 )
 
+                pred_base = cli_args.prediction_dir
+                _subdir = pred_base / split_subdir(split_type)
+                base_name = make_prediction_filename(target, 'wdmpnn', split_type, fold_idx, seed=training_seed)
+                lw_file_tag = f"__lw{_lambda_tag(lambda_within)}" if lambda_within > 0.0 else ""
+                pred_file = _subdir / (base_name[:-4] + lw_file_tag + '.npz')
+                if pred_file.is_file():
+                    logger.info(f"    Skipping completed prediction: {pred_file}")
+                    continue
                 started_at = time.monotonic()
                 y_true, y_pred, training_summary = train_wdmpnn_fold(
                     df, smis_wdmpnn, target,
@@ -499,24 +548,27 @@ def main():
                     all_group_ids=all_group_ids,
                     results_subdir=results_subdir,
                     training_seed=training_seed,
+                    checkpoint_dir=cli_args.checkpoint_dir,
+                    frozen_protocol=cli_args.frozen_protocol,
+                    epochs=cli_args.epochs,
+                    patience=cli_args.patience,
                 )
+
+                final_y_pred = training_summary.pop("_final_y_pred", None)
+                if cli_args.frozen_protocol and (final_y_pred is None or final_y_pred.shape != y_pred.shape):
+                    raise AssertionError("Frozen protocol requires same-shape best and final predictions")
 
                 # Save predictions using canonical naming convention.
                 # Always use 'wdmpnn' as the canonical model token (avoids
                 # registering every lambda variant in naming.py).  The lambda
                 # value is encoded as a '__lw{tag}' suffix on the filename stem
                 # and stored verbatim in the npz 'lambda_within' field.
-                lw_file_tag = f"__lw{_lambda_tag(lambda_within)}" if lambda_within > 0.0 else ""
-                pred_base = (ROOT_DIR / 'predictions' / results_subdir) if results_subdir \
-                    else PREDICTIONS_DIR
-                _subdir = pred_base / split_subdir(split_type)
                 _subdir.mkdir(parents=True, exist_ok=True)
-                base_name = make_prediction_filename(target, 'wdmpnn', split_type, fold_idx, seed=training_seed)
-                pred_file = _subdir / (base_name[:-4] + lw_file_tag + '.npz')
                 np.savez_compressed(
                     pred_file,
                     y_true=y_true,
                     y_pred=y_pred,
+                    y_pred_final=(np.asarray([], dtype=np.float64) if final_y_pred is None else final_y_pred),
                     test_indices=te,
                     split_type=standard_split_name(split_type),
                     model='wdmpnn',
@@ -529,6 +581,7 @@ def main():
                     lambda_within=lambda_within,
                     prediction_scale="physical_units",
                     split_seed=cli_args.split_seed,
+                    split_indices_sha256=split_indices_sha256(tr, va, te),
                     smiles_A=df.iloc[te]['smiles_A'].values,
                     smiles_B=df.iloc[te]['smiles_B'].values,
                     fracA=df.iloc[te]['fracA'].values,
@@ -544,8 +597,8 @@ def main():
                 provenance = {
                     'cli_args': vars(cli_args),
                     'resolved_config': {
-                        'epochs': EPOCHS,
-                        'patience': PATIENCE,
+                        'epochs': cli_args.epochs,
+                        'patience': cli_args.patience,
                         'batch_size': BATCH_SIZE,
                         'split_type': split_type,
                         'target': target,
@@ -553,9 +606,12 @@ def main():
                         'seed': training_seed,
                         'split_seed': cli_args.split_seed,
                         'lambda_within': lambda_within,
+                        'frozen_protocol': cli_args.frozen_protocol,
+                        'split_indices_sha256': split_indices_sha256(tr, va, te),
                     },
                     'git_commit': git_commit,
                     'pbs_job_id': os.environ.get('PBS_JOBID'),
+                    'runtime_environment': runtime_environment(),
                     'wall_time_seconds': time.monotonic() - started_at,
                     **training_summary,
                 }
