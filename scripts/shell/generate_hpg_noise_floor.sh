@@ -41,6 +41,7 @@ set -euo pipefail
 module load $MODULE_PYTHON $MODULE_CUDA
 source $VENV_ACTIVATE
 cd $PROJECT_DIR
+test -f metadata/splits/monomer_heldout.json || { echo 'Missing frozen split metadata; sync metadata/splits/*.json before submission.' >&2; exit 1; }
 nvidia-smi
 python -c 'import torch; print("torch", torch.__version__); print("torch_cuda", torch.version.cuda); print("cuda_available", torch.cuda.is_available()); print("device", torch.cuda.get_device_name(0)); print("deterministic_algorithms", torch.are_deterministic_algorithms_enabled()); print("cudnn_deterministic", torch.backends.cudnn.deterministic); print("cudnn_benchmark", torch.backends.cudnn.benchmark)'
 python scripts/python/run_hpg_generalization.py --split_types monomer_heldout --folds $fold --targets 'EA vs SHE (eV)' --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --stage2_readout stoich_weighted --seed 42 --split_seed 42 --epochs 100 --patience 15 --batch_size 64 --repeat $repeat --prediction_dir "$PREDICTION_DIR"
