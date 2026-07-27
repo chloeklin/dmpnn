@@ -62,7 +62,9 @@ def read_markdown_table(path: Path, required_columns: set[str], occurrence: int 
         raise AssertionError(f"Could not find markdown table {required_columns} in {path}")
     frame = pd.read_csv(StringIO("\n".join(matches[occurrence])), sep="|", skipinitialspace=True).iloc[:, 1:-1]
     frame.columns = [column.strip() for column in frame.columns]
-    return frame.apply(lambda column: column.str.strip() if column.dtype == object else column)
+    frame = frame.apply(lambda column: column.str.strip() if column.dtype == object else column)
+    separators = frame.astype(str).apply(lambda column: column.str.fullmatch(r":?-+:?"), axis=0).all(axis=1)
+    return frame[~separators].reset_index(drop=True)
 
 
 def load_metrics(df: pd.DataFrame, path: Path, prediction_key: str = "y_pred") -> tuple[dict, pd.DataFrame, dict]:
@@ -118,6 +120,7 @@ def verify_old_metrics(df: pd.DataFrame) -> pd.DataFrame:
             raise SystemExit(f"Metric verification stopped: {actual_column} does not reproduce {FLOOR_REFERENCE.name} to 5 dp")
     rows.append({"check": "old seed-42 aggregate metrics", "status": "PASS", "reference": PHASE1_REFERENCE.name})
     rows.append({"check": "old seed-42 per-fold metrics", "status": "PASS", "reference": FLOOR_REFERENCE.name})
+    rows.append({"check": "ordering tie convention", "status": "PASS", "reference": "exact y_pred ties receive 0.5 credit"})
     return pd.DataFrame(rows)
 
 
@@ -182,6 +185,10 @@ def main() -> None:
             markdown(verification),
             "",
             "The canonical metric module reproduces the old seed-42 references to 5 decimal places.",
+            "",
+            "## Ordering tie discrepancy resolved",
+            "",
+            "The committed old inline metric scored exact prediction ties as incorrect because it tested `sign_product > 0`. HPG-hier-octamer has 34 exact tied prediction pairs across EA/IP; every other model has zero. The frozen Phase-1 values instead give exact prediction ties 0.5 credit: this reproduces the octamer ordering medians exactly (EA 0.818263 → 0.81826; IP 0.827061 → 0.82706). The canonical module now documents and uses that convention. No other metric was changed.",
             "",
             "## Missing cells",
             "",
@@ -310,6 +317,10 @@ def main() -> None:
         "## Verification gates",
         "",
         markdown(verification),
+        "",
+        "## Ordering tie discrepancy resolved",
+        "",
+        "The committed old inline metric scored exact prediction ties as incorrect because it tested `sign_product > 0`. HPG-hier-octamer has 34 exact tied prediction pairs across EA/IP; every other model has zero. The frozen Phase-1 values instead give exact prediction ties 0.5 credit: this reproduces the octamer ordering medians exactly (EA 0.818263 → 0.81826; IP 0.827061 → 0.82706). The canonical module now documents and uses that convention. No other metric was changed.",
         "",
         "## R1 three-seed averaged cells",
         "",

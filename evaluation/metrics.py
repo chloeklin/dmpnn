@@ -11,6 +11,10 @@ Key design choices
 * Δy_true = y_true − group_mean(y_true)  (mean from y_true only)
 * Δy_pred = y_pred − group_mean(y_pred)  (mean from y_pred only)
 * Only groups with ≥ 2 distinct architectures contribute.
+* Pairwise ordering excludes pairs tied in y_true, gives exact y_pred ties 0.5
+  credit (the expected score under random tie breaking), and gives concordant
+  and discordant pairs 1 and 0 respectively. Group scores are macro-averaged.
+  This is the convention used by the frozen Phase-1 reference.
 """
 
 from __future__ import annotations
@@ -60,7 +64,11 @@ def compute_copolymer_metrics(
         pred_values = group.y_pred.to_numpy()
         pairs = [(i, j) for i in range(len(group)) for j in range(i + 1, len(group)) if true_values[i] != true_values[j]]
         if pairs:
-            ordering_scores.append(np.mean([(true_values[i] - true_values[j]) * (pred_values[i] - pred_values[j]) > 0 for i, j in pairs]))
+            ordering_scores.append(np.mean([
+                0.5 if pred_values[i] == pred_values[j]
+                else float((true_values[i] - true_values[j]) * (pred_values[i] - pred_values[j]) > 0)
+                for i, j in pairs
+            ]))
     metrics = {
         "group_mean_r2": float(r2_score(group_means.y_true, group_means.y_pred)),
         "delta_r2": float(r2_score(delta_true, delta_pred)),
