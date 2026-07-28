@@ -15,7 +15,7 @@ VENV_ACTIVATE="/home/659/hl4138/dmpnn-venv/bin/activate"
 PROJECT_DIR="/scratch/um09/hl4138/dmpnn"
 ESTIMATED_GPU_HOURS=240
 PILOT_COUNT=4
-MAX_ARRAY_SIZE=100
+MAX_ARRAY_SIZE=50
 
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -9,7 +9,7 @@
 #PBS -l jobfs=100GB
 #PBS -N regen_r1r_2
 #PBS -r y
-#PBS -J 0-59
+#PBS -J 0-49
 
 set -euo pipefail
 module load python3/3.12.1 cuda/12.0.0
