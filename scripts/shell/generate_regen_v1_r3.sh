@@ -15,6 +15,8 @@ VENV_ACTIVATE="/home/659/hl4138/dmpnn-venv/bin/activate"
 PROJECT_DIR="/scratch/um09/hl4138/dmpnn"
 ESTIMATED_GPU_HOURS=240
 PILOT_COUNT=4
+MAX_ARRAY_SIZE=100
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_PROJECT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -22,6 +24,8 @@ LOG_DIR="$LOCAL_PROJECT/logs/regen_v1/r3"
 MANIFEST_DIR="$LOG_DIR/manifests"
 PBS_DIR="$LOG_DIR/pbs"
 mkdir -p "$MANIFEST_DIR" "$PBS_DIR" "$LOG_DIR/tasks"
+rm -f "$PBS_DIR"/*.pbs
+rm -f "$MANIFEST_DIR/r3_after_review_chunk_"[0-9][0-9]
 FULL_MANIFEST="$MANIFEST_DIR/r3_all.manifest"
 PILOT_MANIFEST="$MANIFEST_DIR/r3_pilot.manifest"
 REMAINDER_MANIFEST="$MANIFEST_DIR/r3_after_review.manifest"
@@ -119,19 +123,38 @@ EOF
     chmod +x "$pbs"
 }
 
-PILOT_PBS="$PBS_DIR/r3_pilot_4.pbs"
-REMAINDER_PBS="$PBS_DIR/r3_after_review_212.pbs"
+PILOT_PBS="$PBS_DIR/r3_pilot_${PILOT_COUNT}.pbs"
 write_pbs "$PILOT_MANIFEST" "$PILOT_COUNT" "regen_r3p" "$PILOT_PBS"
-write_pbs "$REMAINDER_MANIFEST" "$REMAINDER_COUNT" "regen_r3r" "$REMAINDER_PBS"
+
+# Split large remainder manifest into PBS-array-size chunks
+REMAINDER_BASE="$MANIFEST_DIR/r3_after_review"
+rm -f "${REMAINDER_BASE}_chunk_"[0-9][0-9]
+awk -v max="$MAX_ARRAY_SIZE" -v base="${REMAINDER_BASE}_chunk_" '
+{ i = int((NR-1)/max); out = sprintf("%s%02d", base, i); print > out }
+' "$REMAINDER_MANIFEST"
+
+REMAINDER_PBS_LIST=()
+CHUNK_INDEX=0
+for chunk_manifest in "${REMAINDER_BASE}_chunk_"[0-9][0-9]; do
+    [[ -e "$chunk_manifest" ]] || break
+    chunk_count=$(wc -l < "$chunk_manifest" | tr -d ' ')
+    chunk_name="regen_r3r_${CHUNK_INDEX}"
+    chunk_pbs="$PBS_DIR/r3_after_review_${chunk_count}_chunk${CHUNK_INDEX}.pbs"
+    write_pbs "$chunk_manifest" "$chunk_count" "$chunk_name" "$chunk_pbs"
+    REMAINDER_PBS_LIST+=("$chunk_pbs")
+    CHUNK_INDEX=$((CHUNK_INDEX + 1))
+done
 
 printf 'R3 cells: %s\n' $((4 * 2 * 9))
 printf 'R3 runs: %s\n' "$TOTAL_RUNS"
 printf 'Estimated GPU hours: ~%s\n' "$ESTIMATED_GPU_HOURS"
 printf 'Pilot jobs: %s\n' "$PILOT_COUNT"
 printf 'Post-review jobs: %s\n' "$REMAINDER_COUNT"
+printf 'Post-review chunks: %s\n' "${#REMAINDER_PBS_LIST[@]}"
 printf 'Fresh predictions: %s\n' "$PREDICTION_ROOT"
 printf 'Fresh checkpoints: %s\n' "$CHECKPOINT_ROOT"
 printf 'Pilot PBS: %s\n' "$PILOT_PBS"
-printf 'Post-review PBS: %s\n' "$REMAINDER_PBS"
+printf 'Post-review PBS files:\n'
+printf '  %s\n' "${REMAINDER_PBS_LIST[@]}"
 printf 'No jobs submitted. Submit only the pilot after review: qsub %s\n' "$PILOT_PBS"
 printf 'Do not submit the post-review array until pilot sidecars pass the training/provenance check.\n'

@@ -4,7 +4,11 @@ All figures are the mean prediction of three seeds.
 
 ## Status
 
-R1 pending: 0/270 run artifacts and sidecars are complete. Analysis is blocked until all 270 R1 runs are present.
+R1 pending: 10/270 run artifacts and sidecars are complete. Analysis is blocked until all 270 R1 runs are present.
+
+## Pre-registered run-quality rule
+
+A single run is flagged as **potentially undertrained** if `best_epoch < 10`. This threshold was chosen before bulk results landed and is applied identically across all models. When results arrive, all headline metric tables will be reported twice: once with every seed, and once with flagged runs excluded. Flag counts will be reported per model.
 
 ## Mandatory metric verification
 
@@ -20,12 +24,18 @@ The canonical metric module reproduces the old seed-42 references to 5 decimal p
 
 The committed old inline metric scored exact prediction ties as incorrect because it tested `sign_product > 0`. HPG-hier-octamer has 34 exact tied prediction pairs across EA/IP; every other model has zero. The frozen Phase-1 values instead give exact prediction ties 0.5 credit: this reproduces the octamer ordering medians exactly (EA 0.818263 → 0.81826; IP 0.827061 → 0.82706). The canonical module now documents and uses that convention. No other metric was changed.
 
+## Null-floor comparison
+
+Group-mean R² comparisons use the **fold-specific** A-blind null floor from `_dataset_design_audit.md`, not a median across folds. The median floor is 0.384 for clustered EA but fold-specific floors vary.
+
+## Artifact collection
+
+Task logs must be downloaded alongside NPZs before the final report is generated, so that the frozen-split assertion can be confirmed from logs rather than inferred from output metadata. Use `scripts/shell/download_regen_v1_artifacts.sh` after jobs complete, then grep `logs/regen_v1/r3/tasks/` for `Frozen monomer_b_heldout split assertions passed for all folds`, `B-identity leakage`, `differs from frozen metadata`, or `frozen_protocol`.
+
 ## Missing cells
 
 | model | target | fold | seed | available | sidecar |
 | --- | --- | --- | --- | --- | --- |
-| hpg_hier | EA | 0 | 42 | False | False |
-| hpg_hier | EA | 0 | 43 | False | False |
 | hpg_hier | EA | 0 | 44 | False | False |
 | hpg_hier | EA | 1 | 42 | False | False |
 | hpg_hier | EA | 1 | 43 | False | False |
@@ -78,8 +88,6 @@ The committed old inline metric scored exact prediction ties as incorrect becaus
 | hpg_hier | IP | 8 | 42 | False | False |
 | hpg_hier | IP | 8 | 43 | False | False |
 | hpg_hier | IP | 8 | 44 | False | False |
-| wdmpnn | EA | 0 | 42 | False | False |
-| wdmpnn | EA | 0 | 43 | False | False |
 | wdmpnn | EA | 0 | 44 | False | False |
 | wdmpnn | EA | 1 | 42 | False | False |
 | wdmpnn | EA | 1 | 43 | False | False |
@@ -132,8 +140,6 @@ The committed old inline metric scored exact prediction ties as incorrect becaus
 | wdmpnn | IP | 8 | 42 | False | False |
 | wdmpnn | IP | 8 | 43 | False | False |
 | wdmpnn | IP | 8 | 44 | False | False |
-| hpg_hier_octamer | EA | 0 | 42 | False | False |
-| hpg_hier_octamer | EA | 0 | 43 | False | False |
 | hpg_hier_octamer | EA | 0 | 44 | False | False |
 | hpg_hier_octamer | EA | 1 | 42 | False | False |
 | hpg_hier_octamer | EA | 1 | 43 | False | False |
@@ -186,8 +192,6 @@ The committed old inline metric scored exact prediction ties as incorrect becaus
 | hpg_hier_octamer | IP | 8 | 42 | False | False |
 | hpg_hier_octamer | IP | 8 | 43 | False | False |
 | hpg_hier_octamer | IP | 8 | 44 | False | False |
-| hpg_hier_junction | EA | 0 | 42 | False | False |
-| hpg_hier_junction | EA | 0 | 43 | False | False |
 | hpg_hier_junction | EA | 0 | 44 | False | False |
 | hpg_hier_junction | EA | 1 | 42 | False | False |
 | hpg_hier_junction | EA | 1 | 43 | False | False |
@@ -240,8 +244,6 @@ The committed old inline metric scored exact prediction ties as incorrect becaus
 | hpg_hier_junction | IP | 8 | 42 | False | False |
 | hpg_hier_junction | IP | 8 | 43 | False | False |
 | hpg_hier_junction | IP | 8 | 44 | False | False |
-| hpg_hier_junction1 | EA | 0 | 42 | False | False |
-| hpg_hier_junction1 | EA | 0 | 43 | False | False |
 | hpg_hier_junction1 | EA | 0 | 44 | False | False |
 | hpg_hier_junction1 | EA | 1 | 42 | False | False |
 | hpg_hier_junction1 | EA | 1 | 43 | False | False |

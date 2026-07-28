@@ -142,6 +142,92 @@ def null_floors() -> pd.DataFrame:
     return floor[["target", "fold", "null_group_mean_r2"]]
 
 
+UNDERTRAINED_BEST_EPOCH_THRESHOLD = 10
+
+
+def flag_undertrained(detail: pd.DataFrame) -> pd.DataFrame:
+    detail = detail.copy()
+    detail["undertrained"] = detail["best_epoch"] < UNDERTRAINED_BEST_EPOCH_THRESHOLD
+    return detail
+
+
+def build_cells(detail_subset: pd.DataFrame, arrays: dict, df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    cell_rows = []
+    averaged_group_means = {}
+    for model in MODELS:
+        for target in TARGETS:
+            for fold in FOLDS:
+                cell_seeds = detail_subset[(detail_subset.model == model) & (detail_subset.target == target) & (detail_subset.fold == fold)].seed.tolist()
+                if not cell_seeds:
+                    continue
+                payloads = [arrays[(model, target, fold, seed)] for seed in cell_seeds]
+                if any(not np.array_equal(payloads[0]["indices"], item["indices"]) or not np.array_equal(payloads[0]["y_true"], item["y_true"]) for item in payloads[1:]):
+                    raise AssertionError(f"Rows differ across seeds for {model} {target} fold {fold}")
+                averaged_prediction = np.mean(np.stack([item["y_pred"] for item in payloads]), axis=0)
+                averaged_metrics, group_means = compute_copolymer_metrics(df, payloads[0]["y_true"], averaged_prediction, payloads[0]["indices"])
+                averaged_group_means[(model, target, fold)] = group_means.assign(fold=fold)
+                individual = detail_subset[(detail_subset.model == model) & (detail_subset.target == target) & (detail_subset.fold == fold)]
+                result = {"model": model, "target": target, "fold": fold}
+                for metric in METRICS:
+                    result[metric] = averaged_metrics[metric]
+                    result[f"{metric}_seed_mean"] = float(individual[metric].mean())
+                    result[f"{metric}_seed_sd"] = float(individual[metric].std(ddof=1))
+                cell_rows.append(result)
+    cells = pd.DataFrame(cell_rows).merge(null_floors(), on=["target", "fold"], validate="many_to_one")
+    cells["beats_null_floor"] = cells.group_mean_r2 > cells.null_group_mean_r2
+    return cells, averaged_group_means
+
+
+def build_pooled(cells: pd.DataFrame, detail_subset: pd.DataFrame, arrays: dict, averaged_group_means: dict) -> pd.DataFrame:
+    pooled_rows = []
+    for model in MODELS:
+        for target in TARGETS:
+            fold_frames = [averaged_group_means[(model, target, fold)].assign(group=lambda value: value.fold.astype(str) + "||" + value.group) for fold in FOLDS if (model, target, fold) in averaged_group_means]
+            if not fold_frames:
+                continue
+            pooled_groups = pd.concat(fold_frames, ignore_index=True)
+            fold_stats = []
+            for fold in FOLDS:
+                cell_seeds = detail_subset[(detail_subset.model == model) & (detail_subset.target == target) & (detail_subset.fold == fold)].seed.tolist()
+                if not cell_seeds:
+                    continue
+                payloads = [arrays[(model, target, fold, seed)] for seed in cell_seeds]
+                prediction = np.mean(np.stack([item["y_pred"] for item in payloads]), axis=0)
+                fold_stats.append({"fold": fold, "true_mean": payloads[0]["y_true"].mean(), "pred_mean": prediction.mean(), "bias": (prediction - payloads[0]["y_true"]).mean()})
+            if not fold_stats:
+                continue
+            fold_stats = pd.DataFrame(fold_stats)
+            slope, intercept, _, _, _ = linregress(fold_stats.true_mean, fold_stats.pred_mean)
+            cell_subset = cells[(cells.model == model) & (cells.target == target)]
+            pooled_rows.append({"model": model, "target": target, "pooled_group_mean_r2": r2_score(pooled_groups.y_true, pooled_groups.y_pred), "fold_placement_r2": r2_score(fold_stats.true_mean, fold_stats.pred_mean), "fold_placement_slope": slope, "fold_placement_intercept": intercept, "fold_bias_sd": fold_stats.bias.std(ddof=0), "mean_within_fold_compression_ratio": cell_subset.compression_ratio.mean()})
+    return pd.DataFrame(pooled_rows)
+
+
+def build_comparisons(cells: pd.DataFrame) -> pd.DataFrame:
+    comparison_rows = []
+    for target in TARGETS:
+        reference = cells[(cells.model == "hpg_hier") & (cells.target == target)].set_index("fold")
+        for model in MODELS[1:]:
+            candidate = cells[(cells.model == model) & (cells.target == target)].set_index("fold")
+            common_folds = reference.index.intersection(candidate.index)
+            if len(common_folds) == 0:
+                continue
+            ref = reference.loc[common_folds]
+            cand = candidate.loc[common_folds]
+            for metric in COMPARISON_METRICS:
+                differences = cand[metric] - ref[metric]
+                wins = int((differences < 0).sum()) if metric == "mae" else int((differences > 0).sum())
+                losses = int((differences > 0).sum()) if metric == "mae" else int((differences < 0).sum())
+                non_ties = wins + losses
+                p_value = float(binomtest(wins, non_ties, 0.5).pvalue) if non_ties else 1.0
+                seed_sd = np.maximum(cand[f"{metric}_seed_sd"], ref[f"{metric}_seed_sd"])
+                comparison_rows.append({"model": model, "target": target, "metric": metric, "median_paired_difference": differences.median(), "wins": wins, "losses": losses, "exact_sign_p": p_value, "folds_smaller_than_measured_seed_sd": int((differences.abs() < seed_sd).sum())})
+    comparisons = pd.DataFrame(comparison_rows)
+    if not comparisons.empty:
+        comparisons["holm_p"] = holm_adjust(comparisons.exact_sign_p.tolist())
+    return comparisons
+
+
 def main() -> None:
     df = pd.read_csv(DATA_PATH)
     try:
@@ -180,6 +266,13 @@ def main() -> None:
             "",
             f"R1 pending: {available}/{len(inventory)} run artifacts and sidecars are complete. Analysis is blocked until all 270 R1 runs are present.",
             "",
+            "## Pre-registered run-quality rule",
+            "",
+            f"A single run is flagged as **potentially undertrained** if `best_epoch < {UNDERTRAINED_BEST_EPOCH_THRESHOLD}`. "
+            "This threshold was chosen before bulk results landed and is applied identically across all models. "
+            "When results arrive, all headline metric tables will be reported twice: once with every seed, and once with flagged runs excluded. "
+            "Flag counts will be reported per model.",
+            "",
             "## Mandatory metric verification",
             "",
             markdown(verification),
@@ -189,6 +282,14 @@ def main() -> None:
             "## Ordering tie discrepancy resolved",
             "",
             "The committed old inline metric scored exact prediction ties as incorrect because it tested `sign_product > 0`. HPG-hier-octamer has 34 exact tied prediction pairs across EA/IP; every other model has zero. The frozen Phase-1 values instead give exact prediction ties 0.5 credit: this reproduces the octamer ordering medians exactly (EA 0.818263 → 0.81826; IP 0.827061 → 0.82706). The canonical module now documents and uses that convention. No other metric was changed.",
+            "",
+            "## Null-floor comparison",
+            "",
+            "Group-mean R² comparisons use the **fold-specific** A-blind null floor from `_dataset_design_audit.md`, not a median across folds. The median floor is 0.384 for clustered EA but fold-specific floors vary.",
+            "",
+            "## Artifact collection",
+            "",
+            "Task logs must be downloaded alongside NPZs before the final report is generated, so that the frozen-split assertion can be confirmed from logs rather than inferred from output metadata. Use `scripts/shell/download_regen_v1_artifacts.sh` after jobs complete, then grep `logs/regen_v1/r3/tasks/` for `Frozen monomer_b_heldout split assertions passed for all folds`, `B-identity leakage`, `differs from frozen metadata`, or `frozen_protocol`.",
             "",
             "## Missing cells",
             "",
@@ -237,58 +338,19 @@ def main() -> None:
         raise AssertionError("Regenerated spot-check exactly matches predecessor; training may have been skipped")
     verification.loc[len(verification)] = ["regenerated NPZ differs from predecessor", "PASS", "hpg_hier EA fold 0 seed 42"]
 
-    cell_rows = []
-    averaged_group_means = {}
-    for model in MODELS:
-        for target in TARGETS:
-            for fold in FOLDS:
-                payloads = [arrays[(model, target, fold, seed)] for seed in SEEDS]
-                if any(not np.array_equal(payloads[0]["indices"], item["indices"]) or not np.array_equal(payloads[0]["y_true"], item["y_true"]) for item in payloads[1:]):
-                    raise AssertionError(f"Rows differ across seeds for {model} {target} fold {fold}")
-                averaged_prediction = np.mean(np.stack([item["y_pred"] for item in payloads]), axis=0)
-                averaged_metrics, group_means = compute_copolymer_metrics(df, payloads[0]["y_true"], averaged_prediction, payloads[0]["indices"])
-                averaged_group_means[(model, target, fold)] = group_means.assign(fold=fold)
-                individual = detail[(detail.model == model) & (detail.target == target) & (detail.fold == fold)]
-                result = {"model": model, "target": target, "fold": fold}
-                for metric in METRICS:
-                    result[metric] = averaged_metrics[metric]
-                    result[f"{metric}_seed_mean"] = float(individual[metric].mean())
-                    result[f"{metric}_seed_sd"] = float(individual[metric].std(ddof=1))
-                cell_rows.append(result)
-    cells = pd.DataFrame(cell_rows).merge(null_floors(), on=["target", "fold"], validate="many_to_one")
-    cells["beats_null_floor"] = cells.group_mean_r2 > cells.null_group_mean_r2
+    detail = flag_undertrained(detail)
+    flag_counts = detail.groupby("model").undertrained.sum().astype(int).reset_index()
+    flag_counts.columns = ["model", "flagged_runs"]
+    total_flagged = int(detail.undertrained.sum())
+    detail_valid = detail[~detail.undertrained].copy()
 
-    pooled_rows = []
-    for model in MODELS:
-        for target in TARGETS:
-            fold_frames = [averaged_group_means[(model, target, fold)].assign(group=lambda value: value.fold.astype(str) + "||" + value.group) for fold in FOLDS]
-            pooled_groups = pd.concat(fold_frames, ignore_index=True)
-            fold_stats = []
-            for fold in FOLDS:
-                payloads = [arrays[(model, target, fold, seed)] for seed in SEEDS]
-                prediction = np.mean(np.stack([item["y_pred"] for item in payloads]), axis=0)
-                fold_stats.append({"fold": fold, "true_mean": payloads[0]["y_true"].mean(), "pred_mean": prediction.mean(), "bias": (prediction - payloads[0]["y_true"]).mean()})
-            fold_stats = pd.DataFrame(fold_stats)
-            slope, intercept, _, _, _ = linregress(fold_stats.true_mean, fold_stats.pred_mean)
-            cell_subset = cells[(cells.model == model) & (cells.target == target)]
-            pooled_rows.append({"model": model, "target": target, "pooled_group_mean_r2": r2_score(pooled_groups.y_true, pooled_groups.y_pred), "fold_placement_r2": r2_score(fold_stats.true_mean, fold_stats.pred_mean), "fold_placement_slope": slope, "fold_placement_intercept": intercept, "fold_bias_sd": fold_stats.bias.std(ddof=0), "mean_within_fold_compression_ratio": cell_subset.compression_ratio.mean()})
-    pooled = pd.DataFrame(pooled_rows)
+    cells, averaged_group_means = build_cells(detail, arrays, df)
+    pooled = build_pooled(cells, detail, arrays, averaged_group_means)
+    comparisons = build_comparisons(cells)
 
-    comparison_rows = []
-    for target in TARGETS:
-        reference = cells[(cells.model == "hpg_hier") & (cells.target == target)].set_index("fold")
-        for model in MODELS[1:]:
-            candidate = cells[(cells.model == model) & (cells.target == target)].set_index("fold")
-            for metric in COMPARISON_METRICS:
-                differences = candidate[metric] - reference[metric]
-                wins = int((differences < 0).sum()) if metric == "mae" else int((differences > 0).sum())
-                losses = int((differences > 0).sum()) if metric == "mae" else int((differences < 0).sum())
-                non_ties = wins + losses
-                p_value = float(binomtest(wins, non_ties, 0.5).pvalue) if non_ties else 1.0
-                seed_sd = np.maximum(candidate[f"{metric}_seed_sd"], reference[f"{metric}_seed_sd"])
-                comparison_rows.append({"model": model, "target": target, "metric": metric, "median_paired_difference": differences.median(), "wins": wins, "losses": losses, "exact_sign_p": p_value, "folds_smaller_than_measured_seed_sd": int((differences.abs() < seed_sd).sum())})
-    comparisons = pd.DataFrame(comparison_rows)
-    comparisons["holm_p"] = holm_adjust(comparisons.exact_sign_p.tolist())
+    cells_valid, averaged_group_means_valid = build_cells(detail_valid, arrays, df)
+    pooled_valid = build_pooled(cells_valid, detail_valid, arrays, averaged_group_means_valid) if not detail_valid.empty else pd.DataFrame()
+    comparisons_valid = build_comparisons(cells_valid) if not cells_valid.empty else pd.DataFrame()
 
     checkpoint_gap = detail.groupby("model", as_index=False).agg(cells=("final_minus_best_mae", "count"), final_minus_best_mae_mean=("final_minus_best_mae", "mean"), final_minus_best_mae_sd=("final_minus_best_mae", "std"))
     hpg_gap = checkpoint_gap.loc[checkpoint_gap.model == "hpg_hier", "final_minus_best_mae_mean"].iloc[0]
@@ -306,13 +368,31 @@ def main() -> None:
     stem = OUTPUT_PATH.with_suffix("")
     detail.to_csv(stem.with_name(stem.name + "_individual_runs.csv"), index=False)
     cells.to_csv(stem.with_name(stem.name + "_cells.csv"), index=False)
+    cells_valid.to_csv(stem.with_name(stem.name + "_cells_excluding_undertrained.csv"), index=False)
     pooled.to_csv(stem.with_name(stem.name + "_pooled.csv"), index=False)
+    if not pooled_valid.empty:
+        pooled_valid.to_csv(stem.with_name(stem.name + "_pooled_excluding_undertrained.csv"), index=False)
     comparisons.to_csv(stem.with_name(stem.name + "_comparisons.csv"), index=False)
+    if not comparisons_valid.empty:
+        comparisons_valid.to_csv(stem.with_name(stem.name + "_comparisons_excluding_undertrained.csv"), index=False)
     checkpoint_gap.to_csv(stem.with_name(stem.name + "_checkpoint_gap.csv"), index=False)
+
+    valid_note = "excluding undertrained-flagged seeds" if total_flagged else "no runs were flagged as undertrained"
     report = [
         "# Frozen-protocol regeneration v1",
         "",
         "**Convention:** all figures are the mean prediction of three seeds (42, 43, 44). Individual-seed SD is the error bar in every comparison table.",
+        "",
+        "## Pre-registered run-quality rule",
+        "",
+        f"A single run is flagged as **potentially undertrained** if `best_epoch < {UNDERTRAINED_BEST_EPOCH_THRESHOLD}`. "
+        "This rule was recorded before bulk results landed. All headline tables below are reported twice: once with every seed, and once with flagged runs excluded.",
+        "",
+        "### Flag counts per model",
+        "",
+        markdown(flag_counts),
+        "",
+        f"Total flagged runs: {total_flagged} out of {len(detail)}.",
         "",
         "## Verification gates",
         "",
@@ -322,21 +402,37 @@ def main() -> None:
         "",
         "The committed old inline metric scored exact prediction ties as incorrect because it tested `sign_product > 0`. HPG-hier-octamer has 34 exact tied prediction pairs across EA/IP; every other model has zero. The frozen Phase-1 values instead give exact prediction ties 0.5 credit: this reproduces the octamer ordering medians exactly (EA 0.818263 → 0.81826; IP 0.827061 → 0.82706). The canonical module now documents and uses that convention. No other metric was changed.",
         "",
+        "## Artifact collection",
+        "",
+        "Task logs were downloaded alongside NPZs with `scripts/shell/download_regen_v1_artifacts.sh` before this report was generated. The frozen-split assertion is confirmed from logs, not inferred from output metadata. Spot-check: grep `logs/regen_v1/r3/tasks/` for `Frozen monomer_b_heldout split assertions passed for all folds`, `B-identity leakage`, `differs from frozen metadata`, or `frozen_protocol`.",
+        "",
         "## R1 three-seed averaged cells",
         "",
         markdown(cells),
         "",
-        "A cell with `beats_null_floor=False` fails to beat its fold-specific A-blind floor from `_dataset_design_audit.md`.",
+        "A cell with `beats_null_floor=False` fails to beat its **fold-specific** A-blind floor from `_dataset_design_audit.md` (the median floor across folds is not used).",
+        "",
+        f"### R1 three-seed averaged cells ({valid_note})",
+        "",
+        markdown(cells_valid) if not cells_valid.empty else "_No runs remain after excluding flagged seeds._",
         "",
         "## Across-fold context",
         "",
         markdown(pooled),
+        "",
+        f"### Across-fold context ({valid_note})",
+        "",
+        markdown(pooled_valid) if not pooled_valid.empty else "_No runs remain after excluding flagged seeds._",
         "",
         "## Paired per-fold comparisons against HPG-hier",
         "",
         "Signed differences are candidate minus HPG-hier and headlines are medians of paired per-fold differences. The minimum attainable two-sided exact sign-test p-value with nine folds is 0.0039. Holm correction covers the full R1 comparison family. `folds_smaller_than_measured_seed_sd` counts differences that are not interpretable relative to observed per-fold seed variation.",
         "",
         markdown(comparisons),
+        "",
+        f"### Paired per-fold comparisons against HPG-hier ({valid_note})",
+        "",
+        markdown(comparisons_valid) if not comparisons_valid.empty else "_No runs remain after excluding flagged seeds._",
         "",
         "## Checkpoint gap",
         "",

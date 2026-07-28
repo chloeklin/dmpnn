@@ -110,12 +110,26 @@ which the current split cannot produce (one held-out monomer per fold, so no nov
 
 | stage | description | runs | ~GPU h | status |
 |---|---|---|---|---|
-| R1 | A-heldout regeneration, 5 models × 2 targets × 9 folds × seeds 42/43/44 | 270 | ~300 | pilot submitted |
-| R2 | B-heldout, random folds | 216 | ~240 | queued behind R1 |
-| R3 | B-heldout, clustered folds | 216 | ~240 | pending |
-| R4 | ChemArch/GlobalArch/frac regeneration | 162 | ~180 | only if we keep that comparison |
+| R1 | A-heldout regeneration, 5 models × 2 targets × 9 folds × seeds 42/43/44 | 270 | ~420 | **pilot verified**, remainder submitted |
+| R3 | B-heldout, clustered folds | 216 | ~340 | **pilot verified**, remainder submitted |
+| R2 | B-heldout, random folds | 216 | ~340 | deferred — clustered is the difficulty-matched split |
+| R4 | ChemArch/GlobalArch/frac regeneration | 162 | ~250 | only if we keep that comparison |
 
-R1 restores everything the 22 July figures were based on, with error bars. R2 is new science.
+R1 restores everything the 22 July figures were based on, with error bars. R3 is new science.
+
+**Pilot verification (14 jobs) passed on both.** Regenerated predictions differ from their predecessors
+by 0.18–0.58 eV, confirming the old code path is not being reused; split hashes are identical across
+seeds; held-out B monomer sets are properly disjoint. Observed wall time is 1.56 h/job, so the
+programme is larger than first estimated — R2 has been deferred on that basis.
+
+One encouraging early signal, on four pilot runs only and not to be read as a result: on the clustered
+B split, EA group-mean R² came in at 0.93–0.98 against a B-blind null floor near 0.38. The equivalent
+on the A split is 0.925 against a floor of 0.676. If it holds, the B split gives EA chemistry a metric
+with real headroom, which is what §3.2 predicted.
+
+A run-quality rule (flag any run whose best epoch is below 10 as potentially undertrained; report
+results with and without) was **pre-registered and committed before the bulk results landed**, so the
+exclusion cannot be post-hoc.
 
 ## 5. What I would like to discuss
 

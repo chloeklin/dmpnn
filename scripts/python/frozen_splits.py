@@ -71,4 +71,5 @@ def load_frozen_b_heldout_splits(
         tests.append(test)
     if set().union(*(set(indices) for indices in tests)) != set(range(len(df))):
         raise AssertionError("monomer_b_heldout test folds do not cover the dataset")
+    print("Frozen monomer_b_heldout split assertions passed for all folds")
     return trains, vals, tests
