@@ -1,0 +1,39 @@
+#!/bin/bash
+#PBS -q gpuvolta
+#PBS -P um09
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=06:00:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N regen_r1r_119
+#PBS -r y
+
+set -euo pipefail
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+TASK_LOG_DIR="/scratch/um09/hl4138/dmpnn/logs/regen_v1/r1/tasks"
+mkdir -p "$TASK_LOG_DIR"
+exec > >(tee -a "$TASK_LOG_DIR/regen_r1r_119_${PBS_JOBID}.log") 2>&1
+MANIFEST="/scratch/um09/hl4138/dmpnn/logs/regen_v1/r1/manifests/r1_after_review.manifest"
+LINE="$(sed -n "120p" "$MANIFEST")"
+IFS=$'\t' read -r RUNNER MODEL TARGET FOLD SEED PAYLOAD <<< "$LINE"
+OUTPUT="${PAYLOAD%%|*}"
+ARGS="${PAYLOAD#*|}"
+[[ -n "$RUNNER" && -n "$OUTPUT" && "$ARGS" != "$PAYLOAD" ]] || { printf 'Malformed manifest row: %s\n' "$LINE" >&2; exit 2; }
+if [[ -f "$OUTPUT" && -f "${OUTPUT%.npz}.config.json" ]]; then
+    printf 'Skipping completed cell: %s\n' "$OUTPUT"
+    exit 0
+fi
+if [[ -e "$OUTPUT" || -e "${OUTPUT%.npz}.config.json" ]]; then
+    printf 'Partial output exists; refusing ambiguous resume: %s\n' "$OUTPUT" >&2
+    exit 1
+fi
+nvidia-smi
+eval "set -- $ARGS"
+printf 'runner=%s model=%s target=%s fold=%s seed=%s\n' "$RUNNER" "$MODEL" "$TARGET" "$FOLD" "$SEED"
+python "$RUNNER" "$@"
+test -f "$OUTPUT" || { printf 'Runner did not create expected NPZ: %s\n' "$OUTPUT" >&2; exit 1; }
+test -f "${OUTPUT%.npz}.config.json" || { printf 'Runner did not create provenance sidecar: %s\n' "${OUTPUT%.npz}.config.json" >&2; exit 1; }

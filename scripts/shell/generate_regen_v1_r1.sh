@@ -15,7 +15,6 @@ VENV_ACTIVATE="/home/659/hl4138/dmpnn-venv/bin/activate"
 PROJECT_DIR="/scratch/um09/hl4138/dmpnn"
 ESTIMATED_GPU_HOURS=300
 PILOT_COUNT=10
-MAX_ARRAY_SIZE=50
 
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,6 +24,7 @@ MANIFEST_DIR="$LOG_DIR/manifests"
 PBS_DIR="$LOG_DIR/pbs"
 mkdir -p "$MANIFEST_DIR" "$PBS_DIR" "$LOG_DIR/tasks"
 rm -f "$PBS_DIR"/*.pbs
+rm -f "$MANIFEST_DIR/r1_after_review_chunk_"*
 FULL_MANIFEST="$MANIFEST_DIR/r1_all.manifest"
 PILOT_MANIFEST="$MANIFEST_DIR/r1_pilot.manifest"
 REMAINDER_MANIFEST="$MANIFEST_DIR/r1_after_review.manifest"
@@ -64,11 +64,12 @@ head -n "$PILOT_COUNT" "$FULL_MANIFEST" > "$PILOT_MANIFEST"
 tail -n "+$((PILOT_COUNT + 1))" "$FULL_MANIFEST" > "$REMAINDER_MANIFEST"
 REMAINDER_COUNT=$((TOTAL_RUNS - PILOT_COUNT))
 
-write_pbs() {
+write_per_task_pbs() {
     local manifest="$1"
-    local task_count="$2"
+    local task_index="$2"
     local name="$3"
     local pbs="$4"
+    local line_num=$((task_index + 1))
     cat > "$pbs" <<EOF
 #!/bin/bash
 #PBS -q $QUEUE
@@ -81,7 +82,6 @@ write_pbs() {
 #PBS -l jobfs=$JOBFS
 #PBS -N $name
 #PBS -r y
-#PBS -J 0-$((task_count - 1))
 
 set -euo pipefail
 module load $MODULE_PYTHON $MODULE_CUDA
@@ -89,9 +89,9 @@ source $VENV_ACTIVATE
 cd $PROJECT_DIR
 TASK_LOG_DIR="$PROJECT_DIR/logs/regen_v1/r1/tasks"
 mkdir -p "\$TASK_LOG_DIR"
-exec > >(tee -a "\$TASK_LOG_DIR/${name}_\${PBS_ARRAY_INDEX}_\${PBS_JOBID}.log") 2>&1
+exec > >(tee -a "\$TASK_LOG_DIR/${name}_\${PBS_JOBID}.log") 2>&1
 MANIFEST="$PROJECT_DIR/logs/regen_v1/r1/manifests/$(basename "$manifest")"
-LINE="\$(sed -n "\$((PBS_ARRAY_INDEX + 1))p" "\$MANIFEST")"
+LINE="\$(sed -n "${line_num}p" "\$MANIFEST")"
 IFS=\$'\t' read -r RUNNER MODEL TARGET FOLD SEED PAYLOAD <<< "\$LINE"
 OUTPUT="\${PAYLOAD%%|*}"
 ARGS="\${PAYLOAD#*|}"
@@ -114,38 +114,38 @@ EOF
     chmod +x "$pbs"
 }
 
-PILOT_PBS="$PBS_DIR/r1_pilot_${PILOT_COUNT}.pbs"
-write_pbs "$PILOT_MANIFEST" "$PILOT_COUNT" "regen_r1p" "$PILOT_PBS"
+# Generate per-task PBS files for the pilot
+PILOT_PBS_LIST=()
+TASK_INDEX=0
+while IFS= read -r _line; do
+    task_pbs="$PBS_DIR/r1_pilot_${TASK_INDEX}.pbs"
+    write_per_task_pbs "$PILOT_MANIFEST" "$TASK_INDEX" "regen_r1p_${TASK_INDEX}" "$task_pbs"
+    PILOT_PBS_LIST+=("$task_pbs")
+    TASK_INDEX=$((TASK_INDEX + 1))
+done < "$PILOT_MANIFEST"
 
-# Split large remainder manifest into PBS-array-size chunks
-REMAINDER_BASE="$MANIFEST_DIR/r1_after_review"
-rm -f "${REMAINDER_BASE}_chunk_"[0-9][0-9]
-awk -v max="$MAX_ARRAY_SIZE" -v base="${REMAINDER_BASE}_chunk_" '
-{ i = int((NR-1)/max); out = sprintf("%s%02d", base, i); print > out }
-' "$REMAINDER_MANIFEST"
-
+# Generate per-task PBS files for the remainder
 REMAINDER_PBS_LIST=()
-CHUNK_INDEX=0
-for chunk_manifest in "${REMAINDER_BASE}_chunk_"[0-9][0-9]; do
-    [[ -e "$chunk_manifest" ]] || break
-    chunk_count=$(wc -l < "$chunk_manifest" | tr -d ' ')
-    chunk_name="regen_r1r_${CHUNK_INDEX}"
-    chunk_pbs="$PBS_DIR/r1_after_review_${chunk_count}_chunk${CHUNK_INDEX}.pbs"
-    write_pbs "$chunk_manifest" "$chunk_count" "$chunk_name" "$chunk_pbs"
-    REMAINDER_PBS_LIST+=("$chunk_pbs")
-    CHUNK_INDEX=$((CHUNK_INDEX + 1))
-done
+TASK_INDEX=0
+while IFS= read -r _line; do
+    task_pbs="$PBS_DIR/r1_after_review_${TASK_INDEX}.pbs"
+    write_per_task_pbs "$REMAINDER_MANIFEST" "$TASK_INDEX" "regen_r1r_${TASK_INDEX}" "$task_pbs"
+    REMAINDER_PBS_LIST+=("$task_pbs")
+    TASK_INDEX=$((TASK_INDEX + 1))
+done < "$REMAINDER_MANIFEST"
 
 printf 'R1 cells: %s\n' $((5 * 2 * 9))
 printf 'R1 runs: %s\n' "$TOTAL_RUNS"
 printf 'Estimated GPU hours: ~%s\n' "$ESTIMATED_GPU_HOURS"
 printf 'Pilot jobs: %s\n' "$PILOT_COUNT"
 printf 'Post-review jobs: %s\n' "$REMAINDER_COUNT"
-printf 'Post-review chunks: %s\n' "${#REMAINDER_PBS_LIST[@]}"
+printf 'Pilot per-task PBS files: %s\n' "${#PILOT_PBS_LIST[@]}"
+printf 'Post-review per-task PBS files: %s\n' "${#REMAINDER_PBS_LIST[@]}"
 printf 'Fresh predictions: %s\n' "$PREDICTION_ROOT"
 printf 'Fresh checkpoints: %s\n' "$CHECKPOINT_ROOT"
-printf 'Pilot PBS: %s\n' "$PILOT_PBS"
-printf 'Post-review PBS files:\n'
-printf '  %s\n' "${REMAINDER_PBS_LIST[@]}"
-printf 'No jobs submitted. Submit only the pilot after review: qsub %s\n' "$PILOT_PBS"
-printf 'Do not submit the post-review array until pilot sidecars pass the training/provenance check.\n'
+printf 'Sample pilot PBS: %s\n' "${PILOT_PBS_LIST[0]}"
+printf 'Sample post-review PBS: %s\n' "${REMAINDER_PBS_LIST[0]}"
+printf 'No jobs submitted. Submit one pilot job to test: qsub %s\n' "${PILOT_PBS_LIST[0]}"
+printf 'Submit all pilots: for f in %s/r1_pilot_*.pbs; do qsub "$f"; done\n' "$PBS_DIR"
+printf 'Submit all post-review: for f in %s/r1_after_review_*.pbs; do qsub "$f"; done\n' "$PBS_DIR"
+printf 'Do not submit the post-review jobs until pilot sidecars pass the training/provenance check.\n'
