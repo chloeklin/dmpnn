@@ -24,7 +24,15 @@ class BatchPolymerMolGraph:
     edge_index: Tensor = field(init=False)
     rev_edge_index: Tensor = field(init=False)
     batch: Tensor = field(init=False)
-    degree_of_polym: Tensor = field(init=False)  
+    degree_of_polym: Tensor = field(init=False)
+
+    # Cache for the vectorised atom -> incoming-bond mapping used by wDMPNN.
+    # These are populated lazily by _WeightedBondMessagePassingMixin and depend
+    # only on graph structure, so they can be reused across depth-1 calls within
+    # a single forward pass.  They are invalidated naturally because each batch
+    # is a fresh BatchPolymerMolGraph object.
+    _a2b_padded: Tensor | None = field(init=False, default=None)
+    _a2b_mask: Tensor | None = field(init=False, default=None)
 
     __size: int = field(init=False)
 

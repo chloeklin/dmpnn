@@ -17,10 +17,74 @@ class _WeightedBondMessagePassingMixin:
         bond_input = torch.cat([x_v, bmg.E], dim=1)  # concat [atom || bond]
         return self.W_i(bond_input)  # pre-activation; shape: [num_bonds, hidden_dim]
 
-    def message(self, H: Tensor, bmg: BatchPolymerMolGraph) -> Tensor:
+    def _build_a2b_padded(
+        self, edge_index: Tensor, num_atoms: int, device: torch.device
+    ) -> Tensor:
+        """Vectorised construction of the atom -> incoming-bond index map.
+
+        Returns a ``[num_atoms, max_nb]`` LongTensor padded with ``-1`` where
+        ``padded[a, k]`` is the index of the k-th incoming bond to atom ``a``.
+        """
+        target_atoms = edge_index[1]
+        num_bonds = target_atoms.numel()
+
+        counts = torch.bincount(target_atoms, minlength=num_atoms)
+        max_nb = int(counts.max()) if counts.numel() > 0 else 0
+        max_nb = max(max_nb, 1)
+
+        padded = torch.full((num_atoms, max_nb), -1, dtype=torch.long, device=device)
+
+        if num_bonds == 0:
+            return padded
+
+        # Stable sort by target atom so the within-atom order matches the
+        # original edge_index[1] enumeration (required for bit-wise identical
+        # summation order and hence numerical equivalence).
+        sort_idx = torch.argsort(target_atoms, stable=True)
+        sorted_targets = target_atoms[sort_idx]
+        sorted_bonds = sort_idx
+
+        # rank of each bond within its target-atom group
+        group_starts = counts.cumsum(0) - counts
+        ranks = torch.arange(num_bonds, device=device, dtype=torch.long)
+        ranks = ranks - group_starts[sorted_targets]
+
+        padded[sorted_targets, ranks] = sorted_bonds
+        return padded
+
+    def _get_a2b_padded_and_mask(
+        self, bmg: BatchPolymerMolGraph, device: torch.device
+    ) -> tuple[Tensor, Tensor]:
+        """Return cached (padded, mask) for the graph structure of ``bmg``.
+
+        The mapping depends only on graph structure, so it is stored on the
+        ``bmg`` object and reused across the ``depth - 1`` message calls within
+        a single forward pass.  A different batch is a fresh
+        ``BatchPolymerMolGraph`` object, so stale mappings cannot be reused.
+        """
+        padded = bmg._a2b_padded
+        mask = bmg._a2b_mask
+
+        if padded is not None and mask is not None and padded.device == device:
+            return padded, mask
+
+        # Ensure all graph-structure ops run on the same device as the hidden
+        # state so indexing and arithmetic are consistent.
+        edge_index = bmg.edge_index.to(device)
+        padded = self._build_a2b_padded(edge_index, bmg.V.shape[0], device)
+        mask = padded >= 0
+        bmg._a2b_padded = padded
+        bmg._a2b_mask = mask
+        return padded, mask
+
+    def _message_reference(self, H: Tensor, bmg: BatchPolymerMolGraph) -> Tensor:
+        """Original loop-based message implementation kept for regression testing."""
         edge_index = bmg.edge_index
-        b2revb     = bmg.rev_edge_index
-        w_bonds    = bmg.edge_weights
+        b2revb = bmg.rev_edge_index
+        w_bonds = bmg.edge_weights
+
+        if H.shape[0] == 0:
+            return H.new_empty(0, H.shape[1])
 
         b2a = edge_index[0]
         a2b_dict = [[] for _ in range(len(bmg.V))]
@@ -31,16 +95,40 @@ class _WeightedBondMessagePassingMixin:
         padded = torch.full((len(bmg.V), max_nb), -1, dtype=torch.long, device=H.device)
         for a_idx, bond_ids in enumerate(a2b_dict):
             if bond_ids:
-                padded[a_idx, :len(bond_ids)] = torch.tensor(bond_ids, dtype=torch.long, device=H.device)
+                padded[a_idx, :len(bond_ids)] = torch.tensor(
+                    bond_ids, dtype=torch.long, device=H.device
+                )
 
-        mask   = padded >= 0
-        nei_h  = H[padded.clamp_min(0)]                             # [num_atoms, max_nb, hidden]
-        nei_w  = w_bonds[padded.clamp_min(0)]                       # [num_atoms, max_nb]
-        nei_h  = nei_h * nei_w.unsqueeze(-1) * mask.unsqueeze(-1)   # weight + mask
-        a_msg  = nei_h.sum(dim=1)                                   # [num_atoms, hidden]
+        mask = padded >= 0
+        nei_h = H[padded.clamp_min(0)]  # [num_atoms, max_nb, hidden]
+        nei_w = w_bonds[padded.clamp_min(0)]  # [num_atoms, max_nb]
+        nei_h = nei_h * nei_w.unsqueeze(-1) * mask.unsqueeze(-1)  # weight + mask
+        a_msg = nei_h.sum(dim=1)  # [num_atoms, hidden]
 
-        rev_msg = H[b2revb]                                          # [num_bonds, hidden] — unweighted reverse (matches official polymer-chemprop)
-        msg     = a_msg[b2a] - rev_msg                               # [num_bonds, hidden]
+        # [num_bonds, hidden] — unweighted reverse (matches official polymer-chemprop)
+        rev_msg = H[b2revb]
+        msg = a_msg[b2a] - rev_msg  # [num_bonds, hidden]
+        return msg
+
+    def message(self, H: Tensor, bmg: BatchPolymerMolGraph) -> Tensor:
+        edge_index = bmg.edge_index
+        b2revb = bmg.rev_edge_index
+        w_bonds = bmg.edge_weights
+
+        if H.shape[0] == 0:
+            return H.new_empty(0, H.shape[1])
+
+        b2a = edge_index[0]
+        padded, mask = self._get_a2b_padded_and_mask(bmg, H.device)
+
+        nei_h = H[padded.clamp_min(0)]  # [num_atoms, max_nb, hidden]
+        nei_w = w_bonds[padded.clamp_min(0)]  # [num_atoms, max_nb]
+        nei_h = nei_h * nei_w.unsqueeze(-1) * mask.unsqueeze(-1)  # weight + mask
+        a_msg = nei_h.sum(dim=1)  # [num_atoms, hidden]
+
+        # [num_bonds, hidden] — unweighted reverse (matches official polymer-chemprop)
+        rev_msg = H[b2revb]
+        msg = a_msg[b2a] - rev_msg  # [num_bonds, hidden]
 
         # Return the raw aggregated message. W_h is applied once in
         # _MessagePassingBase.update() -> h = tau(h0 + W_h * m), matching

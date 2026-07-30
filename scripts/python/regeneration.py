@@ -52,6 +52,9 @@ def runtime_environment() -> dict:
         "torch_version": torch.__version__,
         "torch_cuda_version": torch.version.cuda,
         "cudnn_version": torch.backends.cudnn.version(),
+        # No runner calls torch.use_deterministic_algorithms, so full determinism is not
+        # in force and fixed-seed runs are not bit-reproducible.
+        "deterministic_algorithms_requested": False,
         "deterministic_algorithms_enabled": torch.are_deterministic_algorithms_enabled(),
         "cudnn_deterministic": torch.backends.cudnn.deterministic,
         "cudnn_benchmark": torch.backends.cudnn.benchmark,

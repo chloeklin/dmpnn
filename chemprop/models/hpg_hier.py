@@ -182,6 +182,13 @@ class HPGHierMPNN(pl.LightningModule):
             stage2_readout = "attention" if stage2_mode == "octamer_sequence" else "stoich_weighted"
         if stage2_readout not in {"stoich_weighted", "attention"}:
             raise ValueError(f"Unknown stage2_readout={stage2_readout!r}")
+        if stage2_mode == "octamer_sequence" and stage2_readout != "attention":
+            raise ValueError(
+                f"octamer_sequence with readout '{stage2_readout}' is not implemented — "
+                "OctamerEncoder is only constructed for the attention readout (hpg_hier.py:201-203). "
+                "This configuration would silently train the 2-node baseline. "
+                "See HANDOFF §7 (arm D)."
+            )
         self.save_hyperparameters()
         self.stage1_pool = stage1_pool
         self.stage2_edge_weight = stage2_edge_weight

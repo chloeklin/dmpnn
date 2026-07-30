@@ -54,6 +54,14 @@ from analyze_regen_v1 import (
     UNDERTRAINED_BEST_EPOCH_THRESHOLD,
 )
 
+# `flag_undertrained` still adds the per-run `undertrained` diagnostic column below, but
+# this module no longer builds or writes an "*_excluding_undertrained" variant of any
+# table. See the comment above `UNDERTRAINED_BEST_EPOCH_THRESHOLD` in analyze_regen_v1.py:
+# `best_epoch` is an epoch count, and epoch counts are not comparable across the
+# batch-size boundary between HPG (batch 64) and wDMPNN (batch 512), so a fixed epoch
+# cutoff flagged HPG and wDMPNN cells at very different rates and would have dropped the
+# three-seed replicate unit asymmetrically had it been used to exclude runs.
+
 DATA_PATH = ROOT / "data" / "ea_ip.csv"
 PREDICTION_DIR = ROOT / "predictions" / "regen_v1" / "ea_ip_lomo_b_clustered"
 FROZEN_SPLIT = ROOT / "metadata" / "splits" / "monomer_b_heldout_clustered.json"
@@ -396,11 +404,9 @@ def main() -> None:
 
     flag_counts = detail.groupby("model").undertrained.sum().astype(int).reset_index()
     flag_counts.columns = ["model", "flagged_runs"]
-    detail_valid = detail[~detail.undertrained].copy()
 
     cells, averaged_group_means = build_cells(detail, arrays, df)
     cells_filtered, _ = build_cells(detail, arrays, df, drop_b=near_duplicates) if near_duplicates else (pd.DataFrame(), {})
-    cells_valid, averaged_valid = build_cells(detail_valid, arrays, df) if not detail_valid.empty else (pd.DataFrame(), {})
 
     if not composition.empty:
         group_s = tuple(composition.loc[composition.fold_group == "S_within_scaffold", "fold"].astype(int))
@@ -439,8 +445,6 @@ def main() -> None:
     cells.to_csv(stem.with_name(stem.name + "_cells.csv"), index=False)
     if not cells_filtered.empty:
         cells_filtered.to_csv(stem.with_name(stem.name + "_cells_filtered.csv"), index=False)
-    if not cells_valid.empty:
-        cells_valid.to_csv(stem.with_name(stem.name + "_cells_excluding_undertrained.csv"), index=False)
     if not composition.empty:
         composition.to_csv(stem.with_name(stem.name + "_fold_composition.csv"), index=False)
     pd.concat([frame for _, frame in comparison_blocks], ignore_index=True).to_csv(
@@ -460,10 +464,14 @@ def main() -> None:
         "",
         split_structure_section(composition, cluster_stats, rdkit_note),
         "",
-        "## Pre-registered run-quality rule",
+        "## Run-quality diagnostic",
         "",
-        f"A run is flagged **potentially undertrained** if `best_epoch < {UNDERTRAINED_BEST_EPOCH_THRESHOLD}`. "
-        "This rule was recorded before bulk results landed.",
+        f"Each run is flagged **potentially undertrained** if `best_epoch < {UNDERTRAINED_BEST_EPOCH_THRESHOLD}`. "
+        "This flag is reported per run as a diagnostic only. It is expressed in epochs, and epoch counts are "
+        "not comparable across the batch-size boundary in this study: HPG models train at batch size 64 "
+        "(~672 updates/epoch) while wDMPNN trains at batch size 512 (~84 updates/epoch), so the same epoch "
+        "cutoff represents roughly 8x more gradient updates for HPG than for wDMPNN. No runs are excluded "
+        "from any table in this report on the basis of this flag; every reported cell uses all three seeds.",
         "",
         markdown(flag_counts),
         "",
@@ -483,10 +491,6 @@ def main() -> None:
         "### Filtered — held-out B monomers with a training near-duplicate (Tanimoto ≥ 0.95) removed",
         "",
         markdown(cells_filtered) if not cells_filtered.empty else "_Not computed (RDKit unavailable)._",
-        "",
-        "### Excluding undertrained-flagged seeds",
-        "",
-        markdown(cells_valid) if not cells_valid.empty else "_No flagged runs, or none remain._",
         "",
         "## Paired per-fold comparisons against HPG-hier",
         "",

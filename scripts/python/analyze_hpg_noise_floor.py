@@ -64,17 +64,17 @@ def main() -> None:
                 "driver": environment["driver_version"],
                 "torch": environment["torch_version"],
                 "torch_cuda": environment["torch_cuda_version"],
-                "deterministic_requested": environment["deterministic_kernels_requested"],
+                "deterministic_requested": environment.get("deterministic_algorithms_requested", False),
                 "deterministic_enabled": environment["deterministic_algorithms_enabled"],
             })
     detail = pd.DataFrame(rows)
     environment_keys = [
         "accelerator", "device_name", "driver_version", "torch_version", "torch_cuda_version",
-        "cudnn_version", "deterministic_kernels_requested", "deterministic_algorithms_enabled",
+        "cudnn_version", "deterministic_algorithms_requested", "deterministic_algorithms_enabled",
         "cudnn_deterministic", "cudnn_benchmark",
     ]
     unique_environments = {
-        tuple((key, json.dumps(environment.get(key), sort_keys=True)) for key in environment_keys)
+        tuple((key, json.dumps(environment.get(key, False if key == "deterministic_algorithms_requested" else None), sort_keys=True)) for key in environment_keys)
         for environment in environments
     }
     if len(unique_environments) != 1:
@@ -143,7 +143,7 @@ def main() -> None:
         "",
         "## Runtime environment",
         "",
-        f"All six runs used accelerator `{environment['accelerator']}`, device `{environment['device_name']}`, driver `{environment['driver_version']}`, torch `{environment['torch_version']}`, torch CUDA `{environment['torch_cuda_version']}`, cuDNN `{environment['cudnn_version']}`, deterministic kernels requested `{environment['deterministic_kernels_requested']}`, deterministic algorithms enabled `{environment['deterministic_algorithms_enabled']}`, cuDNN deterministic `{environment['cudnn_deterministic']}`, and cuDNN benchmark `{environment['cudnn_benchmark']}`.",
+        f"All six runs used accelerator `{environment['accelerator']}`, device `{environment['device_name']}`, driver `{environment['driver_version']}`, torch `{environment['torch_version']}`, torch CUDA `{environment['torch_cuda_version']}`, cuDNN `{environment['cudnn_version']}`, deterministic algorithms requested `{environment.get('deterministic_algorithms_requested', False)}`, deterministic algorithms enabled `{environment['deterministic_algorithms_enabled']}`, cuDNN deterministic `{environment['cudnn_deterministic']}`, and cuDNN benchmark `{environment['cudnn_benchmark']}`.",
         "",
         "Every run used current code, A-heldout EA, seed 42, and changed only the independent process/repeat label. SD is the sample SD across three repeats.",
         "",

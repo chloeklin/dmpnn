@@ -188,6 +188,23 @@ class _GroupBatchSampler(torch.utils.data.Sampler):
         ) // self._impl.batch_size
 
 
+def _resolve_lr_config(model) -> dict:
+    """Read the optimizer/LR-schedule configuration actually used by ``model``.
+
+    wDMPNN (chemprop.models.MPNN) trains with Adam + a Noam-like
+    warmup/decay schedule; values are read from the constructed model,
+    never hard-coded.
+    """
+    return {
+        "optimizer": "Adam",
+        "lr_schedule": "NoamLR",
+        "init_lr": float(model.init_lr),
+        "max_lr": float(model.max_lr),
+        "final_lr": float(model.final_lr),
+        "warmup_epochs": int(model.warmup_epochs),
+    }
+
+
 def build_wdmpnn_model(n_targets=1):
     """Build a wDMPNN model with standard configuration."""
     mp = nn.WeightedBondMessagePassing()
@@ -201,7 +218,8 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
                       fold_idx, split_type, lambda_within=0.0,
                       all_group_ids=None, results_subdir=None,
                       training_seed=42, checkpoint_dir=None,
-                      frozen_protocol=False, epochs=EPOCHS, patience=PATIENCE):
+                      frozen_protocol=False, epochs=EPOCHS, patience=PATIENCE,
+                      batch_size=BATCH_SIZE):
     """Train wDMPNN for a single fold and return predictions + metadata.
 
     Parameters
@@ -299,17 +317,17 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     # Dataloaders
     if lambda_within > 0.0 and train_group_ids is not None:
         from torch.utils.data import DataLoader as TorchDataLoader
-        drop_last = (len(train_ds) % BATCH_SIZE == 1)
-        batch_sampler = _GroupBatchSampler(train_group_ids, batch_size=BATCH_SIZE,
+        drop_last = (len(train_ds) % batch_size == 1)
+        batch_sampler = _GroupBatchSampler(train_group_ids, batch_size=batch_size,
                                            seed=SEED, drop_last=drop_last)
         train_loader = TorchDataLoader(
             train_ds, batch_sampler=batch_sampler,
             num_workers=4, pin_memory=True, collate_fn=collate_polymer_batch,
         )
     else:
-        train_loader = build_dataloader(train_ds, batch_size=BATCH_SIZE, num_workers=4, pin_memory=True)
-    val_loader = build_dataloader(val_ds, batch_size=BATCH_SIZE, num_workers=4, shuffle=False, pin_memory=True)
-    test_loader = build_dataloader(test_ds, batch_size=BATCH_SIZE, num_workers=4, shuffle=False, pin_memory=True)
+        train_loader = build_dataloader(train_ds, batch_size=batch_size, num_workers=4, pin_memory=True)
+    val_loader = build_dataloader(val_ds, batch_size=batch_size, num_workers=4, shuffle=False, pin_memory=True)
+    test_loader = build_dataloader(test_ds, batch_size=batch_size, num_workers=4, shuffle=False, pin_memory=True)
 
     # Check for existing training
     done_flag = ckpt_path / "TRAINING_COMPLETE"
@@ -371,6 +389,7 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     training_summary = {
         **training_state,
         "_final_y_pred": final_predictions if frozen_protocol else None,
+        "_optimizer_lr_config": _resolve_lr_config(mpnn),
         "prediction_checkpoint": checkpoint_record(best_ckpt_path if frozen_protocol else last_ckpt_path),
         "final_prediction_checkpoint": checkpoint_record(last_ckpt_path),
     }
@@ -415,14 +434,37 @@ def main():
     parser.add_argument('--prediction_dir', type=Path, default=PREDICTIONS_DIR)
     parser.add_argument('--checkpoint_dir', type=Path, default=CHECKPOINT_DIR)
     parser.add_argument('--frozen_protocol', action='store_true')
-    parser.add_argument('--epochs', type=int, default=EPOCHS)
-    parser.add_argument('--patience', type=int, default=PATIENCE)
+    # original_paper reproduces polymer-chemprop 1.4.0's protocol: that codebase has no
+    # early-stopping mechanism at all (no `patience` in chemprop/args.py or chemprop/train/),
+    # so it always trains the full epoch budget and keeps the best-validation checkpoint.
+    # Passing --patience >= --epochs (e.g. patience=30, epochs=30 per
+    # polymer-chemprop/chemprop/args.py:93 batch_size=50 and :382 epochs=30) makes our
+    # EarlyStopping callback unable to fire, reproducing that behaviour. The SI states no
+    # hyperparameter optimisation was performed, so these values are taken verbatim.
+    parser.add_argument('--protocol_variant', type=str, choices=('regen_v1', 'original_paper'), default='regen_v1',
+                       help='Protocol family (default: regen_v1)')
+    parser.add_argument('--batch_size', type=int, default=None,
+                       help='Batch size (default: 512)')
+    parser.add_argument('--epochs', type=int, default=None,
+                       help='Epoch cap (default: 300)')
+    parser.add_argument('--patience', type=int, default=None,
+                       help='Early-stopping patience (default: 30)')
     parser.add_argument('--seed', type=int, default=SEED,
                        help='Training seed (default: 42).')
     parser.add_argument('--split_seed', type=int, default=42,
                        help='Fixed monomer-heldout split seed; must remain 42.')
     parser.add_argument('--b_split_metadata', type=Path, default=None)
     cli_args = parser.parse_args()
+
+    batch_size_explicit = cli_args.batch_size is not None
+    epochs_explicit = cli_args.epochs is not None
+    patience_explicit = cli_args.patience is not None
+    if cli_args.batch_size is None:
+        cli_args.batch_size = BATCH_SIZE
+    if cli_args.epochs is None:
+        cli_args.epochs = EPOCHS
+    if cli_args.patience is None:
+        cli_args.patience = PATIENCE
 
     folds_to_run = [int(x) for x in cli_args.folds.split(',')]
     split_types = [x.strip() for x in cli_args.split_types.split(',')]
@@ -431,10 +473,20 @@ def main():
     results_subdir = cli_args.results_subdir
     training_seed = cli_args.seed
     if cli_args.frozen_protocol:
-        if lambda_within != 0.0 or results_subdir is not None or cli_args.patience != 15:
-            raise ValueError("Frozen protocol requires lambda_within=0, no results_subdir, and patience=15")
+        if lambda_within != 0.0 or results_subdir is not None:
+            raise ValueError("Frozen protocol requires lambda_within=0 and no results_subdir")
+        if cli_args.protocol_variant == 'regen_v1' and cli_args.patience != 15:
+            raise ValueError("regen_v1 with --frozen_protocol requires patience=15")
         if cli_args.prediction_dir.resolve() == PREDICTIONS_DIR.resolve() or cli_args.checkpoint_dir.resolve() == CHECKPOINT_DIR.resolve():
             raise ValueError("Frozen protocol requires fresh prediction and checkpoint directories")
+    if cli_args.protocol_variant == 'original_paper' and not (batch_size_explicit and epochs_explicit and patience_explicit):
+        raise ValueError("original_paper protocol variant requires --batch_size, --epochs, and --patience to be passed explicitly")
+    if cli_args.protocol_variant == 'original_paper' and not cli_args.frozen_protocol:
+        raise ValueError(
+            "--protocol_variant original_paper requires --frozen_protocol: chemprop 1.4.0 "
+            "selects the best-validation checkpoint, so omitting the flag would write "
+            "last-epoch predictions (HANDOFF §4)."
+        )
 
     cli_args.prediction_dir.mkdir(parents=True, exist_ok=True)
     cli_args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -552,9 +604,11 @@ def main():
                     frozen_protocol=cli_args.frozen_protocol,
                     epochs=cli_args.epochs,
                     patience=cli_args.patience,
+                    batch_size=cli_args.batch_size,
                 )
 
                 final_y_pred = training_summary.pop("_final_y_pred", None)
+                optimizer_lr_config = training_summary.pop("_optimizer_lr_config", {})
                 if cli_args.frozen_protocol and (final_y_pred is None or final_y_pred.shape != y_pred.shape):
                     raise AssertionError("Frozen protocol requires same-shape best and final predictions")
 
@@ -597,9 +651,10 @@ def main():
                 provenance = {
                     'cli_args': vars(cli_args),
                     'resolved_config': {
+                        'batch_size': cli_args.batch_size,
                         'epochs': cli_args.epochs,
                         'patience': cli_args.patience,
-                        'batch_size': BATCH_SIZE,
+                        'protocol_variant': cli_args.protocol_variant,
                         'split_type': split_type,
                         'target': target,
                         'fold': fold_idx,
@@ -608,6 +663,7 @@ def main():
                         'lambda_within': lambda_within,
                         'frozen_protocol': cli_args.frozen_protocol,
                         'split_indices_sha256': split_indices_sha256(tr, va, te),
+                        **optimizer_lr_config,
                     },
                     'git_commit': git_commit,
                     'pbs_job_id': os.environ.get('PBS_JOBID'),

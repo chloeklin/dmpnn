@@ -255,10 +255,39 @@ def _runtime_environment() -> dict:
         "torch_cuda_version": torch.version.cuda,
         "cudnn_version": torch.backends.cudnn.version(),
         "trainer_deterministic": None,
-        "deterministic_kernels_requested": torch.backends.cudnn.deterministic,
+        # No runner calls torch.use_deterministic_algorithms, so full determinism is not
+        # in force and fixed-seed runs are not bit-reproducible.
+        "deterministic_algorithms_requested": False,
         "deterministic_algorithms_enabled": torch.are_deterministic_algorithms_enabled(),
         "cudnn_deterministic": torch.backends.cudnn.deterministic,
         "cudnn_benchmark": torch.backends.cudnn.benchmark,
+    }
+
+
+def _resolve_lr_config(model) -> dict:
+    """Read the optimizer/LR-schedule configuration actually used by ``model``.
+
+    HPGHierMPNN trains with a flat Adam optimizer (no scheduler), so
+    max_lr/final_lr both equal init_lr. HPGMPNN (hpg_sum/hpg_frac) uses a
+    Noam-like warmup/decay schedule, so warmup_epochs is also reported.
+    Values are read from the constructed model, never hard-coded.
+    """
+    if hasattr(model, "warmup_epochs"):
+        return {
+            "optimizer": "Adam",
+            "lr_schedule": "NoamLR",
+            "init_lr": float(model.init_lr),
+            "max_lr": float(model.max_lr),
+            "final_lr": float(model.final_lr),
+            "warmup_epochs": int(model.warmup_epochs),
+        }
+    init_lr = float(model.hparams.init_lr)
+    return {
+        "optimizer": "Adam",
+        "lr_schedule": "none",
+        "init_lr": init_lr,
+        "max_lr": init_lr,
+        "final_lr": init_lr,
     }
 
 
@@ -277,13 +306,21 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=two_stage_hpg_collate_fn, num_workers=args.num_workers),
     ]
     variant = _VARIANT_FLAGS.get(model_token, _VARIANT_FLAGS["hpg_hier"])
+    resolved_stage2_readout = args.stage2_readout or variant["stage2_readout"]
+    if variant["stage2_mode"] == "octamer_sequence" and resolved_stage2_readout != "attention":
+        raise ValueError(
+            f"octamer_sequence with readout '{resolved_stage2_readout}' is not implemented — "
+            "OctamerEncoder is only constructed for the attention readout (hpg_hier.py:201-203). "
+            "This configuration would silently train the 2-node baseline. "
+            "See HANDOFF §7 (arm D)."
+        )
     checkpoint_path = args.checkpoint_dir / f"ea_ip__{standard_target_token(target)}__{model_token}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}"
     model = HPGHierMPNN(
         atom_fdim=75, bond_fdim=graphs[0].monomer_graphs[0].E.shape[1], d_h=128,
         stage1_pool=args.stage1_pool, stage2_depth=args.stage2_depth,
         stage2_edge_weight=variant["stage2_edge_weight"],
         stage2_mode=variant["stage2_mode"],
-        stage2_readout=args.stage2_readout or variant["stage2_readout"],
+        stage2_readout=resolved_stage2_readout,
         octamer_len=args.octamer_len,
         n_random_samples=args.n_random_samples,
         junction_coupling=variant["junction_coupling"],
@@ -311,6 +348,7 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
     best_epoch = int(np.argmin(history.values)) + 1 if history.values else None
     return predictions, {
         "_final_y_pred": final_predictions if compare_checkpoints else None,
+        "_optimizer_lr_config": _resolve_lr_config(model),
         "epochs_actually_run": len(history.values),
         "best_epoch": best_epoch,
         "best_val_loss": float(checkpoint.best_model_score) if checkpoint.best_model_score is not None else None,
@@ -352,6 +390,7 @@ def _train_fold(graphs, values, train_idx, val_idx, test_idx, pooling_type, targ
         predictions = final_predictions
     return predictions, {
         "_final_y_pred": final_predictions if args.frozen_protocol else None,
+        "_optimizer_lr_config": _resolve_lr_config(model),
         "epochs_actually_run": len(history.values),
         "best_epoch": int(np.argmin(history.values)) + 1 if history.values else None,
         "best_val_loss": float(checkpoint.best_model_score) if checkpoint.best_model_score is not None else None,
@@ -440,6 +479,7 @@ def main() -> None:
                         )
                     y_true = values[tests[fold]].astype(np.float64)
                     final_y_pred = training_summary.pop("_final_y_pred", None)
+                    optimizer_lr_config = training_summary.pop("_optimizer_lr_config", {})
                     if y_pred.shape != y_true.shape:
                         raise AssertionError(f"Prediction shape {y_pred.shape} != target shape {y_true.shape}")
                     if final_y_pred is not None and final_y_pred.shape != y_true.shape:
@@ -472,9 +512,11 @@ def main() -> None:
                         "resolved_config": {
                             "model": model_token, "target": target, "split_type": split_type, "fold": fold,
                             "seed": args.seed, "split_seed": args.split_seed, "epochs": args.epochs,
+                            "epoch_cap": args.epochs,
                             "patience": args.patience, "min_epochs": args.min_epochs, "batch_size": args.batch_size,
                             "frozen_protocol": args.frozen_protocol,
                             "split_indices_sha256": split_indices_sha256(trains[fold], vals[fold], tests[fold]),
+                            **optimizer_lr_config,
                         },
                         "resolved_variant": resolved_variant,
                         "resolved_stage2_readout": args.stage2_readout or resolved_variant.get("stage2_readout"),

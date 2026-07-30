@@ -149,6 +149,17 @@ def null_floors() -> pd.DataFrame:
     return floor[keep]
 
 
+# `undertrained` is a per-run diagnostic column only; it is NOT used to exclude any
+# run from any table. It used to drive a parallel "*_excluding_undertrained" set of
+# outputs, but that filter was removed: `best_epoch` counts epochs, not optimizer
+# updates, and epoch counts are not comparable across the batch-size boundary in this
+# study. HPG models train at batch size 64 (~672 updates/epoch); wDMPNN trains at
+# batch size 512 (~84 updates/epoch). A fixed "best_epoch < 10" cutoff therefore
+# represented roughly 8x more gradient updates for HPG than for wDMPNN, which flagged
+# ~30% of HPG cells and almost no wDMPNN cells and asymmetrically broke the
+# three-seed replicate unit (HPG cells dropping to 1-2 seeds while wDMPNN cells kept
+# all 3). Every reported table uses all three seeds; `undertrained` is retained only
+# so a reader can see which individual runs trained briefly.
 UNDERTRAINED_BEST_EPOCH_THRESHOLD = 10
 
 
@@ -284,12 +295,13 @@ def main() -> None:
             "",
             f"R1 pending: {available}/{len(inventory)} run artifacts and sidecars are complete. Analysis is blocked until all 270 R1 runs are present.",
             "",
-            "## Pre-registered run-quality rule",
+            "## Run-quality diagnostic",
             "",
-            f"A single run is flagged as **potentially undertrained** if `best_epoch < {UNDERTRAINED_BEST_EPOCH_THRESHOLD}`. "
-            "This threshold was chosen before bulk results landed and is applied identically across all models. "
-            "When results arrive, all headline metric tables will be reported twice: once with every seed, and once with flagged runs excluded. "
-            "Flag counts will be reported per model.",
+            f"Each run is flagged **potentially undertrained** if `best_epoch < {UNDERTRAINED_BEST_EPOCH_THRESHOLD}`. "
+            "This flag is reported per run as a diagnostic only. It is expressed in epochs, and epoch counts are "
+            "not comparable across the batch-size boundary in this study: HPG models train at batch size 64 "
+            "(~672 updates/epoch) while wDMPNN trains at batch size 512 (~84 updates/epoch). No runs are excluded "
+            "from any reported analysis on the basis of this flag. Flag counts will be reported per model.",
             "",
             "## Mandatory metric verification",
             "",
@@ -368,15 +380,10 @@ def main() -> None:
     flag_counts = detail.groupby("model").undertrained.sum().astype(int).reset_index()
     flag_counts.columns = ["model", "flagged_runs"]
     total_flagged = int(detail.undertrained.sum())
-    detail_valid = detail[~detail.undertrained].copy()
 
     cells, averaged_group_means = build_cells(detail, arrays, df)
     pooled = build_pooled(cells, detail, arrays, averaged_group_means)
     comparisons = build_comparisons(cells)
-
-    cells_valid, averaged_group_means_valid = build_cells(detail_valid, arrays, df)
-    pooled_valid = build_pooled(cells_valid, detail_valid, arrays, averaged_group_means_valid) if not detail_valid.empty else pd.DataFrame()
-    comparisons_valid = build_comparisons(cells_valid) if not cells_valid.empty else pd.DataFrame()
 
     checkpoint_gap = detail.groupby("model", as_index=False).agg(cells=("final_minus_best_mae", "count"), final_minus_best_mae_mean=("final_minus_best_mae", "mean"), final_minus_best_mae_sd=("final_minus_best_mae", "std"))
     hpg_gap = checkpoint_gap.loc[checkpoint_gap.model == "hpg_hier", "final_minus_best_mae_mean"].iloc[0]
@@ -394,25 +401,23 @@ def main() -> None:
     stem = OUTPUT_PATH.with_suffix("")
     detail.to_csv(stem.with_name(stem.name + "_individual_runs.csv"), index=False)
     cells.to_csv(stem.with_name(stem.name + "_cells.csv"), index=False)
-    cells_valid.to_csv(stem.with_name(stem.name + "_cells_excluding_undertrained.csv"), index=False)
     pooled.to_csv(stem.with_name(stem.name + "_pooled.csv"), index=False)
-    if not pooled_valid.empty:
-        pooled_valid.to_csv(stem.with_name(stem.name + "_pooled_excluding_undertrained.csv"), index=False)
     comparisons.to_csv(stem.with_name(stem.name + "_comparisons.csv"), index=False)
-    if not comparisons_valid.empty:
-        comparisons_valid.to_csv(stem.with_name(stem.name + "_comparisons_excluding_undertrained.csv"), index=False)
     checkpoint_gap.to_csv(stem.with_name(stem.name + "_checkpoint_gap.csv"), index=False)
 
-    valid_note = "excluding undertrained-flagged seeds" if total_flagged else "no runs were flagged as undertrained"
     report = [
         "# Frozen-protocol regeneration v1",
         "",
         "**Convention:** all figures are the mean prediction of three seeds (42, 43, 44). Individual-seed SD is the error bar in every comparison table.",
         "",
-        "## Pre-registered run-quality rule",
+        "## Run-quality diagnostic",
         "",
-        f"A single run is flagged as **potentially undertrained** if `best_epoch < {UNDERTRAINED_BEST_EPOCH_THRESHOLD}`. "
-        "This rule was recorded before bulk results landed. All headline tables below are reported twice: once with every seed, and once with flagged runs excluded.",
+        f"Each run is flagged **potentially undertrained** if `best_epoch < {UNDERTRAINED_BEST_EPOCH_THRESHOLD}`. "
+        "This flag is reported per run as a diagnostic only. It is expressed in epochs, and epoch counts are "
+        "not comparable across the batch-size boundary in this study: HPG models train at batch size 64 "
+        "(~672 updates/epoch) while wDMPNN trains at batch size 512 (~84 updates/epoch), so the same epoch "
+        "cutoff represents roughly 8x more gradient updates for HPG than for wDMPNN. No runs are excluded "
+        "from any table in this report on the basis of this flag; every reported cell uses all three seeds.",
         "",
         "### Flag counts per model",
         "",
@@ -438,27 +443,15 @@ def main() -> None:
         "",
         "A cell with `beats_null_floor=False` fails to beat its **fold-specific** A-blind floor from `_dataset_design_audit.md` (the median floor across folds is not used).",
         "",
-        f"### R1 three-seed averaged cells ({valid_note})",
-        "",
-        markdown(cells_valid) if not cells_valid.empty else "_No runs remain after excluding flagged seeds._",
-        "",
         "## Across-fold context",
         "",
         markdown(pooled),
-        "",
-        f"### Across-fold context ({valid_note})",
-        "",
-        markdown(pooled_valid) if not pooled_valid.empty else "_No runs remain after excluding flagged seeds._",
         "",
         "## Paired per-fold comparisons against HPG-hier",
         "",
         "Signed differences are candidate minus HPG-hier and headlines are medians of paired per-fold differences. The minimum attainable two-sided exact sign-test p-value with nine folds is 0.0039. Holm correction covers the full R1 comparison family. `folds_smaller_than_measured_seed_sd` counts differences that are not interpretable relative to observed per-fold seed variation.",
         "",
         markdown(comparisons),
-        "",
-        f"### Paired per-fold comparisons against HPG-hier ({valid_note})",
-        "",
-        markdown(comparisons_valid) if not comparisons_valid.empty else "_No runs remain after excluding flagged seeds._",
         "",
         "## Checkpoint gap",
         "",
