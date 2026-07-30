@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-PROJECT="um09"
+PROJECT="ng76"
 STORAGE="scratch/um09+gdata/dk92"
 QUEUE="gpuvolta"
 NCPUS=12

@@ -34,6 +34,13 @@ def compute_overall_r2(y_true: Sequence, y_pred: Sequence) -> float:
     return float(r2_score(yt, yp))
 
 
+def compute_overall_rmse(y_true: Sequence, y_pred: Sequence) -> float:
+    """RMSE between y_true and y_pred, in target units (eV)."""
+    yt = np.asarray(y_true, dtype=np.float64)
+    yp = np.asarray(y_pred, dtype=np.float64)
+    return float(np.sqrt(np.mean((yp - yt) ** 2)))
+
+
 def compute_overall_mae(y_true: Sequence, y_pred: Sequence) -> float:
     """MAE between y_true and y_pred."""
     yt = np.asarray(y_true, dtype=np.float64)
@@ -75,6 +82,8 @@ def compute_copolymer_metrics(
         "ordering": float(np.mean(ordering_scores)) if ordering_scores else np.nan,
         "overall_r2": compute_overall_r2(y_true, y_pred),
         "mae": compute_overall_mae(y_true, y_pred),
+        "rmse": compute_overall_rmse(y_true, y_pred),
+        "group_mean_rmse": float(np.sqrt(np.mean((group_means.y_pred - group_means.y_true) ** 2))),
         "mean_signed_bias": float((np.asarray(y_pred, dtype=np.float64) - np.asarray(y_true, dtype=np.float64)).mean()),
         "compression_ratio": float(group_means.y_pred.std(ddof=0) / group_means.y_true.std(ddof=0)),
     }

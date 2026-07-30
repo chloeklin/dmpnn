@@ -1,0 +1,24 @@
+Submitting logs/hpg_stability_fixes/pbs/stability_00_best_checkpoint_fold0_repeat1.pbs
+174822992.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_01_best_checkpoint_fold0_repeat2.pbs
+174822993.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_02_best_checkpoint_fold0_repeat3.pbs
+174822994.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_03_best_checkpoint_fold1_repeat1.pbs
+174822995.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_04_best_checkpoint_fold1_repeat2.pbs
+174822996.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_05_best_checkpoint_fold1_repeat3.pbs
+174822997.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_06_row_val_best_fold0_repeat1.pbs
+174822998.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_07_row_val_best_fold0_repeat2.pbs
+174822999.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_08_row_val_best_fold0_repeat3.pbs
+174823000.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_09_row_val_best_fold1_repeat1.pbs
+174823001.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_10_row_val_best_fold1_repeat2.pbs
+174823002.gadi-pbs
+Submitting logs/hpg_stability_fixes/pbs/stability_11_row_val_best_fold1_repeat3.pbs
+174823003.gadi-pbs

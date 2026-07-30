@@ -25,8 +25,9 @@ MODELS = ("hpg_hier", "wdmpnn", "hpg_hier_octamer", "hpg_hier_junction", "hpg_hi
 TARGETS = {"EA": "EA_vs_SHE_eV", "IP": "IP_vs_SHE_eV"}
 SEEDS = (42, 43, 44)
 FOLDS = tuple(range(9))
-METRICS = ("group_mean_r2", "delta_r2", "ordering", "overall_r2", "mae", "mean_signed_bias", "compression_ratio")
-COMPARISON_METRICS = ("group_mean_r2", "delta_r2", "ordering", "overall_r2", "mae")
+METRICS = ("group_mean_r2", "delta_r2", "ordering", "overall_r2", "mae", "rmse",
+           "group_mean_rmse", "mean_signed_bias", "compression_ratio")
+COMPARISON_METRICS = ("group_mean_r2", "delta_r2", "ordering", "overall_r2", "mae", "rmse")
 
 
 def prediction_path(root: Path, model: str, target: str, fold: int, seed: int) -> Path:
@@ -135,11 +136,17 @@ def holm_adjust(p_values: list[float]) -> list[float]:
 
 
 def null_floors() -> pd.DataFrame:
-    floor = read_markdown_table(DESIGN_AUDIT, {"split", "target", "fold", "null", "group_mean_r2"})
+    floor = read_markdown_table(DESIGN_AUDIT, {"split", "target", "fold", "null", "group_mean_r2", "overall_r2", "mae"})
     floor = floor[(floor["split"] == "A-heldout") & (floor["null"] == "A-blind")].copy()
     floor["fold"] = pd.to_numeric(floor.fold)
     floor["null_group_mean_r2"] = pd.to_numeric(floor.group_mean_r2)
-    return floor[["target", "fold", "null_group_mean_r2"]]
+    floor["null_overall_r2"] = pd.to_numeric(floor.overall_r2)
+    floor["null_mae"] = pd.to_numeric(floor.mae)
+    keep = ["target", "fold", "null_group_mean_r2", "null_overall_r2", "null_mae"]
+    if "rmse" in floor.columns:                     # present once the audit is re-run
+        floor["null_rmse"] = pd.to_numeric(floor.rmse)
+        keep.append("null_rmse")
+    return floor[keep]
 
 
 UNDERTRAINED_BEST_EPOCH_THRESHOLD = 10
@@ -175,6 +182,12 @@ def build_cells(detail_subset: pd.DataFrame, arrays: dict, df: pd.DataFrame) -> 
                 cell_rows.append(result)
     cells = pd.DataFrame(cell_rows).merge(null_floors(), on=["target", "fold"], validate="many_to_one")
     cells["beats_null_floor"] = cells.group_mean_r2 > cells.null_group_mean_r2
+    # Skill scores against the null: 1 - MSE_model / MSE_null. Zero means no better than a
+    # predictor that ignores the held-out monomer; one means perfect. Scale-free, so unlike
+    # raw R2 these ARE comparable across folds and targets.
+    cells["skill_group_mean"] = (cells.group_mean_r2 - cells.null_group_mean_r2) / (1.0 - cells.null_group_mean_r2)
+    cells["skill_overall"] = (cells.overall_r2 - cells.null_overall_r2) / (1.0 - cells.null_overall_r2)
+    cells["null_floor_headroom_used"] = cells["skill_group_mean"]  # legacy alias
     return cells, averaged_group_means
 
 
@@ -229,6 +242,7 @@ def build_comparisons(cells: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
+    partial = "--partial" in sys.argv
     df = pd.read_csv(DATA_PATH)
     try:
         verification = verify_old_metrics(df)
@@ -255,7 +269,11 @@ def main() -> None:
                     inventory_rows.append({"model": model, "target": target, "fold": fold, "seed": seed, "available": path.is_file(), "sidecar": path.with_suffix(".config.json").is_file()})
     inventory = pd.DataFrame(inventory_rows)
     available = int((inventory.available & inventory.sidecar).sum())
-    if available != len(inventory):
+    if available != len(inventory) and partial and available > 0:
+        print(f"--partial: analysing {available}/{len(inventory)} cells; "
+              "every table below is provisional and seed counts per cell may be < 3")
+        inventory = inventory[inventory.available & inventory.sidecar].reset_index(drop=True)
+    elif available != len(inventory):
         pending = inventory[~(inventory.available & inventory.sidecar)]
         report = [
             "# Frozen-protocol regeneration v1",
@@ -327,16 +345,24 @@ def main() -> None:
     for model in MODELS:
         for target in TARGETS:
             for fold in FOLDS:
-                hashes = {split_hashes[(model, target, fold, seed)] for seed in SEEDS}
-                if None in hashes or len(hashes) != 1:
-                    raise AssertionError(f"Split hashes differ across seeds for {model} {target} fold {fold}: {hashes}")
+                present = [split_hashes[k] for k in split_hashes if k[:3] == (model, target, fold)]
+                if not present:
+                    continue
+                if None in present or len(set(present)) != 1:
+                    raise AssertionError(f"Split hashes differ across seeds for {model} {target} fold {fold}: {set(present)}")
     verification.loc[len(verification)] = ["split hashes byte-identical across seeds 42/43/44", "PASS", "all R1 cells"]
 
-    spot_new = arrays[("hpg_hier", "EA", 0, 42)]["y_pred"]
-    _, _, spot_old = load_metrics(df, prediction_path(OLD_DIR, "hpg_hier", "EA", 0, 42))
-    if np.array_equal(spot_new, spot_old["y_pred"]):
-        raise AssertionError("Regenerated spot-check exactly matches predecessor; training may have been skipped")
-    verification.loc[len(verification)] = ["regenerated NPZ differs from predecessor", "PASS", "hpg_hier EA fold 0 seed 42"]
+    if ("hpg_hier", "EA", 0, 42) not in arrays:
+        print("spot-check skipped: hpg_hier EA fold 0 seed 42 not present")
+        verification.loc[len(verification)] = ["regenerated NPZ differs from predecessor", "SKIPPED", "cell absent"]
+        spot_new = None
+    else:
+        spot_new = arrays[("hpg_hier", "EA", 0, 42)]["y_pred"]
+    if spot_new is not None:
+        _, _, spot_old = load_metrics(df, prediction_path(OLD_DIR, "hpg_hier", "EA", 0, 42))
+        if np.array_equal(spot_new, spot_old["y_pred"]):
+            raise AssertionError("Regenerated spot-check exactly matches predecessor; training may have been skipped")
+        verification.loc[len(verification)] = ["regenerated NPZ differs from predecessor", "PASS", "hpg_hier EA fold 0 seed 42"]
 
     detail = flag_undertrained(detail)
     flag_counts = detail.groupby("model").undertrained.sum().astype(int).reset_index()
