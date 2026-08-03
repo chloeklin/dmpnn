@@ -1,6 +1,7 @@
 # Pilot submission — wDMPNN original-paper (Arm A) + octamer K=1 (Arm B)
 
-Project: `ng76`. Copy/paste in order. Nothing in this document has been run
+Billing projects: **Arm A (wDMPNN original) → `hm62`**, **Arm B (octamer
+K=1) → `ng76`**. Copy/paste in order. Nothing in this document has been run
 for you — every `qsub` is your call.
 
 **Two environments are used below, labeled on every code block:**
@@ -35,11 +36,12 @@ rsync -avz gadi:/scratch/um09/hl4138/dmpnn/predictions/ predictions/
 
 ## 1. Grant check
 
-Check the `ng76` compute balance before spending anything:
+Check both compute balances before spending anything:
 
 ```bash
 # [GADI]
-nci_account -P ng76
+nci_account -P hm62   # Arm A (wDMPNN original)
+nci_account -P ng76   # Arm B (octamer K=1)
 ```
 
 ---
@@ -132,7 +134,7 @@ qsub $PROJECT_DIR/logs/octamer_k1/r3/pbs/oct_k1_p_0.pbs
 
 ```bash
 # [GADI]
-qsub $PROJECT_DIR/logs/octamer_k1/r3/pbs/oct_k1_p_1.pbs
+qsub $PROJECT_DIR/q
 ```
 
 Check status the same way as Arm A:
@@ -249,10 +251,23 @@ below `100` (early stopping should have fired, unlike Arm A).
 
 ## 6. Submit the remainders — only after the checks in §5 pass
 
-wDMPNN, 106 jobs:
+wDMPNN, 106 jobs. The remainder manifest is ordered split-major, so task
+indices `0`-`52` are R1 `monomer_heldout` (53 jobs) and `53`-`105` are R3
+`monomer_b_heldout_clustered` (53 jobs) — submit either subset independently
+if you want to stage them:
 
 ```bash
-# [GADI]
+# [GADI] — R1 monomer_heldout only (53 jobs)
+for i in $(seq 0 52); do qsub $PROJECT_DIR/logs/wdmpnn_original/r1_r3/pbs/wdmpnn_orig_r_${i}.pbs; done
+```
+
+```bash
+# [GADI] — R3 monomer_b_heldout_clustered only (53 jobs)
+for i in $(seq 53 105); do qsub $PROJECT_DIR/logs/wdmpnn_original/r1_r3/pbs/wdmpnn_orig_r_${i}.pbs; done
+```
+
+```bash
+# [GADI] — or all 106 at once
 for f in $PROJECT_DIR/logs/wdmpnn_original/r1_r3/pbs/wdmpnn_orig_r_*.pbs; do qsub "$f"; done
 ```
 

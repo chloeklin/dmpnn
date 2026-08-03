@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-PROJECT="ng76"
+PROJECT="hm62"
 STORAGE="scratch/um09+gdata/dk92"
 QUEUE="gpuvolta"
 NCPUS=12
