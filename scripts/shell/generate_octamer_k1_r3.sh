@@ -39,6 +39,12 @@ K1_TOKEN="__k1"
 PREDICTION_ROOT="$PROJECT_DIR/predictions/octamer_k1"
 CHECKPOINT_ROOT="$PROJECT_DIR/checkpoints/octamer_k1"
 K16_PREDICTION_ROOT="$PROJECT_DIR/predictions/regen_v1"
+# Pre-flight existence checks below run wherever this generator is invoked
+# (typically your local machine, since results are downloaded there), while
+# PREDICTION_ROOT/CHECKPOINT_ROOT above are baked into the manifest args and
+# must stay as Gadi paths since the PBS jobs execute on Gadi.
+LOCAL_PREDICTION_ROOT="$LOCAL_PROJECT/predictions/octamer_k1"
+LOCAL_K16_PREDICTION_ROOT="$LOCAL_PROJECT/predictions/regen_v1"
 
 declare -a PREEXISTING_K1=()
 declare -a MISSING_K16=()
@@ -50,15 +56,17 @@ for model in "${MODELS[@]}"; do
         for seed in "${SEEDS[@]}"; do
             for fold in {0..8}; do
                 output="$PREDICTION_ROOT/$SPLIT_SUBDIR/ea_ip__${target_token}__${model}__${SPLIT_TYPE}__fold${fold}__s${seed}${K1_TOKEN}.npz"
-                k16_output="$K16_PREDICTION_ROOT/$SPLIT_SUBDIR/ea_ip__${target_token}__${model}__${SPLIT_TYPE}__fold${fold}__s${seed}.npz"
+                local_output="$LOCAL_PREDICTION_ROOT/$SPLIT_SUBDIR/ea_ip__${target_token}__${model}__${SPLIT_TYPE}__fold${fold}__s${seed}${K1_TOKEN}.npz"
+                local_k16_output="$LOCAL_K16_PREDICTION_ROOT/$SPLIT_SUBDIR/ea_ip__${target_token}__${model}__${SPLIT_TYPE}__fold${fold}__s${seed}.npz"
 
                 # Pre-flight: the K=1 output must not already exist, and the
-                # K=16 comparator must be present.
-                if [[ -e "$output" || -e "${output%.npz}.config.json" ]]; then
-                    PREEXISTING_K1+=("$output")
+                # K=16 comparator must be present. Checked against the local
+                # copy, since that's where downloaded results live.
+                if [[ -e "$local_output" || -e "${local_output%.npz}.config.json" ]]; then
+                    PREEXISTING_K1+=("$local_output")
                 fi
-                if [[ ! -f "$k16_output" ]]; then
-                    MISSING_K16+=("$k16_output")
+                if [[ ! -f "$local_k16_output" ]]; then
+                    MISSING_K16+=("$local_k16_output")
                 fi
 
                 runner="scripts/python/run_hpg_generalization.py"
