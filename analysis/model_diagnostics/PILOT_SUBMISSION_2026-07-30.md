@@ -1,8 +1,8 @@
 # Pilot submission — wDMPNN original-paper (Arm A) + octamer K=1 (Arm B)
 
-Billing projects: **Arm A (wDMPNN original) → `hm62`**, **Arm B (octamer
-K=1) → `ng76`**. Copy/paste in order. Nothing in this document has been run
-for you — every `qsub` is your call.
+Billing project: **`hm62`** (both Arm A wDMPNN original and Arm B octamer
+K=1). Copy/paste in order. Nothing in this document has been run for you —
+every `qsub` is your call.
 
 **Two environments are used below, labeled on every code block:**
 
@@ -36,12 +36,11 @@ rsync -avz gadi:/scratch/um09/hl4138/dmpnn/predictions/ predictions/
 
 ## 1. Grant check
 
-Check both compute balances before spending anything:
+Check the `hm62` compute balance before spending anything:
 
 ```bash
 # [GADI]
-nci_account -P hm62   # Arm A (wDMPNN original)
-nci_account -P ng76   # Arm B (octamer K=1)
+nci_account -P hm62
 ```
 
 ---
@@ -134,7 +133,7 @@ qsub $PROJECT_DIR/logs/octamer_k1/r3/pbs/oct_k1_p_0.pbs
 
 ```bash
 # [GADI]
-qsub $PROJECT_DIR/q
+qsub $PROJECT_DIR/logs/octamer_k1/r3/pbs/oct_k1_p_1.pbs
 ```
 
 Check status the same way as Arm A:

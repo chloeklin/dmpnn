@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -q gpuvolta
-#PBS -P ng76
+#PBS -P hm62
 #PBS -l ncpus=12
 #PBS -l ngpus=1
 #PBS -l mem=100GB
