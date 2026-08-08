@@ -104,6 +104,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--octamer_len", type=int, default=8)
     parser.add_argument("--n_random_samples", type=int, default=16)
     parser.add_argument("--n_coupling_steps", type=int, default=2)
+    parser.add_argument("--octamer_position_embeddings", choices=("on", "off"), default="on")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split_seed", type=int, default=42)
     parser.add_argument("--b_split_metadata", type=Path, default=None)
@@ -325,6 +326,7 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         n_random_samples=args.n_random_samples,
         junction_coupling=variant["junction_coupling"],
         n_coupling_steps=variant["n_coupling_steps"],
+        use_position_embeddings=(args.octamer_position_embeddings == "on"),
     )
     model._output_transform = UnscaleTransform.from_standard_scaler(scaler)
     checkpoint = ModelCheckpoint(dirpath=str(checkpoint_path), monitor="val_loss", mode="min", save_top_k=1, save_last=True)
@@ -507,6 +509,10 @@ def main() -> None:
                     except (OSError, subprocess.CalledProcessError):
                         git_commit = None
                     resolved_variant = _VARIANT_FLAGS.get(model_token, {})
+                    n_octamer_params = (
+                        sum(p.numel() for p in model.octamer_encoder.parameters())
+                        if model.octamer_encoder is not None else 0
+                    )
                     provenance = {
                         "cli_args": vars(args),
                         "resolved_config": {
@@ -515,6 +521,8 @@ def main() -> None:
                             "epoch_cap": args.epochs,
                             "patience": args.patience, "min_epochs": args.min_epochs, "batch_size": args.batch_size,
                             "frozen_protocol": args.frozen_protocol,
+                            "octamer_position_embeddings": args.octamer_position_embeddings,
+                            "n_octamer_params": int(n_octamer_params),
                             "split_indices_sha256": split_indices_sha256(trains[fold], vals[fold], tests[fold]),
                             **optimizer_lr_config,
                         },

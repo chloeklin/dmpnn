@@ -91,14 +91,15 @@ class OctamerEncoder(nn.Module):
     octamer_sequences: (n_polymers*K, octamer_len) long  -- values 0 (A) or 1 (B)
     octamer_polymer_batch: (n_polymers*K,) long  -- which polymer each replicate belongs to
     """
-    def __init__(self, d_h: int, octamer_len: int, n_layers: int):
+    def __init__(self, d_h: int, octamer_len: int, n_layers: int, use_position_embeddings: bool = True):
         super().__init__()
         self.d_h = d_h
         self.octamer_len = octamer_len
         self.layers = nn.ModuleList([OctamerPathLayer(d_h) for _ in range(n_layers)])
-        self.position_embeddings = nn.Parameter(torch.empty(octamer_len, d_h))
         self.attention_readout = AttentionReadout(d_h)
-        nn.init.normal_(self.position_embeddings, std=0.02)
+        if use_position_embeddings:
+            self.position_embeddings = nn.Parameter(torch.empty(octamer_len, d_h))
+            nn.init.normal_(self.position_embeddings, std=0.02)
 
     @staticmethod
     def _make_path_edge_index(n_reps: int, L: int, device: torch.device) -> Tensor:
@@ -116,7 +117,8 @@ class OctamerEncoder(nn.Module):
         # Map sequence values (0/1) to global monomer indices 2p or 2p+1
         global_mon = 2 * octamer_polymer_batch.unsqueeze(1) + octamer_sequences  # (n_reps, L)
         h = monomer_embeds[global_mon.reshape(-1)].reshape(n_reps, L, self.d_h)
-        h = h + self.position_embeddings.unsqueeze(0)
+        if getattr(self, "position_embeddings", None) is not None:
+            h = h + self.position_embeddings.unsqueeze(0)
         h_flat = h.reshape(n_reps * L, self.d_h)
         edge_index = self._make_path_edge_index(n_reps, L, device=h_flat.device)
         n_nodes = n_reps * L
@@ -168,6 +170,7 @@ class HPGHierMPNN(pl.LightningModule):
         n_random_samples: int = 16,
         junction_coupling: str = "off",
         n_coupling_steps: int = 2,
+        use_position_embeddings: bool = True,
     ):
         super().__init__()
         if stage1_pool not in {"sum", "mean", "attention"}:
@@ -206,7 +209,10 @@ class HPGHierMPNN(pl.LightningModule):
             Stage2Layer(d_h, stage2_edge_dim, mode=stage2_edge_weight) for _ in range(stage2_depth)
         ])
         self.octamer_encoder = (
-            OctamerEncoder(d_h, octamer_len=octamer_len, n_layers=stage2_depth)
+            OctamerEncoder(
+                d_h, octamer_len=octamer_len, n_layers=stage2_depth,
+                use_position_embeddings=use_position_embeddings,
+            )
             if stage2_mode == "octamer_sequence" and stage2_readout == "attention" else None
         )
         self.stage2_attention_readout = (

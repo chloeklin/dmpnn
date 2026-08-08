@@ -413,25 +413,47 @@ Computed from `wall_time_seconds` across all 481 runs. Gadi charging is
 | HPG-junction-1 | 53 | 1.15 h | 41.3 | 117.6 | 18 | 2.45 kSU |
 | | | | | | | **25.66 kSU** |
 
-### The honest reading
+### ⚠ The table above is superseded — the wDMPNN figures were an implementation defect
 
-**HPG-hier costs 2.3× less per run than wDMPNN** (36.5 versus 85.0 SU). That is real money and it
-is correctly measured. But it decomposes into two very different factors:
+**Do not quote any of the wDMPNN cost numbers above, and do not make any compute comparison
+between the two model families.** Corrected 5 August.
 
-| factor | size | is it a fair comparison? |
-|---|---|---|
-| per-epoch speed: 115.4 s versus 134.2 s | **1.16×** | **Yes.** An epoch is one pass over identical data. |
-| number of epochs: ~31 versus ~63 total | **2.0×** | **No.** Batch-size artifact — see below. |
+The 85.0 SU/run and 134.2 s/epoch figures were dominated by a defect in our port, not by the
+wD-MPNN method. `_WeightedBondMessagePassingMixin.message` rebuilt the atom-to-bond mapping with a
+Python loop over a CUDA tensor — one host–device synchronisation per bond, executed
+`depth − 1 = 2` times per forward pass. The HPG models were never affected: they use
+`MABBondMessagePassing`, which contains no such loop.
 
-The epoch-count factor is not a property of the architecture. wDMPNN trains at batch 512 and HPG at
-batch 64, so with ~43,000 rows one epoch is ~84 weight updates for wDMPNN and ~672 for HPG. HPG
-learns 8× more per epoch, so of course it needs fewer epochs. In weight updates the picture
-reverses: HPG-hier peaks after roughly 0.25 × (dataset passes worth of updates) against wDMPNN's
-0.094 — HPG actually does about **2.7× more optimiser work** before reaching its best.
+After vectorising that loop and re-running wDMPNN under the original paper's configuration:
 
-**So the defensible cost claim is the 1.16× per-epoch figure, not the 2.3× per-run figure** — and it
-is worth stating that this holds *despite* wDMPNN using 8× larger batches and 4 dataloader workers
-against HPG's 0, which should both favour wDMPNN on throughput.
+| | batch | epochs run | s/epoch | SU/run |
+|---|---|---|---|---|
+| **wDMPNN, original config, vectorised** | 50 | 30 | **20.2** | **6.0** |
+| wDMPNN, regen_v1, pre-fix | 512 | ~63 | 134.2 | 85.0 |
+| HPG-hier | 64 | ~31 | 115.4 | 36.5 |
+| HPG-octamer | 64 | ~34 | 119.2 | 41.1 |
+
+The full 54-run A-split wDMPNN arm cost **0.33 kSU**, against a projection of ~4.6 kSU.
+
+**The claim reverses.** At comparable batch sizes (50 vs 64) and comparable epoch counts (30 vs
+~31), wDMPNN is now roughly **6× cheaper per run** than HPG-hier, not 2.3× more expensive.
+
+**But do not simply publish the inverse.** Two reasons:
+
+1. HPG runs with `num_workers=0` against wDMPNN's `4`. That is an unfixed inefficiency on our
+   side, not an architectural property.
+2. Only the wDMPNN side has been re-measured post-vectorisation. The HPG timings predate that
+   commit, and although HPG does not use the affected code path, they have not been re-run under
+   identical conditions.
+
+**Correct position: withdraw the compute claim entirely.** If it is wanted later, re-time HPG with
+dataloader workers enabled and report per-epoch seconds on identical hardware — a few hundred SU,
+since wall time per epoch is low-variance and needs neither multiple seeds nor a full arm.
+
+The one internal comparison that survives untouched: **the octamer costs only ~13% more than
+HPG-hier** (41.1 vs 36.5 SU) despite building and encoding 16 sequences on 42.9% of rows. Both run
+at batch 64 under the same cap and LR, neither is affected by the defect, so this comparison is
+clean.
 
 ### Why we are not "fixing" this by re-running wDMPNN at batch 64
 
@@ -457,9 +479,10 @@ available and they must be labelled differently:
 
 | claim | status |
 |---|---|
-| "HPG-hier is **1.16× faster per epoch**" | **Fair now, no new runs.** An epoch is one pass over identical data, so this is batch-independent. Holds despite wDMPNN's 8× larger batches and 4 dataloader workers against HPG's 0. |
-| "**As configured by their respective authors**, HPG-hier trains 2.3× cheaper per run" | **Reportable, and useful to a practitioner** — this is what it actually costs to reproduce each method. It is a claim about configurations, not architectures, and must say so. |
-| "HPG-hier is architecturally cheaper at matched protocol" | **Not available.** Would require a matched-protocol arm, which for the reasons above is not the published baseline. |
+| ~~"HPG-hier is 1.16× faster per epoch"~~ | **Withdrawn 5 Aug.** Both figures came from wDMPNN timings inflated by the Python-loop defect. After vectorisation wDMPNN runs at 20.2 s/epoch against HPG-hier's 115.4 — the comparison reverses. |
+| ~~"As configured by their authors, HPG-hier trains 2.3× cheaper per run"~~ | **Withdrawn 5 Aug.** Same cause. wDMPNN at its published configuration costs 6.0 SU/run against HPG-hier's 36.5. |
+| "HPG-hier is architecturally cheaper" | **Not available and not true on current evidence.** |
+| **No compute comparison between the families** | **The correct position.** Re-time HPG with dataloader workers before making any such claim. |
 
 A batch-64 wDMPNN arm remains available as an explicitly-labelled **secondary control** (~4.6 kSU
 for R3, cost unverified — wDMPNN has never been run at batch 64) if a reviewer asks whether the

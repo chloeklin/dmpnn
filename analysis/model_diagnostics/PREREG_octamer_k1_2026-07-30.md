@@ -96,4 +96,47 @@ confounded inside the 8-chain arm whatever K=1 shows. State as a limitation.
 
 ## Addenda
 
-*(none yet — append dated entries below, do not edit the above)*
+### 2026-08-05 — Correction on the `block`/`alternating` negative control
+
+The pre-registered statement that "`block` and `alternating` rows must not move
+materially" is too strong.  Those rows do take the argmax path, so
+`--n_random_samples 1` does not change their forward pass *for a fixed trained
+model*.  However, training with K=1 changes the shared model weights relative
+to the K=16 run, and therefore changes predictions on *all* rows, including
+block and alternating rows.  A material shift on block/alternating is not, by
+itself, evidence of a bug or a configuration error; it only rules out the
+hypothesis that the two settings produced identical trained models.  It does
+not rule out weight-driven spillover from the random rows.  The interpretation
+of the negative control should be updated accordingly.
+
+### 2026-08-05 — Metric substitution for the primary quantity
+
+The pre-registration defined the primary quantity as ΔR² (the difference in the
+named `delta_r2` metric between K=1 and K=16) on **random rows, D folds**.
+`delta_r2` cannot be computed on a random-only subset because
+`compute_copolymer_metrics` retains only copolymer groups containing at least
+two distinct `poly_type` values, and a random-only subset leaves one row per
+group.  The same issue blocks `group_mean_r2` and `ordering` on the random-only
+subset.
+
+The primary quantity was therefore replaced post-hoc with the K=1-minus-K=16
+difference in **overall R²** on random rows, D folds.  This is a different
+metric from the pre-registered ΔR², but the operational question — does the
+K=1 arm differ from the K=16 arm on the random-held-out rows? — is the same.
+
+The conclusion is unchanged under three alternative readings that are
+computable from the saved predictions:
+
+1. **overall R² on random rows, D folds** (the reported substitution): the
+   median paired difference is well inside the 0.024 material threshold.
+2. **`delta_r2` computed from group means taken over all rows and then
+   evaluated on the random subset** (materialized in `_octamer_k1_r3_results.md`
+   as the row set `random_via_all_groups`): for the median paired K=1-minus-K=16
+   difference, D folds = −0.002 (EA +0.002, IP −0.006) and S folds = +0.002
+   (EA +0.009, IP −0.006). Both are inside the 0.024 material threshold.
+3. **`delta_r2` on the full fold (`all` rows), D folds**: the median paired
+   difference is inside the 0.024 material threshold.
+
+Because every computable reading shows no material shift, the supported outcome
+remains C.  This substitution is disclosed as a post-hoc change to the primary
+outcome metric.

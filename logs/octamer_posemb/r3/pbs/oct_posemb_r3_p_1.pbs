@@ -1,0 +1,45 @@
+#!/bin/bash
+#PBS -q gpuvolta
+#PBS -P um09
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=100GB
+#PBS -l walltime=06:00:00
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -l jobfs=100GB
+#PBS -N oct_posemb_r3_p_1
+#PBS -r y
+
+set -euo pipefail
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+TASK_LOG_DIR="/scratch/um09/hl4138/dmpnn/logs/octamer_posemb/r3/tasks"
+mkdir -p "$TASK_LOG_DIR"
+exec > >(tee -a "$TASK_LOG_DIR/oct_posemb_r3_p_1_${PBS_JOBID}.log") 2>&1
+MANIFEST="/scratch/um09/hl4138/dmpnn/logs/octamer_posemb/r3/manifests/oct_posemb_r3_pilot.manifest"
+LINE="$(sed -n "2p" "$MANIFEST")"
+IFS=$'\t' read -r RUNNER MODEL TARGET FOLD SEED PAYLOAD <<< "$LINE"
+OUTPUT="${PAYLOAD%%|*}"
+ARGS="${PAYLOAD#*|}"
+BASE_OUTPUT="${OUTPUT%__noposemb.npz}.npz"
+BASE_CONFIG="${BASE_OUTPUT%.npz}.config.json"
+[[ -n "$RUNNER" && -n "$OUTPUT" && "$ARGS" != "$PAYLOAD" ]] || { printf 'Malformed manifest row: %s\n' "$LINE" >&2; exit 2; }
+if [[ -f "$OUTPUT" && -f "${OUTPUT%.npz}.config.json" ]]; then
+    printf 'Skipping completed cell: %s\n' "$OUTPUT"
+    exit 0
+fi
+if [[ -e "$OUTPUT" || -e "${OUTPUT%.npz}.config.json" || -e "$BASE_OUTPUT" || -e "$BASE_CONFIG" ]]; then
+    printf 'Partial output exists; refusing ambiguous resume: %s\n' "$OUTPUT" >&2
+    exit 1
+fi
+nvidia-smi
+eval "set -- $ARGS"
+printf 'runner=%s model=%s target=%s fold=%s seed=%s\n' "$RUNNER" "$MODEL" "$TARGET" "$FOLD" "$SEED"
+python "$RUNNER" "$@"
+test -f "$BASE_OUTPUT" || { printf 'Runner did not create expected NPZ: %s\n' "$BASE_OUTPUT" >&2; exit 1; }
+test -f "$BASE_CONFIG" || { printf 'Runner did not create provenance sidecar: %s\n' "$BASE_CONFIG" >&2; exit 1; }
+mv "$BASE_OUTPUT" "$OUTPUT"
+mv "$BASE_CONFIG" "${OUTPUT%.npz}.config.json"
+test -f "$OUTPUT" || { printf 'Runner did not create expected NPZ: %s\n' "$OUTPUT" >&2; exit 1; }
+test -f "${OUTPUT%.npz}.config.json" || { printf 'Runner did not create provenance sidecar: %s\n' "${OUTPUT%.npz}.config.json" >&2; exit 1; }
