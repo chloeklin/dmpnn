@@ -662,6 +662,78 @@ Batched by topic. The first four are the ones that block me most.
 
 ---
 
-*Next step, once these are answered: Stage 2 — regroup the experiments by research question rather
-than by date, and mark which questions the June–August work has already closed, reopened, or made
-unanswerable.*
+---
+
+## 8. Answers received — 9 August 2026
+
+| Q | Answer | Effect on this document |
+|---|---|---|
+| 1 | Fix (a), `026d5cd`, 18 June. The featurizer received raw SMILES rather than Mol objects, so `WDMPNN_Input` was never parsed; pre-18-June wDMPNN had **neither stochastic edge weights nor stoichiometric atom weights**. | Every pre-18-June wDMPNN number is **void by construction**, not merely suspect. It was not a wD-MPNN. Retag E2, E7, E8, E20, E21. |
+| 2 | **Yes.** Legacy helpers in `scripts/python/utils.py` — three `ModelCheckpoint` sites, all `monitor="val_loss", save_top_k=1, save_last=True` — never pass `ckpt_path` to predict. | Every Feb–May number is affected, wDMPNN or not. §3.1 confirmed, not hypothesised. |
+| 3 | **No multi-seed runs before July.** Every Feb–May CSV has exactly `test/mae, test/rmse, test/r2, split, target`; there is no seed dimension in the artefact set. | §3.2 confirmed. Single-run is documented, not inferred. |
+| 4 | Not locatable, and irrelevant — any March wDMPNN run predates 18 June. | **E7 §2.1 recorded as void by construction**, superseding "untraceable". |
+| 5 | None of the three Frac numbers is "real"; they are three unlabelled (split, protocol, code-version) combinations, all superseded. The 9-fold CSV was added 5 July, before the 29 July checkpoint fix, so it is void too. | C7 reclassified from *conflict* to **provenance failure**. Note: fold 6 R² = **−9.479**, a catastrophic single-fold failure unremarked at the time — exactly the pathology the July noise-floor work later characterised. |
+| 6 | Cannot determine; moot, pre-fix either way. | C5 closed. The substantive point stands: a fold spread of 0.957 → −0.038 is not "stable behaviour across CV" and that description must not survive into the thesis. |
+| 7 | **Resolved by reading `chemprop/nn/stage2d.py` — see below.** | C8 closed. |
+| 8 | Agreed — Phase 2B is a **metric artefact**, corroborated by the ~1% total / ~50–60% residual variance split measured twice, four months apart. | Phase 2B recorded as **superseded by metric change**, not as a contradictory finding. |
+| 9 | Cannot determine from artefacts; random split suspected. | C1 recorded as **unknown**. The conclusion "identity suffices for EA/IP" is not carried forward. |
+| 10 | Data still present (`data/pae_tg.csv`, `data/pae_tg/`, `data/block.csv`, results across GAT/GIN/DMPNN). Availability is not the constraint. | C12 reclassified from *abandoned* to **dormant but available**. |
+| 11 | Live and costed: pipeline portable, monomers fit, ~8–9 kSU CPU for ~2,000 polymers. | C13 closed. |
+| 12 | E1 **is** Feb16-22. Year 1 was literature review, written up as a review paper now accepted at *Digital Discovery*. | E1 merged into E2/E3/E4. Year 1 output = the review paper, not experiments. |
+
+### 8.1 Q7 resolved — the 2D0 readout is non-linear, and the §8.3 framing does not hold
+
+**[CODE]** `chemprop/nn/stage2d.py`:
+
+```python
+# lines 211–219 — prediction head, shared by ALL variants including `frac`
+self.heads = nn.ModuleList([
+    nn.Sequential(nn.Linear(d, hidden_dim), nn.ReLU(),
+                  nn.Dropout(dropout), nn.Linear(hidden_dim, 1))
+    for _ in range(n_targets)])
+
+# lines 291–299 — 2D0
+h_poly = h_mix + alpha * e_arch          # 2d0_fixed
+h_poly = h_mix + alpha[arch] * e_arch    # 2d0_arch
+
+# line 361
+preds = torch.cat([head(h_poly) for head in self.heads], dim=1)
+```
+
+The readout is `Linear → ReLU → Dropout → Linear`. **Non-linear.**
+
+Why that settles it: inside a matched group `(A, B, f_A, f_B)` every input is constant except
+`arch`, so `h_mix` is fixed and `e_arch` takes one of three learned values. If the head were
+**linear**, the architecture deviation would be exactly `Δŷ = α·W·(e_arch − ē)` — a constant
+offset per architecture class, independent of chemistry. That is precisely the quantity §8.2.3
+measured, and its ceiling was **R²(Δy) ≈ 0.21 (EA) / 0.25 (IP)**.
+
+2D0 reports **0.847 / 0.908**. The ReLU is what makes that possible: it lets `h_mix` modulate how
+the architecture shift is decoded, so chemistry enters the deviation prediction implicitly.
+
+**Consequences — three sentences in `May.pdf` §8.3 need rewriting, not just re-running:**
+
+1. "2D0 = architecture contributes a **transferable global effect**" is **false as implemented**.
+   2D0 is already chemistry-conditioned; the conditioning is hidden in the readout instead of
+   being declared in the model definition.
+2. The 2D0-vs-2D1 contrast is therefore **not** a test of global-vs-chemistry-conditioned
+   architecture. Both are chemistry-conditioned. 2D1 only moves the conditioning from the readout
+   into the residual input `z = [h_A, h_B, |h_A−h_B|, h_A⊙h_B, f_A, f_B, e_arch]`.
+3. The small 2D0 → 2D1 gap (0.847 → 0.865 EA, 0.908 → 0.917 IP) was read as *"architecture is
+   mostly global, with a modest chemistry-dependent component."* **The opposite reading is the
+   supported one.** The real global-only ceiling is 0.21/0.25; the jump to ~0.85 is the
+   chemistry-conditioning effect and it is enormous. Whether that conditioning is expressed
+   explicitly (2D1) or absorbed by the readout (2D0) turns out to matter very little.
+
+**[ME]** This is good news for the science and bad news for one paragraph of prose. The Section 8.2
+diagnostic conclusion — *"architecture effects are strongly chemistry-dependent"* — is **more**
+strongly supported than the document claims, because the 0.21 → 0.85 gap is the cleanest measurement
+of it in the corpus. What has to go is the model-comparison narrative built on top.
+
+**Clean fix if you want the 2D0 arm to mean what it says**: add a linear-readout variant, or report
+the §8.2.3 global-offset predictor as the true "global architecture" baseline row in the table and
+relabel 2D0 as *implicitly conditioned*. The first is a one-line change; the second costs nothing.
+
+---
+
+*Next: Stage 2 — `02_stage2_research_questions.md`.*

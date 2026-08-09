@@ -490,6 +490,11 @@ def main() -> None:
                         raise AssertionError(f"Prediction shape {y_pred.shape} != target shape {y_true.shape}")
                     if final_y_pred is not None and final_y_pred.shape != y_true.shape:
                         raise AssertionError(f"Final prediction shape {final_y_pred.shape} != target shape {y_true.shape}")
+                    # Canonical semantics:
+                    #   y_pred        = predictions from the best validation-loss checkpoint
+                    #   y_pred_final  = predictions from the final (patience-expired) model
+                    # Analysis scripts must read y_pred as the primary result; y_pred_final
+                    # is retained only for a checkpoint-gap diagnostic.
                     np.savez_compressed(
                         prediction_path, y_true=y_true, y_pred=y_pred.astype(np.float64),
                         y_pred_final=(np.asarray([], dtype=np.float64) if final_y_pred is None else final_y_pred.astype(np.float64)),
