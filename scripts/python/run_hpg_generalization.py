@@ -357,6 +357,10 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         "prediction_checkpoint": checkpoint_record(checkpoint.best_model_path) if compare_checkpoints else checkpoint_record(checkpoint.last_model_path),
         "final_prediction_checkpoint": checkpoint_record(checkpoint.last_model_path),
         "validation_loss_curve": history.values,
+        "n_octamer_params": (
+            sum(p.numel() for p in model.octamer_encoder.parameters())
+            if model.octamer_encoder is not None else 0
+        ),
     }
 
 
@@ -509,10 +513,7 @@ def main() -> None:
                     except (OSError, subprocess.CalledProcessError):
                         git_commit = None
                     resolved_variant = _VARIANT_FLAGS.get(model_token, {})
-                    n_octamer_params = (
-                        sum(p.numel() for p in model.octamer_encoder.parameters())
-                        if model.octamer_encoder is not None else 0
-                    )
+                    n_octamer_params = int(training_summary.pop("n_octamer_params", 0))
                     provenance = {
                         "cli_args": vars(args),
                         "resolved_config": {
