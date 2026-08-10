@@ -1,0 +1,1 @@
+--split_types group_disjoint --folds 0 --targets 'EA vs SHE (eV)' --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42

@@ -1,0 +1,57 @@
+hpg	IP_vs_SHE_eV	hpg_hier	pair_disjoint	4	--split_types pair_disjoint --folds 4 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	pair_disjoint	4	--split_types pair_disjoint --folds 4 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	pair_disjoint	4	--split_types pair_disjoint --folds 4 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	0	--split_types monomer_heldout --folds 0 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	0	--split_types monomer_heldout --folds 0 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	0	--split_types monomer_heldout --folds 0 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	0	--split_types monomer_heldout --folds 0 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	0	--split_types monomer_heldout --folds 0 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	0	--split_types monomer_heldout --folds 0 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	1	--split_types monomer_heldout --folds 1 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	1	--split_types monomer_heldout --folds 1 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	1	--split_types monomer_heldout --folds 1 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	1	--split_types monomer_heldout --folds 1 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	1	--split_types monomer_heldout --folds 1 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	1	--split_types monomer_heldout --folds 1 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	2	--split_types monomer_heldout --folds 2 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	2	--split_types monomer_heldout --folds 2 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	2	--split_types monomer_heldout --folds 2 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	2	--split_types monomer_heldout --folds 2 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	2	--split_types monomer_heldout --folds 2 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	2	--split_types monomer_heldout --folds 2 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	3	--split_types monomer_heldout --folds 3 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	3	--split_types monomer_heldout --folds 3 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	3	--split_types monomer_heldout --folds 3 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	3	--split_types monomer_heldout --folds 3 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	3	--split_types monomer_heldout --folds 3 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	3	--split_types monomer_heldout --folds 3 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	4	--split_types monomer_heldout --folds 4 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	4	--split_types monomer_heldout --folds 4 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	4	--split_types monomer_heldout --folds 4 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	4	--split_types monomer_heldout --folds 4 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	4	--split_types monomer_heldout --folds 4 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	4	--split_types monomer_heldout --folds 4 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	5	--split_types monomer_heldout --folds 5 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	5	--split_types monomer_heldout --folds 5 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	5	--split_types monomer_heldout --folds 5 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	5	--split_types monomer_heldout --folds 5 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	5	--split_types monomer_heldout --folds 5 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	5	--split_types monomer_heldout --folds 5 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	6	--split_types monomer_heldout --folds 6 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	6	--split_types monomer_heldout --folds 6 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	6	--split_types monomer_heldout --folds 6 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	6	--split_types monomer_heldout --folds 6 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	6	--split_types monomer_heldout --folds 6 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	6	--split_types monomer_heldout --folds 6 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	7	--split_types monomer_heldout --folds 7 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	7	--split_types monomer_heldout --folds 7 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	7	--split_types monomer_heldout --folds 7 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	7	--split_types monomer_heldout --folds 7 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	7	--split_types monomer_heldout --folds 7 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	7	--split_types monomer_heldout --folds 7 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	EA_vs_SHE_eV	hpg_hier	monomer_heldout	8	--split_types monomer_heldout --folds 8 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	EA_vs_SHE_eV	wdmpnn	monomer_heldout	8	--split_types monomer_heldout --folds 8 --targets EA\ vs\ SHE\ \(eV\) --seed 42
+stage2d	EA_vs_SHE_eV	chemarch	monomer_heldout	8	--split_types monomer_heldout --folds 8 --targets EA\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42
+hpg	IP_vs_SHE_eV	hpg_hier	monomer_heldout	8	--split_types monomer_heldout --folds 8 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier --stage1_pool sum --stage2_depth 2 --stage2_edge full --seed 42
+wdmpnn	IP_vs_SHE_eV	wdmpnn	monomer_heldout	8	--split_types monomer_heldout --folds 8 --targets IP\ vs\ SHE\ \(eV\) --seed 42
+stage2d	IP_vs_SHE_eV	chemarch	monomer_heldout	8	--split_types monomer_heldout --folds 8 --targets IP\ vs\ SHE\ \(eV\) --models 2d1_arch --seed 42

@@ -1,0 +1,2 @@
+EA_vs_SHE_eV	hpg_hier_junction1	group_disjoint	0	--split_types group_disjoint --folds 0 --targets EA\ vs\ SHE\ \(eV\) --models hpg_hier_junction1 --stage1_pool sum --stage2_depth 2 --stage2_edge full --octamer_len 8 --n_random_samples 16 --n_coupling_steps 2 --seed 42
+IP_vs_SHE_eV	hpg_hier_junction1	group_disjoint	0	--split_types group_disjoint --folds 0 --targets IP\ vs\ SHE\ \(eV\) --models hpg_hier_junction1 --stage1_pool sum --stage2_depth 2 --stage2_edge full --octamer_len 8 --n_random_samples 16 --n_coupling_steps 2 --seed 42
