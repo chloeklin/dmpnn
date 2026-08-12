@@ -7,7 +7,7 @@
 #PBS -l walltime=06:00:00
 #PBS -l storage=scratch/um09+gdata/dk92
 #PBS -l jobfs=100GB
-#PBS -N oct_cd_pilot_1
+#PBS -N oct_cd_pilot_12
 #PBS -r y
 
 set -euo pipefail
@@ -16,9 +16,9 @@ source /home/659/hl4138/dmpnn-venv/bin/activate
 cd /scratch/um09/hl4138/dmpnn
 TASK_LOG_DIR="/scratch/um09/hl4138/dmpnn/logs/octamer_cd/pilot/tasks"
 mkdir -p "$TASK_LOG_DIR"
-exec > >(tee -a "$TASK_LOG_DIR/oct_cd_pilot_1_${PBS_JOBID}.log") 2>&1
+exec > >(tee -a "$TASK_LOG_DIR/oct_cd_pilot_12_${PBS_JOBID}.log") 2>&1
 MANIFEST="/scratch/um09/hl4138/dmpnn/logs/octamer_cd/pilot/manifests/oct_cd_pilot.manifest"
-LINE="$(sed -n "2p" "$MANIFEST")"
+LINE="$(sed -n "13p" "$MANIFEST")"
 IFS=$'\t' read -r RUNNER MODEL TARGET FOLD SEED TOKEN PAYLOAD <<< "$LINE"
 OUTPUT="${PAYLOAD%%|*}"
 ARGS="${PAYLOAD#*|}"

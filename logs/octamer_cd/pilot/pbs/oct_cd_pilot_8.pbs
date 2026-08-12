@@ -19,10 +19,10 @@ mkdir -p "$TASK_LOG_DIR"
 exec > >(tee -a "$TASK_LOG_DIR/oct_cd_pilot_8_${PBS_JOBID}.log") 2>&1
 MANIFEST="/scratch/um09/hl4138/dmpnn/logs/octamer_cd/pilot/manifests/oct_cd_pilot.manifest"
 LINE="$(sed -n "9p" "$MANIFEST")"
-IFS=$'\t' read -r RUNNER MODEL TARGET FOLD SEED PAYLOAD <<< "$LINE"
+IFS=$'\t' read -r RUNNER MODEL TARGET FOLD SEED TOKEN PAYLOAD <<< "$LINE"
 OUTPUT="${PAYLOAD%%|*}"
 ARGS="${PAYLOAD#*|}"
-BASE_OUTPUT="${OUTPUT%__arm*.npz}.npz"
+BASE_OUTPUT="${OUTPUT%${TOKEN}.npz}.npz"
 BASE_CONFIG="${BASE_OUTPUT%.npz}.config.json"
 [[ -n "$RUNNER" && -n "$OUTPUT" && "$ARGS" != "$PAYLOAD" ]] || { printf 'Malformed manifest row: %s\n' "$LINE" >&2; exit 2; }
 if [[ -f "$OUTPUT" && -f "${OUTPUT%.npz}.config.json" ]]; then
@@ -35,7 +35,7 @@ if [[ -e "$OUTPUT" || -e "${OUTPUT%.npz}.config.json" || -e "$BASE_OUTPUT" || -e
 fi
 nvidia-smi
 eval "set -- $ARGS"
-printf 'runner=%s model=%s target=%s fold=%s seed=%s\n' "$RUNNER" "$MODEL" "$TARGET" "$FOLD" "$SEED"
+printf 'runner=%s model=%s target=%s fold=%s seed=%s token=%s\n' "$RUNNER" "$MODEL" "$TARGET" "$FOLD" "$SEED" "$TOKEN"
 python "$RUNNER" "$@"
 test -f "$BASE_OUTPUT" || { printf 'Runner did not create expected NPZ: %s\n' "$BASE_OUTPUT" >&2; exit 1; }
 test -f "$BASE_CONFIG" || { printf 'Runner did not create provenance sidecar: %s\n' "$BASE_CONFIG" >&2; exit 1; }

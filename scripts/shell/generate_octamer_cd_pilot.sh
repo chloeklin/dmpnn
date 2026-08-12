@@ -1,9 +1,13 @@
 #!/bin/bash
-# Generate PBS scripts for the arms C and D pilot on R1.
+# Generate PBS scripts for the arms C and D pilot on R1, plus the single
+# missing K=1 IP fold-7 seed-44 cell.
 #
 # Arm C: 2-node transition graph + attention readout (hpg_hier + attention).
 # Arm D: 8-slot octamer chain + stoichiometry-weighted / mean readout
 #        (hpg_hier_octamer with --stage2_readout stoich_weighted).
+#
+# K=1:  hpg_hier_octamer, IP, monomer_b_heldout_clustered, fold 7, seed 44,
+#        n_random_samples 1, output stamped with __k1.
 #
 # Pre-registered in analysis/model_diagnostics/PREREG_arms_CD_2026-08-11.md.
 #
@@ -78,7 +82,7 @@ for seed in "${SEEDS[@]}"; do
 
         runner="scripts/python/run_hpg_generalization.py"
         args="--split_types $SPLIT_TYPE --folds $fold --targets '$TARGET' --models $ARM_C_MODEL $ARM_C_ARGS --seed $seed --split_seed 42 --epochs 100 --patience 15 --min_epochs 1 --batch_size 64 --frozen_protocol --prediction_dir '$PREDICTION_ROOT' --checkpoint_dir '$CHECKPOINT_ROOT/hpg'"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$runner" "$ARM_C_MODEL" "$TARGET_TOKEN" "$fold" "$seed" "$output|$args" >> "$MANIFEST"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$runner" "$ARM_C_MODEL" "$TARGET_TOKEN" "$fold" "$seed" "$ARM_C_TOKEN" "$output|$args" >> "$MANIFEST"
 
         # Arm D
         output="$PREDICTION_ROOT/$SPLIT_SUBDIR/ea_ip__${TARGET_TOKEN}__${ARM_D_MODEL}__${SPLIT_TYPE}__fold${fold}__s${seed}${ARM_D_TOKEN}.npz"
@@ -94,12 +98,42 @@ for seed in "${SEEDS[@]}"; do
 
         runner="scripts/python/run_hpg_generalization.py"
         args="--split_types $SPLIT_TYPE --folds $fold --targets '$TARGET' --models $ARM_D_MODEL $ARM_D_ARGS --seed $seed --split_seed 42 --epochs 100 --patience 15 --min_epochs 1 --batch_size 64 --frozen_protocol --prediction_dir '$PREDICTION_ROOT' --checkpoint_dir '$CHECKPOINT_ROOT/hpg'"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$runner" "$ARM_D_MODEL" "$TARGET_TOKEN" "$fold" "$seed" "$output|$args" >> "$MANIFEST"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$runner" "$ARM_D_MODEL" "$TARGET_TOKEN" "$fold" "$seed" "$ARM_D_TOKEN" "$output|$args" >> "$MANIFEST"
     done
 done
 
+# K=1 missing IP fold-7 seed-44 cell.  The frozen fields match the existing
+# seed-42 sidecar in predictions/octamer_k1/ea_ip_lomo_b_clustered/.
+K1_TARGET_TOKEN="IP_vs_SHE_eV"
+K1_TARGET="IP vs SHE (eV)"
+K1_SPLIT="monomer_b_heldout_clustered"
+K1_SUBDIR="ea_ip_lomo_b_clustered"
+K1_FOLD=7
+K1_SEED=44
+K1_MODEL="hpg_hier_octamer"
+K1_TOKEN="__k1"
+K1_PREDICTION_ROOT="$PROJECT_DIR/predictions/octamer_k1"
+K1_CHECKPOINT_ROOT="$PROJECT_DIR/checkpoints/octamer_k1"
+K1_ARGS="--stage1_pool sum --stage2_depth 2 --stage2_edge full --octamer_len 8 --n_random_samples 1"
+K1_COMPARATOR="hpg_hier_octamer"
+
+k1_output="$K1_PREDICTION_ROOT/$K1_SUBDIR/ea_ip__${K1_TARGET_TOKEN}__${K1_MODEL}__${K1_SPLIT}__fold${K1_FOLD}__s${K1_SEED}${K1_TOKEN}.npz"
+k1_local_output="$LOCAL_PROJECT/predictions/octamer_k1/$K1_SUBDIR/ea_ip__${K1_TARGET_TOKEN}__${K1_MODEL}__${K1_SPLIT}__fold${K1_FOLD}__s${K1_SEED}${K1_TOKEN}.npz"
+k1_local_k16="$LOCAL_K16_PREDICTION_ROOT/$K1_SUBDIR/ea_ip__${K1_TARGET_TOKEN}__${K1_COMPARATOR}__${K1_SPLIT}__fold${K1_FOLD}__s${K1_SEED}.npz"
+
+if [[ -e "$k1_local_output" || -e "${k1_local_output%.npz}.config.json" ]]; then
+    PREEXISTING+=("$k1_local_output")
+fi
+if [[ ! -f "$k1_local_k16" ]]; then
+    MISSING_COMPARATORS+=("$k1_local_k16")
+fi
+
+runner="scripts/python/run_hpg_generalization.py"
+args="--split_types $K1_SPLIT --folds $K1_FOLD --targets '$K1_TARGET' --models $K1_MODEL $K1_ARGS --seed $K1_SEED --split_seed 42 --epochs 100 --patience 15 --min_epochs 1 --batch_size 64 --frozen_protocol --prediction_dir '$K1_PREDICTION_ROOT' --checkpoint_dir '$K1_CHECKPOINT_ROOT/hpg'"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$runner" "$K1_MODEL" "$K1_TARGET_TOKEN" "$K1_FOLD" "$K1_SEED" "$K1_TOKEN" "$k1_output|$args" >> "$MANIFEST"
+
 TOTAL_RUNS="$(wc -l < "$MANIFEST" | tr -d ' ')"
-EXPECTED_RUNS=$((2 * 2 * 3))
+EXPECTED_RUNS=$((2 * 2 * 3 + 1))
 [[ "$TOTAL_RUNS" -eq "$EXPECTED_RUNS" ]] || { printf 'Expected %s runs, generated %s\n' "$EXPECTED_RUNS" "$TOTAL_RUNS" >&2; exit 1; }
 
 if [[ ${#PREEXISTING[@]} -gt 0 ]]; then
@@ -140,10 +174,10 @@ mkdir -p "\$TASK_LOG_DIR"
 exec > >(tee -a "\$TASK_LOG_DIR/${name}_\${PBS_JOBID}.log") 2>&1
 MANIFEST="$PROJECT_DIR/logs/octamer_cd/pilot/manifests/$(basename "$MANIFEST")"
 LINE="\$(sed -n "${line_num}p" "\$MANIFEST")"
-IFS=\$'\\t' read -r RUNNER MODEL TARGET FOLD SEED PAYLOAD <<< "\$LINE"
+IFS=\$'\t' read -r RUNNER MODEL TARGET FOLD SEED TOKEN PAYLOAD <<< "\$LINE"
 OUTPUT="\${PAYLOAD%%|*}"
 ARGS="\${PAYLOAD#*|}"
-BASE_OUTPUT="\${OUTPUT%__arm*.npz}.npz"
+BASE_OUTPUT="\${OUTPUT%\${TOKEN}.npz}.npz"
 BASE_CONFIG="\${BASE_OUTPUT%.npz}.config.json"
 [[ -n "\$RUNNER" && -n "\$OUTPUT" && "\$ARGS" != "\$PAYLOAD" ]] || { printf 'Malformed manifest row: %s\\n' "\$LINE" >&2; exit 2; }
 if [[ -f "\$OUTPUT" && -f "\${OUTPUT%.npz}.config.json" ]]; then
@@ -156,7 +190,7 @@ if [[ -e "\$OUTPUT" || -e "\${OUTPUT%.npz}.config.json" || -e "\$BASE_OUTPUT" ||
 fi
 nvidia-smi
 eval "set -- \$ARGS"
-printf 'runner=%s model=%s target=%s fold=%s seed=%s\\n' "\$RUNNER" "\$MODEL" "\$TARGET" "\$FOLD" "\$SEED"
+printf 'runner=%s model=%s target=%s fold=%s seed=%s token=%s\\n' "\$RUNNER" "\$MODEL" "\$TARGET" "\$FOLD" "\$SEED" "\$TOKEN"
 python "\$RUNNER" "\$@"
 test -f "\$BASE_OUTPUT" || { printf 'Runner did not create expected NPZ: %s\\n' "\$BASE_OUTPUT" >&2; exit 1; }
 test -f "\$BASE_CONFIG" || { printf 'Runner did not create provenance sidecar: %s\\n' "\$BASE_CONFIG" >&2; exit 1; }
@@ -181,8 +215,8 @@ done < "$MANIFEST"
 ESTIMATED_SU=$(awk -v n="$TOTAL_RUNS" -v s="$SU_PER_RUN" 'BEGIN { printf "%.0f", n * s }')
 ESTIMATED_KSU=$(awk -v su="$ESTIMATED_SU" 'BEGIN { printf "%.1f", su / 1000 }')
 
-printf 'Arms C/D pilot cells: %s\n' "$EXPECTED_RUNS"
-printf 'Arms C/D pilot runs: %s\n' "$TOTAL_RUNS"
+printf 'Pilot batch cells: %s\n' "$EXPECTED_RUNS"
+printf 'Pilot batch runs: %s\n' "$TOTAL_RUNS"
 printf 'Estimated cost: %s runs x %s SU ≈ %s kSU\n' "$TOTAL_RUNS" "$SU_PER_RUN" "$ESTIMATED_KSU"
 printf 'Charging project: %s\n' "$PROJECT"
 printf 'Per-task PBS files: %s\n' "${#PBS_LIST[@]}"
