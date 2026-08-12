@@ -205,10 +205,10 @@ def _resolve_lr_config(model) -> dict:
     }
 
 
-def build_wdmpnn_model(n_targets=1):
+def build_wdmpnn_model(n_targets=1, monomer_readout=False):
     """Build a wDMPNN model with standard configuration."""
     mp = nn.WeightedBondMessagePassing()
-    agg = nn.WeightedMeanAggregation()
+    agg = nn.MonomerLevelStoichAggregation() if monomer_readout else nn.WeightedMeanAggregation()
     ffn = nn.RegressionFFN(input_dim=mp.output_dim)
     mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)
     return mpnn
@@ -219,7 +219,7 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
                       all_group_ids=None, results_subdir=None,
                       training_seed=42, checkpoint_dir=None,
                       frozen_protocol=False, epochs=EPOCHS, patience=PATIENCE,
-                      batch_size=BATCH_SIZE):
+                      batch_size=BATCH_SIZE, monomer_readout=False):
     """Train wDMPNN for a single fold and return predictions + metadata.
 
     Parameters
@@ -233,6 +233,8 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
     results_subdir : str | None
         Override the checkpoint/predictions subdirectory name.  When None,
         uses the module-level CHECKPOINT_DIR / PREDICTIONS_DIR.
+    monomer_readout : bool
+        If True, use MonomerLevelStoichAggregation instead of WeightedMeanAggregation.
     """
 
     # Extract target values
@@ -264,10 +266,11 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
 
     # Build checkpoint path (include lambda tag for non-default runs)
     target_short = target.replace(' ', '_').replace('(', '').replace(')', '')
-    include_tag = (lambda_within > 0.0) or (results_subdir is not None)
-    lambda_suffix = f"__lw{_lambda_tag(lambda_within)}" if include_tag else ""
+    include_tag = (lambda_within > 0.0) or (results_subdir is not None) or monomer_readout
+    lambda_suffix = f"__lw{_lambda_tag(lambda_within)}" if lambda_within > 0.0 else ""
+    readout_suffix = "__m1" if monomer_readout else ""
     ckpt_base = Path(checkpoint_dir) if checkpoint_dir is not None else ((ROOT_DIR / 'checkpoints' / results_subdir) if results_subdir else CHECKPOINT_DIR)
-    ckpt_path = ckpt_base / f'ea_ip__{target_short}__wDMPNN__{split_type}__fold{fold_idx}{lambda_suffix}__s{training_seed}'
+    ckpt_path = ckpt_base / f'ea_ip__{target_short}__wDMPNN__{split_type}__fold{fold_idx}{lambda_suffix}{readout_suffix}__s{training_seed}'
     ckpt_path.mkdir(parents=True, exist_ok=True)
 
     # Metrics
@@ -287,7 +290,7 @@ def train_wdmpnn_fold(df, smis_wdmpnn, target, train_idx, val_idx, test_idx,
 
     # Build model (wDMPNN uses weighted message passing and aggregation)
     mp = nn.WeightedBondMessagePassing()
-    agg = nn.WeightedMeanAggregation()
+    agg = nn.MonomerLevelStoichAggregation() if monomer_readout else nn.WeightedMeanAggregation()
     output_transform = nn.UnscaleTransform.from_standard_scaler(scaler)
     ffn = nn.RegressionFFN(input_dim=mp.output_dim, output_transform=output_transform)
     if lambda_within > 0.0:
@@ -454,6 +457,10 @@ def main():
     parser.add_argument('--split_seed', type=int, default=42,
                        help='Fixed monomer-heldout split seed; must remain 42.')
     parser.add_argument('--b_split_metadata', type=Path, default=None)
+    parser.add_argument('--monomer_readout', action='store_true',
+                       help='Use MonomerLevelStoichAggregation (M1) instead of WeightedMeanAggregation.')
+    parser.add_argument('--m1_variant', type=str, choices=('ours', 'published'), default='ours',
+                       help='M1 variant label used in the filename suffix (ours=__m1, published=__m1pub).')
     cli_args = parser.parse_args()
 
     batch_size_explicit = cli_args.batch_size is not None
@@ -500,6 +507,8 @@ def main():
     print(f"  Lambda within: {lambda_within}")
     print(f"  Training seed: {training_seed}")
     print(f"  Results subdir: {results_subdir or '(default)'}")
+    print(f"  Monomer readout: {cli_args.monomer_readout}")
+    print(f"  M1 variant: {cli_args.m1_variant if cli_args.monomer_readout else 'n/a'}")
     print(f"  Dry run: {cli_args.dry_run}")
     print(f"  Predictions: {PREDICTIONS_DIR}")
     print(f"  Checkpoints: {CHECKPOINT_DIR}")
@@ -586,9 +595,11 @@ def main():
 
                 pred_base = cli_args.prediction_dir
                 _subdir = pred_base / split_subdir(split_type)
-                base_name = make_prediction_filename(target, 'wdmpnn', split_type, fold_idx, seed=training_seed)
+                model_token = 'wdmpnn_monomer_readout' if cli_args.monomer_readout else 'wdmpnn'
+                base_name = make_prediction_filename(target, model_token, split_type, fold_idx, seed=training_seed)
                 lw_file_tag = f"__lw{_lambda_tag(lambda_within)}" if lambda_within > 0.0 else ""
-                pred_file = _subdir / (base_name[:-4] + lw_file_tag + '.npz')
+                m1_file_tag = f"__m1{'pub' if cli_args.m1_variant == 'published' else ''}" if cli_args.monomer_readout else ""
+                pred_file = _subdir / (base_name[:-4] + lw_file_tag + m1_file_tag + '.npz')
                 if pred_file.is_file():
                     logger.info(f"    Skipping completed prediction: {pred_file}")
                     continue
@@ -605,6 +616,7 @@ def main():
                     epochs=cli_args.epochs,
                     patience=cli_args.patience,
                     batch_size=cli_args.batch_size,
+                    monomer_readout=cli_args.monomer_readout,
                 )
 
                 final_y_pred = training_summary.pop("_final_y_pred", None)
@@ -625,7 +637,7 @@ def main():
                     y_pred_final=(np.asarray([], dtype=np.float64) if final_y_pred is None else final_y_pred),
                     test_indices=te,
                     split_type=standard_split_name(split_type),
-                    model='wdmpnn',
+                    model=model_token,
                     target=standard_target_token(target),
                     fold=fold_idx,
                     seed=training_seed,
@@ -661,6 +673,8 @@ def main():
                         'seed': training_seed,
                         'split_seed': cli_args.split_seed,
                         'lambda_within': lambda_within,
+                        'monomer_readout': cli_args.monomer_readout,
+                        'm1_variant': cli_args.m1_variant if cli_args.monomer_readout else None,
                         'frozen_protocol': cli_args.frozen_protocol,
                         'split_indices_sha256': split_indices_sha256(tr, va, te),
                         **optimizer_lr_config,

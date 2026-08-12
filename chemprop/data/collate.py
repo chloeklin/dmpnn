@@ -20,6 +20,7 @@ class BatchPolymerMolGraph:
     V: Tensor = field(init=False)
     E: Tensor = field(init=False)
     atom_weights: Tensor = field(init=False)
+    monomer_index: Tensor = field(init=False)
     edge_weights: Tensor = field(init=False)
     edge_index: Tensor = field(init=False)
     rev_edge_index: Tensor = field(init=False)
@@ -42,6 +43,7 @@ class BatchPolymerMolGraph:
         Vs = []
         Es = []
         W_atoms_list = []
+        monomer_indexes = []
         W_bonds_list = []
         edge_indexes = []
         rev_edge_indexes = []
@@ -54,6 +56,7 @@ class BatchPolymerMolGraph:
             Vs.append(mg.V)
             Es.append(mg.E)
             W_atoms_list.append(mg.atom_weights)
+            monomer_indexes.append(mg.monomer_index)
             W_bonds_list.append(mg.edge_weights)
             edge_indexes.append(mg.edge_index + num_nodes)
             rev_edge_indexes.append(mg.rev_edge_index + num_edges)
@@ -66,6 +69,7 @@ class BatchPolymerMolGraph:
         self.V = torch.from_numpy(np.concatenate(Vs)).float()
         self.E = torch.from_numpy(np.concatenate(Es)).float()
         self.atom_weights = torch.from_numpy(np.concatenate(W_atoms_list)).float()
+        self.monomer_index = torch.from_numpy(np.concatenate(monomer_indexes)).long()
         self.edge_weights = torch.from_numpy(np.concatenate(W_bonds_list)).float()
         self.edge_index = torch.from_numpy(np.hstack(edge_indexes)).long()
         self.rev_edge_index = torch.from_numpy(np.concatenate(rev_edge_indexes)).long()
@@ -80,6 +84,7 @@ class BatchPolymerMolGraph:
         self.V = self.V.to(device)
         self.E = self.E.to(device)
         self.atom_weights = self.atom_weights.to(device)
+        self.monomer_index = self.monomer_index.to(device)
         self.edge_weights = self.edge_weights.to(device)
         self.edge_index = self.edge_index.to(device)
         self.rev_edge_index = self.rev_edge_index.to(device)

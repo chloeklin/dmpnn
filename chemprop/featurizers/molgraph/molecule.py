@@ -453,10 +453,27 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         # remove R groups -> now atoms in rdkit Mol object have the same order as self.f_atoms
         rwmol = remove_wildcard_atoms(rwmol)
 
+        # Determine monomer identity from connected components after R-group removal.
+        # This uses connectivity, not stoichiometry, so it is robust at fracA = 0.5
+        # where atom_weights alone cannot distinguish monomers.
+        frags = Chem.GetMolFrags(rwmol, asMols=False, sanitizeFrags=False)
+        if len(frags) != 2:
+            raise ValueError(
+                f"Expected 2 monomer fragments after wildcard removal, got {len(frags)} "
+                f"for molecule: {Chem.MolToSmiles(rwmol)}"
+            )
+        atom_to_monomer = {}
+        for monomer_id, atom_indices in enumerate(frags):
+            for idx in atom_indices:
+                atom_to_monomer[idx] = monomer_id
+        monomer_index = np.array(
+            [atom_to_monomer[i] for i in range(n_atoms)], dtype=np.int64
+        )
+
         # print("After wildcard removal:")
         # for atom in rwmol.GetAtoms():
         #     print(f"Atom {atom.GetIdx()}: {atom.GetSymbol()}")
-        
+
         E = []
         W_bonds = []
         a2b = []  # mapping from atom index to incoming bond indices
@@ -636,6 +653,7 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
             rev_edge_index=rev_edge_index,
             edge_weights=W_bonds,
             atom_weights=W_atoms,
+            monomer_index=monomer_index,
             degree_of_polym=degree_of_polym
         )
     @property

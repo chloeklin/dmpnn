@@ -71,6 +71,7 @@ MODEL_TO_POOLING = {
     "hpg_hier_wedge": "hpg_hier",
     "hpg_hier_octamer": "hpg_hier",
     "hpg_hier_octamer_stoich": "hpg_hier",
+    "hpg_hier_octamer_edges": "hpg_hier",
     "hpg_hier_attention": "hpg_hier",
     "hpg_hier_junction": "hpg_hier",
     "hpg_hier_junction1": "hpg_hier",
@@ -81,10 +82,29 @@ _VARIANT_FLAGS = {
     "hpg_hier_wedge":    {"stage2_edge_weight": "multiplier", "stage2_mode": "transition_graph", "stage2_readout": "stoich_weighted", "junction_coupling": "off", "n_coupling_steps": 0},
     "hpg_hier_octamer":  {"stage2_edge_weight": "feature",    "stage2_mode": "octamer_sequence", "stage2_readout": "attention", "junction_coupling": "off", "n_coupling_steps": 0},
     "hpg_hier_octamer_stoich": {"stage2_edge_weight": "feature", "stage2_mode": "octamer_sequence", "stage2_readout": "stoich_weighted", "junction_coupling": "off", "n_coupling_steps": 0},
+    # M2 — arm D's 8-slot topology + mean readout (stoich_weighted-on-octamer == mean pooling,
+    # HANDOFF §7), with the 17-d junction edge features restored into the path layers.
+    # M2 vs HPG-hier isolates topology; arm D vs M2 isolates the edge features.
+    "hpg_hier_octamer_edges": {"stage2_edge_weight": "feature", "stage2_mode": "octamer_sequence", "stage2_readout": "stoich_weighted", "junction_coupling": "off", "n_coupling_steps": 0, "octamer_edge_features": True},
     "hpg_hier_attention": {"stage2_edge_weight": "feature", "stage2_mode": "transition_graph", "stage2_readout": "attention", "junction_coupling": "off", "n_coupling_steps": 0},
     "hpg_hier_junction": {"stage2_edge_weight": "feature",    "stage2_mode": "transition_graph", "stage2_readout": "stoich_weighted", "junction_coupling": "on",  "n_coupling_steps": 2},
     "hpg_hier_junction1": {"stage2_edge_weight": "feature",   "stage2_mode": "transition_graph", "stage2_readout": "stoich_weighted", "junction_coupling": "on",  "n_coupling_steps": 1},
 }
+
+
+def _resolve_variant(model_token: str, args) -> dict:
+    """Resolve the variant flag table with any CLI overrides.
+
+    Returns a fresh dict describing what the model will actually use, including
+    the resolved ``stage2_readout`` (overridable via ``--stage2_readout``) and a
+    default for ``octamer_edge_features`` so the sidecar is self-contained.
+    """
+    variant = _VARIANT_FLAGS.get(model_token, _VARIANT_FLAGS["hpg_hier"])
+    resolved = dict(variant)
+    resolved.setdefault("octamer_edge_features", False)
+    resolved["stage2_readout"] = args.stage2_readout or resolved["stage2_readout"]
+    return resolved
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -335,9 +355,9 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
         DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, collate_fn=two_stage_hpg_collate_fn, num_workers=args.num_workers),
         DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=two_stage_hpg_collate_fn, num_workers=args.num_workers),
     ]
-    variant = _VARIANT_FLAGS.get(model_token, _VARIANT_FLAGS["hpg_hier"])
-    resolved_stage2_readout = args.stage2_readout or variant["stage2_readout"]
-    if variant["stage2_mode"] == "octamer_sequence" and resolved_stage2_readout not in {"attention", "stoich_weighted"}:
+    resolved_variant = _resolve_variant(model_token, args)
+    resolved_stage2_readout = resolved_variant["stage2_readout"]
+    if resolved_variant["stage2_mode"] == "octamer_sequence" and resolved_stage2_readout not in {"attention", "stoich_weighted"}:
         raise ValueError(
             f"octamer_sequence with readout '{resolved_stage2_readout}' is not implemented — "
             "only 'attention' and 'stoich_weighted' are supported. "
@@ -347,14 +367,15 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
     model = HPGHierMPNN(
         atom_fdim=75, bond_fdim=graphs[0].monomer_graphs[0].E.shape[1], d_h=128,
         stage1_pool=args.stage1_pool, stage2_depth=args.stage2_depth,
-        stage2_edge_weight=variant["stage2_edge_weight"],
-        stage2_mode=variant["stage2_mode"],
-        stage2_readout=resolved_stage2_readout,
+        stage2_edge_weight=resolved_variant["stage2_edge_weight"],
+        stage2_mode=resolved_variant["stage2_mode"],
+        stage2_readout=resolved_variant["stage2_readout"],
         octamer_len=args.octamer_len,
         n_random_samples=args.n_random_samples,
-        junction_coupling=variant["junction_coupling"],
-        n_coupling_steps=variant["n_coupling_steps"],
+        junction_coupling=resolved_variant["junction_coupling"],
+        n_coupling_steps=resolved_variant["n_coupling_steps"],
         use_position_embeddings=(args.octamer_position_embeddings == "on"),
+        octamer_edge_features=resolved_variant["octamer_edge_features"],
     )
     model._output_transform = UnscaleTransform.from_standard_scaler(scaler)
     checkpoint = ModelCheckpoint(dirpath=str(checkpoint_path), monitor="val_loss", mode="min", save_top_k=1, save_last=True)
@@ -546,7 +567,10 @@ def main() -> None:
                         ).strip()
                     except (OSError, subprocess.CalledProcessError):
                         git_commit = None
-                    resolved_variant = _VARIANT_FLAGS.get(model_token, {})
+                    assert resolved_variant["stage2_readout"] == resolved_stage2_readout, (
+                        f"resolved_variant['stage2_readout'] ({resolved_variant['stage2_readout']!r}) "
+                        f"does not match resolved_stage2_readout ({resolved_stage2_readout!r})"
+                    )
                     n_octamer_params = int(training_summary.pop("n_octamer_params", 0))
                     provenance = {
                         "cli_args": vars(args),
@@ -558,12 +582,13 @@ def main() -> None:
                             "frozen_protocol": args.frozen_protocol,
                             "allow_non_cuda": args.allow_non_cuda,
                             "octamer_position_embeddings": args.octamer_position_embeddings,
+                            "octamer_len": args.octamer_len,
                             "n_octamer_params": int(n_octamer_params),
                             "split_indices_sha256": split_indices_sha256(trains[fold], vals[fold], tests[fold]),
                             **optimizer_lr_config,
                         },
                         "resolved_variant": resolved_variant,
-                        "resolved_stage2_readout": args.stage2_readout or resolved_variant.get("stage2_readout"),
+                        "resolved_stage2_readout": resolved_stage2_readout,
                         "git_commit": git_commit,
                         "pbs_job_id": os.environ.get("PBS_JOBID"),
                         "runtime_environment": runtime_environment(),

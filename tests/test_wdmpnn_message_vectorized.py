@@ -23,22 +23,24 @@ def _make_test_batch(device: torch.device) -> BatchPolymerMolGraph:
     V1 = np.zeros((4, 5), dtype=np.float32)
     E1 = np.zeros((4, 6), dtype=np.float32)
     atom_weights1 = np.ones(4, dtype=np.float32)
+    monomer_index1 = np.array([0, 0, 1, 1], dtype=np.int64)
     edge_weights1 = np.array([0.5, 0.6, 0.7, 0.8], dtype=np.float32)
     edge_index1 = np.array([[0, 1, 2, 1], [1, 0, 1, 2]], dtype=np.int64)
     rev_edge_index1 = np.array([1, 0, 3, 2], dtype=np.int64)
     mg1 = PolymerMolGraph(
-        V1, E1, atom_weights1, edge_weights1, edge_index1, rev_edge_index1, np.float64(1.0)
+        V1, E1, atom_weights1, monomer_index1, edge_weights1, edge_index1, rev_edge_index1, np.float64(1.0)
     )
 
     # Graph 2: 2 atoms, single undirected bond -> 2 directed edges.
     V2 = np.zeros((2, 5), dtype=np.float32)
     E2 = np.zeros((2, 6), dtype=np.float32)
     atom_weights2 = np.ones(2, dtype=np.float32)
+    monomer_index2 = np.array([0, 1], dtype=np.int64)
     edge_weights2 = np.array([0.9, 1.0], dtype=np.float32)
     edge_index2 = np.array([[0, 1], [1, 0]], dtype=np.int64)
     rev_edge_index2 = np.array([1, 0], dtype=np.int64)
     mg2 = PolymerMolGraph(
-        V2, E2, atom_weights2, edge_weights2, edge_index2, rev_edge_index2, np.float64(1.0)
+        V2, E2, atom_weights2, monomer_index2, edge_weights2, edge_index2, rev_edge_index2, np.float64(1.0)
     )
 
     bmg = BatchPolymerMolGraph([mg1, mg2])
@@ -93,11 +95,12 @@ def test_empty_batch():
     V = np.zeros((2, 5), dtype=np.float32)
     E = np.zeros((0, 6), dtype=np.float32)
     atom_weights = np.ones(2, dtype=np.float32)
+    monomer_index = np.array([0, 1], dtype=np.int64)
     edge_weights = np.zeros(0, dtype=np.float32)
     edge_index = np.zeros((2, 0), dtype=np.int64)
     rev_edge_index = np.zeros(0, dtype=np.int64)
     mg = PolymerMolGraph(
-        V, E, atom_weights, edge_weights, edge_index, rev_edge_index, np.float64(1.0)
+        V, E, atom_weights, monomer_index, edge_weights, edge_index, rev_edge_index, np.float64(1.0)
     )
 
     bmg = BatchPolymerMolGraph([mg])

@@ -33,6 +33,10 @@ class PolymerMolGraph(NamedTuple):
     """An array of shape ``[num_atoms]`` containing stoichiometric weights for each atom,
     used for weighted pooling based on monomer ratios."""
 
+    monomer_index: np.ndarray
+    """An array of shape ``[num_atoms]`` containing the monomer identity of each atom,
+    0 for monomer A and 1 for monomer B."""
+
     edge_weights: np.ndarray
     """An array of shape ``[num_bonds]`` containing edge weights (w_{uv} ∈ (0,1]) for each directed bond,
     used to model stochastic connectivity between monomer units."""

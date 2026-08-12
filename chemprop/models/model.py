@@ -14,7 +14,7 @@ from chemprop.nn import Aggregation, ChempropMetric, MessagePassing, Predictor
 from chemprop.nn.transforms import ScaleTransform
 from chemprop.schedulers import build_NoamLike_LRSched
 from chemprop.utils.registry import Factory
-from chemprop.nn.agg import WeightedMeanAggregation
+from chemprop.nn.agg import MonomerLevelStoichAggregation, WeightedMeanAggregation
 
 logger = logging.getLogger(__name__)
 
@@ -156,8 +156,8 @@ class MPNN(pl.LightningModule):
         else:
             H_v = self.message_passing(bmg, V_d)
 
-        if isinstance(self.agg, WeightedMeanAggregation):
-            H = self.agg(H_v, bmg)         # gives it access to .atom_weights
+        if isinstance(self.agg, (WeightedMeanAggregation, MonomerLevelStoichAggregation)):
+            H = self.agg(H_v, bmg)         # gives it access to .atom_weights / .monomer_index
         else:
             H = self.agg(H_v, bmg.batch)   # standard aggregations
 

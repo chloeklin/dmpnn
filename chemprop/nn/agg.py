@@ -16,6 +16,7 @@ __all__ = [
     "AttentiveAggregation",
     "IdentityAggregation",
     "WeightedMeanAggregation",
+    "MonomerLevelStoichAggregation",
 ]
 
 
@@ -220,3 +221,74 @@ class WeightedMeanAggregation(Aggregation):
         ).clamp_min_(1e-12)
 
         return num / den
+
+
+@AggregationRegistry.register("monomer_level_stoich")
+class MonomerLevelStoichAggregation(Aggregation):
+    r"""
+    Polymer readout that first pools atom embeddings to two monomer vectors,
+    then combines them with stoichiometric weights.
+
+    For each polymer p:
+        h_A = mean_{v in p, monomer(v)=0} H_v
+        h_B = mean_{v in p, monomer(v)=1} H_v
+        g_p = f_A * h_A + f_B * h_B
+
+    where f_A and f_B are the mole fractions stored in ``atom_weights``.
+    The monomer-level mean is unweighted; stoichiometry is applied once at the
+    monomer level.
+
+    Requires a :class:`~chemprop.data.collate.BatchPolymerMolGraph` with
+    ``.batch``, ``.atom_weights``, and ``.monomer_index`` attributes.
+    """
+
+    def forward(self, H: Tensor, bmg: Any) -> Tensor:
+        batch = bmg.batch
+        atom_weights = bmg.atom_weights.to(H.dtype).to(H.device)
+        monomer_index = bmg.monomer_index.to(H.device)
+
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() else 1
+        d = H.size(1)
+
+        # Build a per-node key: graph index * 2 + monomer index.
+        # This lets us aggregate per (graph, monomer) in one scatter_reduce.
+        key = batch * 2 + monomer_index  # [num_nodes]
+        num_keys = num_graphs * 2
+
+        # Mean pool within each monomer. scatter_reduce with reduce="mean" handles
+        # empty keys by leaving zeros, so monomers with no atoms do not produce NaN.
+        index = key.unsqueeze(1).expand(-1, d)
+        monomer_emb = torch.zeros(num_keys, d, dtype=H.dtype, device=H.device).scatter_reduce_(
+            self.dim, index, H, reduce="mean", include_self=False
+        )
+
+        # Verify every polymer has two monomer embeddings (no empty monomer).
+        count_per_key = torch.zeros(num_keys, 1, dtype=H.dtype, device=H.device).scatter_reduce_(
+            self.dim, key.unsqueeze(1), torch.ones(H.size(0), 1, dtype=H.dtype, device=H.device),
+            reduce="sum", include_self=False
+        )
+        # Reshape to [num_graphs, 2]
+        counts = count_per_key.view(num_graphs, 2)
+        if torch.any(counts == 0):
+            raise ValueError("MonomerLevelStoichAggregation encountered a polymer with zero atoms in one monomer")
+
+        # Monomer stoichiometry: take the (constant) atom_weight for each (graph, monomer).
+        # Use scatter_reduce amax then verify all atoms of a monomer share the same weight.
+        weight_per_key = torch.zeros(num_keys, 1, dtype=H.dtype, device=H.device).scatter_reduce_(
+            self.dim, key.unsqueeze(1), atom_weights.unsqueeze(1),
+            reduce="amax", include_self=False
+        )
+        weight_min = torch.zeros(num_keys, 1, dtype=H.dtype, device=H.device).scatter_reduce_(
+            self.dim, key.unsqueeze(1), atom_weights.unsqueeze(1),
+            reduce="amin", include_self=False
+        )
+        if not torch.allclose(weight_per_key, weight_min, atol=1e-5):
+            raise ValueError("atom_weights are not constant within a monomer")
+
+        # Reshape to [num_graphs, 2]
+        monomer_emb = monomer_emb.view(num_graphs, 2, d)
+        weights = weight_per_key.view(num_graphs, 2)
+
+        # Weighted sum of monomer embeddings.
+        graph_emb = (monomer_emb * weights.unsqueeze(-1)).sum(dim=1)  # [num_graphs, d]
+        return graph_emb

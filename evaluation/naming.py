@@ -73,12 +73,14 @@ _MODEL_TO_TOKEN = {
     # wDMPNN
     "wDMPNN":                  "wdmpnn",
     "wdmpnn":                  "wdmpnn",
+    "wdmpnn_monomer_readout":  "wdmpnn_monomer_readout",
     # HPG baselines
     "hpg_sum":                 "hpg_sum",
     "hpg_frac":                "hpg_frac",
     "hpg_hier":                "hpg_hier",
     "hpg_hier_wedge":          "hpg_hier_wedge",
     "hpg_hier_octamer":        "hpg_hier_octamer",
+    "hpg_hier_octamer_edges":  "hpg_hier_octamer_edges",
     "hpg_hier_junction":       "hpg_hier_junction",
     "hpg_hier_junction1":      "hpg_hier_junction1",
     "hpg_hier_attention":      "hpg_hier_attention",
@@ -88,8 +90,8 @@ _MODEL_TO_TOKEN = {
     "chemarch":                "chemarch",
 }
 
-CANONICAL_MODELS = ["frac", "wdmpnn", "globalarch", "chemarch", "hpg_sum", "hpg_frac", "hpg_hier",
-                    "hpg_hier_wedge", "hpg_hier_octamer", "hpg_hier_junction", "hpg_hier_junction1",
+CANONICAL_MODELS = ["frac", "wdmpnn", "wdmpnn_monomer_readout", "globalarch", "chemarch", "hpg_sum", "hpg_frac", "hpg_hier",
+                    "hpg_hier_wedge", "hpg_hier_octamer", "hpg_hier_octamer_edges", "hpg_hier_junction", "hpg_hier_junction1",
                     "hpg_hier_attention"]
 
 

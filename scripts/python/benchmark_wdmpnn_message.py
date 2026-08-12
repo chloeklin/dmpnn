@@ -55,10 +55,12 @@ def _random_polymer_molgraph(
     # message-passing benchmark because the reverse message is just indexed).
     rev_edge_index = np.arange(num_bonds - 1, -1, -1, dtype=np.int64)
 
+    monomer_index = rng.integers(0, 2, size=num_atoms, dtype=np.int64)
     return PolymerMolGraph(
         V=V,
         E=E,
         atom_weights=atom_weights,
+        monomer_index=monomer_index,
         edge_weights=edge_weights,
         edge_index=edge_index,
         rev_edge_index=rev_edge_index,

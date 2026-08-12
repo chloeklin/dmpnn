@@ -49,16 +49,34 @@ class Stage2Layer(nn.Module):
 
 
 class OctamerPathLayer(nn.Module):
-    """One step of bidirectional path message passing for the octamer encoder (no edge features)."""
-    def __init__(self, d_h: int):
+    """One step of bidirectional path message passing for the octamer encoder.
+
+    edge_dim=None (default): message = MLP(h_src)                     -- original, no edge features
+                                                                          (arm D / octamer, unchanged).
+    edge_dim=d_e, mode='feature': message = MLP([h_src; e])            -- M2 (hpg_hier_octamer_edges),
+                                                                          matches Stage2Layer mode='feature'.
+    Only mode='feature' is implemented for edge_dim is not None; this deliberately mirrors
+    stage2_edge_weight="feature", which is what every current HPG run uses.
+    """
+    def __init__(self, d_h: int, edge_dim: int | None = None, mode: str = "feature"):
         super().__init__()
-        self.msg = nn.Linear(d_h, d_h)
+        if edge_dim is not None and mode != "feature":
+            raise ValueError(f"OctamerPathLayer only supports mode='feature' with edge features, got {mode!r}")
+        self.edge_dim = edge_dim
+        d_msg_in = d_h if edge_dim is None else d_h + edge_dim
+        self.msg = nn.Linear(d_msg_in, d_h)
         self.update = nn.Sequential(nn.Linear(2 * d_h, d_h), nn.ReLU(), nn.Linear(d_h, d_h))
         self.norm = nn.LayerNorm(d_h)
 
-    def forward(self, h: Tensor, edge_index: Tensor, n_nodes: int) -> Tensor:
+    def forward(self, h: Tensor, edge_index: Tensor, n_nodes: int, edge_features: Tensor | None = None) -> Tensor:
         src, dst = edge_index
-        agg = _scatter_sum(self.msg(h[src]), dst, n_nodes)
+        if self.edge_dim is None:
+            msg_in = h[src]
+        else:
+            if edge_features is None:
+                raise ValueError("edge_features is required when edge_dim is not None")
+            msg_in = torch.cat([h[src], edge_features], dim=-1)
+        agg = _scatter_sum(self.msg(msg_in), dst, n_nodes)
         return self.norm(h + self.update(torch.cat([h, agg], dim=-1)))
 
 
@@ -90,15 +108,25 @@ class OctamerEncoder(nn.Module):
     monomer_embeds: (2*n_polymers, d_h) -- h[2p]=A, h[2p+1]=B for polymer p
     octamer_sequences: (n_polymers*K, octamer_len) long  -- values 0 (A) or 1 (B)
     octamer_polymer_batch: (n_polymers*K,) long  -- which polymer each replicate belongs to
+
+    edge_dim=None (default): path layers carry no edge features (arm D / octamer, unchanged).
+    edge_dim=d_e: each directed path edge (slot i -> slot i+1, or reverse) is given the 17-d
+        monomer-pair feature block['s (m_i, m_j) entry -- the same vector Stage2Layer would use
+        for the (m_i, m_j) transition-graph edge (M2 / hpg_hier_octamer_edges).
     """
-    def __init__(self, d_h: int, octamer_len: int, n_layers: int, use_position_embeddings: bool = True, readout: str = "attention"):
+    def __init__(
+        self, d_h: int, octamer_len: int, n_layers: int,
+        use_position_embeddings: bool = True, readout: str = "attention",
+        edge_dim: int | None = None,
+    ):
         super().__init__()
         if readout not in {"attention", "mean"}:
             raise ValueError(f"Unknown OctamerEncoder readout={readout!r}")
         self.d_h = d_h
         self.octamer_len = octamer_len
         self.readout = readout
-        self.layers = nn.ModuleList([OctamerPathLayer(d_h) for _ in range(n_layers)])
+        self.edge_dim = edge_dim
+        self.layers = nn.ModuleList([OctamerPathLayer(d_h, edge_dim=edge_dim) for _ in range(n_layers)])
         self.attention_readout = AttentionReadout(d_h) if readout == "attention" else None
         if use_position_embeddings:
             self.position_embeddings = nn.Parameter(torch.empty(octamer_len, d_h))
@@ -115,7 +143,28 @@ class OctamerEncoder(nn.Module):
         dst = (tmpl_dst.unsqueeze(0) + offsets).reshape(-1)
         return torch.stack([src, dst])  # (2, n_reps * 2*(L-1))
 
-    def forward(self, monomer_embeds: Tensor, octamer_sequences: Tensor, octamer_polymer_batch: Tensor) -> Tensor:
+    @staticmethod
+    def _gather_path_edge_features(
+        edge_index: Tensor, octamer_sequences: Tensor, octamer_polymer_batch: Tensor,
+        monomer_pair_features: Tensor, L: int,
+    ) -> Tensor:
+        """For each directed path edge, look up the (source monomer, target monomer) feature.
+
+        monomer_pair_features: (n_polymers, 2, 2, d_e), where [p, m_i, m_j] is the same 17-d
+        vector _stage2_edges would emit for the (m_i, m_j) transition-graph edge of polymer p.
+        """
+        src, dst = edge_index
+        rep_src, pos_src = src // L, src % L
+        rep_dst, pos_dst = dst // L, dst % L
+        m_src = octamer_sequences[rep_src, pos_src]
+        m_dst = octamer_sequences[rep_dst, pos_dst]
+        polymer_id = octamer_polymer_batch[rep_src]
+        return monomer_pair_features[polymer_id, m_src, m_dst]
+
+    def forward(
+        self, monomer_embeds: Tensor, octamer_sequences: Tensor, octamer_polymer_batch: Tensor,
+        monomer_pair_features: Tensor | None = None,
+    ) -> Tensor:
         n_reps, L = octamer_sequences.shape
         # Map sequence values (0/1) to global monomer indices 2p or 2p+1
         global_mon = 2 * octamer_polymer_batch.unsqueeze(1) + octamer_sequences  # (n_reps, L)
@@ -125,8 +174,15 @@ class OctamerEncoder(nn.Module):
         h_flat = h.reshape(n_reps * L, self.d_h)
         edge_index = self._make_path_edge_index(n_reps, L, device=h_flat.device)
         n_nodes = n_reps * L
+        edge_features = None
+        if self.edge_dim is not None:
+            if monomer_pair_features is None:
+                raise ValueError("monomer_pair_features is required when edge_dim is not None")
+            edge_features = self._gather_path_edge_features(
+                edge_index, octamer_sequences, octamer_polymer_batch, monomer_pair_features, L
+            )
         for layer in self.layers:
-            h_flat = layer(h_flat, edge_index, n_nodes)
+            h_flat = layer(h_flat, edge_index, n_nodes, edge_features)
         h = h_flat.reshape(n_reps, L, self.d_h)
         if self.readout == "attention":
             return self.attention_readout(h)
@@ -156,6 +212,9 @@ class HPGHierMPNN(pl.LightningModule):
     Variant 1 — hpg_hier_wedge  : stage2_edge_weight in {"feature", "multiplier", "both"}
     Variant 2 — hpg_hier_octamer: stage2_mode in {"transition_graph", "octamer_sequence"}
     Variant 3 — hpg_hier_junction: junction_coupling in {"off", "on"}
+    M2 — hpg_hier_octamer_edges: octamer_edge_features=True carries the 17-d monomer-pair
+         junction feature (the same one Stage2Layer consumes) into the octamer path layers,
+         holding the 8-slot topology fixed while restoring the edge features arm D discards.
     """
     def __init__(
         self,
@@ -176,6 +235,7 @@ class HPGHierMPNN(pl.LightningModule):
         junction_coupling: str = "off",
         n_coupling_steps: int = 2,
         use_position_embeddings: bool = True,
+        octamer_edge_features: bool = False,
     ):
         super().__init__()
         if stage1_pool not in {"sum", "mean", "attention"}:
@@ -196,6 +256,14 @@ class HPGHierMPNN(pl.LightningModule):
                 "only 'attention' and 'stoich_weighted' are supported. "
                 "See HANDOFF §7 (arm D is now implemented)."
             )
+        if octamer_edge_features and stage2_mode != "octamer_sequence":
+            raise ValueError("octamer_edge_features=True requires stage2_mode='octamer_sequence'")
+        if octamer_edge_features and stage2_edge_weight != "feature":
+            raise ValueError(
+                "octamer_edge_features only supports stage2_edge_weight='feature' — "
+                "OctamerPathLayer implements the same message construction Stage2Layer uses "
+                "in 'feature' mode, and 'multiplier'/'both' are not implemented for it."
+            )
         self.save_hyperparameters()
         self.stage1_pool = stage1_pool
         self.stage2_edge_weight = stage2_edge_weight
@@ -203,6 +271,7 @@ class HPGHierMPNN(pl.LightningModule):
         self.stage2_readout = stage2_readout
         self.junction_coupling = junction_coupling
         self.n_random_samples = n_random_samples
+        self.octamer_edge_features = octamer_edge_features
         self.stage1 = MABBondMessagePassing(
             d_v=atom_fdim, d_e=bond_fdim, d_h=d_h, depth=stage1_depth,
             return_vertex_embeddings=True, return_edge_embeddings=False,
@@ -217,6 +286,7 @@ class HPGHierMPNN(pl.LightningModule):
                 d_h, octamer_len=octamer_len, n_layers=stage2_depth,
                 use_position_embeddings=use_position_embeddings,
                 readout=("attention" if stage2_readout == "attention" else "mean"),
+                edge_dim=(stage2_edge_dim if octamer_edge_features else None),
             )
             if stage2_mode == "octamer_sequence" else None
         )
@@ -264,7 +334,18 @@ class HPGHierMPNN(pl.LightningModule):
         # Variant 2: octamer sequence — yhat = mean_k( head( encode(octamer_k) ) )
         if self.stage2_mode == "octamer_sequence" and batch.octamer_sequences is not None:
             n_polymers = len(batch)
-            oct_embeds = self.octamer_encoder(h, batch.octamer_sequences, batch.octamer_polymer_batch)
+            monomer_pair_features = None
+            if self.octamer_edge_features:
+                # batch.stage2_edge_features is (4*n_polymers, d_e), laid out per polymer in
+                # the fixed order (0,0),(0,1),(1,0),(1,1) local-monomer pairs (see
+                # TwoStageHPGFeaturizer._stage2_edges / BatchTwoStageHPG.__post_init__), so this
+                # reshape recovers the same 17-d vector Stage2Layer uses for each monomer pair —
+                # no new featurization, just indexing into the existing block.
+                monomer_pair_features = batch.stage2_edge_features.reshape(n_polymers, 2, 2, -1)
+            oct_embeds = self.octamer_encoder(
+                h, batch.octamer_sequences, batch.octamer_polymer_batch,
+                monomer_pair_features=monomer_pair_features,
+            )
             all_preds = self.head(oct_embeds)
             pred_sum = _scatter_sum(all_preds, batch.octamer_polymer_batch, n_polymers)
             replica_counts = torch.bincount(batch.octamer_polymer_batch, minlength=n_polymers)
