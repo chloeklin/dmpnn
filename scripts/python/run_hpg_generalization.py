@@ -111,6 +111,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prediction_dir", type=Path, default=PREDICTIONS_DIR)
     parser.add_argument("--checkpoint_dir", type=Path, default=CHECKPOINT_DIR)
     parser.add_argument("--frozen_protocol", action="store_true")
+    parser.add_argument("--allow_non_cuda", action="store_true",
+                        help="Explicitly allow frozen-protocol runs on a non-CUDA accelerator. "
+                             "Output filenames will be stamped with __localsmoke so they cannot "
+                             "be mistaken for protocol runs (incident: 2026-08-11 local MPS/CUDA mix).")
     parser.add_argument("--repeat", type=int, default=None)
     parser.add_argument("--stability_fix", choices=("none", "best_checkpoint", "row_val_best", "fixed_epochs", "arm_c"), default="none")
     parser.add_argument("--epochs", type=int, default=100)
@@ -206,6 +210,31 @@ def _repeat_suffix(args: argparse.Namespace) -> str:
     return repeat + fix
 
 
+def _smoke_suffix(args: argparse.Namespace) -> str:
+    """Return a token that marks a non-CUDA local smoke test."""
+    return "__localsmoke" if args.allow_non_cuda else ""
+
+
+def _check_frozen_protocol_accelerator(args: argparse.Namespace, env: dict) -> None:
+    """Raise if a frozen-protocol run would train on a non-CUDA accelerator.
+
+    The 2026-08-11 local MPS / CUDA mix showed that protocol baselines and
+    experimental arms must not be produced on different hardware-software stacks.
+    --allow_non_cuda is the only escape hatch; it stamps __localsmoke on outputs.
+    """
+    if not args.frozen_protocol:
+        return
+    if env["accelerator"] == "cuda" or args.allow_non_cuda:
+        return
+    raise RuntimeError(
+        "Frozen protocol training must use CUDA (Gadi V100 baseline). "
+        f"Detected accelerator is '{env['accelerator']}'. "
+        "Use --allow_non_cuda only for deliberate local smoke tests; "
+        "those runs are stamped with __localsmoke and cannot be used as protocol data. "
+        "See incident: 2026-08-11 local MPS / CUDA mix."
+    )
+
+
 class ValidationLossHistory(Callback):
     def __init__(self):
         self.values = []
@@ -234,7 +263,7 @@ def _row_validation_split(df: pd.DataFrame, train_idx: np.ndarray, val_idx: np.n
 
 def _prediction_path(prediction_dir: Path, target: str, model_token: str, split_type: str, fold: int, args: argparse.Namespace) -> Path:
     filename = make_prediction_filename(target, model_token, split_type, fold, seed=args.seed)
-    return prediction_dir / (filename[:-4] + _repeat_suffix(args) + ".npz")
+    return prediction_dir / (filename[:-4] + _repeat_suffix(args) + _smoke_suffix(args) + ".npz")
 
 
 def _runtime_environment() -> dict:
@@ -308,14 +337,13 @@ def _train_hier_fold(graphs, values, train_idx, val_idx, test_idx, target, split
     ]
     variant = _VARIANT_FLAGS.get(model_token, _VARIANT_FLAGS["hpg_hier"])
     resolved_stage2_readout = args.stage2_readout or variant["stage2_readout"]
-    if variant["stage2_mode"] == "octamer_sequence" and resolved_stage2_readout != "attention":
+    if variant["stage2_mode"] == "octamer_sequence" and resolved_stage2_readout not in {"attention", "stoich_weighted"}:
         raise ValueError(
             f"octamer_sequence with readout '{resolved_stage2_readout}' is not implemented — "
-            "OctamerEncoder is only constructed for the attention readout (hpg_hier.py:201-203). "
-            "This configuration would silently train the 2-node baseline. "
-            "See HANDOFF §7 (arm D)."
+            "only 'attention' and 'stoich_weighted' are supported. "
+            "See HANDOFF §7 (arm D is now implemented)."
         )
-    checkpoint_path = args.checkpoint_dir / f"ea_ip__{standard_target_token(target)}__{model_token}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}"
+    checkpoint_path = args.checkpoint_dir / f"ea_ip__{standard_target_token(target)}__{model_token}__{split_type}__fold{fold}__s{args.seed}{_repeat_suffix(args)}{_smoke_suffix(args)}"
     model = HPGHierMPNN(
         atom_fdim=75, bond_fdim=graphs[0].monomer_graphs[0].E.shape[1], d_h=128,
         stage1_pool=args.stage1_pool, stage2_depth=args.stage2_depth,
@@ -414,6 +442,7 @@ def main() -> None:
             raise ValueError("Frozen protocol requires stability_fix=none, no repeat, min_epochs=1, and patience=15")
         if args.prediction_dir.resolve() == PREDICTIONS_DIR.resolve() or args.checkpoint_dir.resolve() == CHECKPOINT_DIR.resolve():
             raise ValueError("Frozen protocol requires fresh prediction and checkpoint directories")
+        _check_frozen_protocol_accelerator(args, runtime_environment())
     models = [item.strip() for item in args.models.split(",")]
     targets = TARGETS if args.targets is None else [item.strip() for item in args.targets.split(",")]
     invalid = set(models) - set(MODEL_TO_POOLING)
@@ -527,6 +556,7 @@ def main() -> None:
                             "epoch_cap": args.epochs,
                             "patience": args.patience, "min_epochs": args.min_epochs, "batch_size": args.batch_size,
                             "frozen_protocol": args.frozen_protocol,
+                            "allow_non_cuda": args.allow_non_cuda,
                             "octamer_position_embeddings": args.octamer_position_embeddings,
                             "n_octamer_params": int(n_octamer_params),
                             "split_indices_sha256": split_indices_sha256(trains[fold], vals[fold], tests[fold]),

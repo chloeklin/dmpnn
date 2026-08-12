@@ -2,7 +2,7 @@
 
 **Convention:** every cell is the mean prediction of three seeds (42, 43, 44), averaged at the prediction level.  Metrics are reported on four row subsets: all rows, random rows only, block + alternating rows only, and `random_via_all_groups` (delta_r2 evaluated on random rows with group means built over all rows).
 
-**Coverage:** 56/108 runs.  *(partial analysis)*
+**Coverage:** 108/108 runs.
 
 ## Run-quality diagnostic
 
@@ -11,7 +11,7 @@ A run is flagged **potentially undertrained** if `best_epoch < 10`. A run is fla
 | setting | undertrained_runs |
 | --- | --- |
 | k16 | 8 |
-| noposemb | 1 |
+| noposemb | 10 |
 
 ### Runs that reached the 100-epoch cap
 
@@ -20,28 +20,75 @@ A run is flagged **potentially undertrained** if `best_epoch < 10`. A run is fla
 | k16 | 0 |
 | noposemb | 0 |
 
+## Negative controls (pre-registration §6)
+
+| control | n_checked | n_violations | passes |
+| --- | --- | --- | --- |
+| octamer_position_embeddings == 'off' | 54 | 0 | True |
+| frozen_protocol == True | 54 | 0 | True |
+| batch_size == 64 | 54 | 0 | True |
+| stage2_mode == 'octamer_sequence' & stage2_readout == 'attention' | 54 | 0 | True |
+| best_epoch < 100 (no cap) | 54 | 0 | True |
+| output path carries '__noposemb' token | 54 | 0 | True |
+
+Max `best_epoch` across all 54 ablated runs: **73** (cap is 100; no run at the cap).
+
+### Control 2 (parameter count) — resolved by reconstruction, not from artefacts
+
+The baseline (K=16) sidecars predate the `n_octamer_params` field and do not carry a parameter count at all, so control 2 cannot be read off stored provenance for either arm. Resolved instead by instantiating `OctamerEncoder` twice from the recorded config (`d_h=128`, `octamer_len=8`, `stage2_depth=2`) — once with position embeddings on, once off — and counting parameters directly:
+
+- Params with position embeddings **on**: 133505
+- Params with position embeddings **off**: 132481
+- Difference: **1024** (expected `octamer_len × d_h` = 1024) — matches
+- `n_octamer_params` recorded across all ablated sidecars: [132481] — matches the reconstructed off-count
+
+_Verified by reconstruction (model instantiated from recorded config), not from the baseline artefacts -- the baseline sidecars do not carry n_octamer_params._
+
+### Control: commit provenance and the octamer code path (pre-registration §5.2 follow-up)
+
+Baseline (K=16) sidecars record commit(s): ['cec9d5feea303e0f655c22c94e76034ca7bd45cb', 'fcbdeb14854309c46e81e4ee7c24642becc3b3db']
+Ablated (noposemb) sidecars record commit(s): ['90e129b635ddc43121c0eae728e23090c496ca33', 'a1e85cec074b37aeafc9d8bb4ac8cd6ffc128695']
+
+Every baseline-commit × ablated-commit pair actually present in the sidecars is diffed, restricted to `chemprop/models/hpg_hier.py, chemprop/featurizers/molgraph/hpg_hier.py, scripts/python/run_hpg_generalization.py`. Full diff text is written to `_octamer_posemb_r1_results_commit_diff.txt`; hunk-by-hunk classification (flag-only vs. behavioural) is recorded in the assessment notes below rather than inferred automatically here, because that judgement is not mechanical.
+
+- `cec9d5feea303e0f655c22c94e76034ca7bd45cb..90e129b635ddc43121c0eae728e23090c496ca33`: 214 diff lines (see `_octamer_posemb_r1_results_commit_diff.txt`)
+
+- `cec9d5feea303e0f655c22c94e76034ca7bd45cb..a1e85cec074b37aeafc9d8bb4ac8cd6ffc128695`: 205 diff lines (see `_octamer_posemb_r1_results_commit_diff.txt`)
+
+- `fcbdeb14854309c46e81e4ee7c24642becc3b3db..90e129b635ddc43121c0eae728e23090c496ca33`: 214 diff lines (see `_octamer_posemb_r1_results_commit_diff.txt`)
+
+- `fcbdeb14854309c46e81e4ee7c24642becc3b3db..a1e85cec074b37aeafc9d8bb4ac8cd6ffc128695`: 205 diff lines (see `_octamer_posemb_r1_results_commit_diff.txt`)
+
+**Manual hunk classification (2026-08-10):** every non-flag hunk on the octamer path was inspected by hand across all four commit pairs above. None is a behavioural change for the `octamer_sequence` + `attention` configuration used throughout this arm:
+
+- `chemprop/featurizers/molgraph/hpg_hier.py`: **zero-line diff** on every pair — untouched.
+- `chemprop/models/hpg_hier.py`: the flag itself (`use_position_embeddings` constructor arg, the conditional `position_embeddings` parameter/init, and the conditional `h = h + position_embeddings` in `OctamerEncoder.forward`), plus a validation guard that raises if `stage2_mode == 'octamer_sequence'` and `stage2_readout != 'attention'` — this arm always uses `attention`, so the guard never fires and changes nothing here.
+- `scripts/python/run_hpg_generalization.py`: the `--octamer_position_embeddings` CLI flag and its threading into `HPGHierMPNN`/provenance, the same `stage2_readout` guard, and three **provenance-logging-only** additions that do not touch the training loop or forward pass — `_resolve_lr_config`/`_optimizer_lr_config` (records the optimizer/LR config already in use, does not change it), `n_octamer_params` computation for the sidecar, and a rename of a runtime-environment provenance field (`deterministic_kernels_requested` → `deterministic_algorithms_requested`, now hard-coded `False` with an explanatory comment — a correction to what is *recorded*, not to what training does; no runner calls `torch.use_deterministic_algorithms` in any commit checked).
+
+**Conclusion: not confounded.** Every non-flag hunk on the octamer path is either inert for this arm's configuration (the readout guard) or provenance-logging only (LR/param-count recording, the determinism-field rename). The comparison is reportable.
+
 ## Split-hash consistency across runs
 
 | target | fold | n_runs | identical |
 | --- | --- | --- | --- |
-| EA | 0 | 4 | True |
-| EA | 1 | 3 | True |
-| EA | 2 | 3 | True |
-| EA | 3 | 3 | True |
-| EA | 4 | 4 | True |
-| EA | 5 | 3 | True |
-| EA | 6 | 3 | True |
-| EA | 7 | 3 | True |
-| EA | 8 | 3 | True |
-| IP | 0 | 3 | True |
-| IP | 1 | 3 | True |
-| IP | 2 | 3 | True |
-| IP | 3 | 3 | True |
-| IP | 4 | 3 | True |
-| IP | 5 | 3 | True |
-| IP | 6 | 3 | True |
-| IP | 7 | 3 | True |
-| IP | 8 | 3 | True |
+| EA | 0 | 6 | True |
+| EA | 1 | 6 | True |
+| EA | 2 | 6 | True |
+| EA | 3 | 6 | True |
+| EA | 4 | 6 | True |
+| EA | 5 | 6 | True |
+| EA | 6 | 6 | True |
+| EA | 7 | 6 | True |
+| EA | 8 | 6 | True |
+| IP | 0 | 6 | True |
+| IP | 1 | 6 | True |
+| IP | 2 | 6 | True |
+| IP | 3 | 6 | True |
+| IP | 4 | 6 | True |
+| IP | 5 | 6 | True |
+| IP | 6 | 6 | True |
+| IP | 7 | 6 | True |
+| IP | 8 | 6 | True |
 
 ## Three-seed averaged cells
 
@@ -51,8 +98,24 @@ A run is flagged **potentially undertrained** if `best_epoch < 10`. A run is fla
 
 | setting | model | target | fold | row_set | n_test_rows | n_seeds | protocol_complete | group_mean_r2 | group_mean_r2_seed_mean | group_mean_r2_seed_sd | delta_r2 | delta_r2_seed_mean | delta_r2_seed_sd | ordering | ordering_seed_mean | ordering_seed_sd | overall_r2 | overall_r2_seed_mean | overall_r2_seed_sd | mae | mae_seed_mean | mae_seed_sd | rmse | rmse_seed_mean | rmse_seed_sd | group_mean_rmse | group_mean_rmse_seed_mean | group_mean_rmse_seed_sd | mean_signed_bias | mean_signed_bias_seed_mean | mean_signed_bias_seed_sd | compression_ratio | compression_ratio_seed_mean | compression_ratio_seed_sd | null_group_mean_r2 | null_overall_r2 | null_mae | null_rmse | beats_null_floor | skill_group_mean | skill_overall | skill_vs_null | null_floor_headroom_used |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| noposemb | hpg_hier_octamer | EA | 0 | all | 4774 | 1 | False | 0.99129689 | 0.99129689 | nan | 0.60644405 | 0.60644405 | nan | 0.65917237 | 0.65917237 | nan | 0.98617258 | 0.98617258 | nan | 0.04215081 | 0.04215081 | nan | 0.05845978 | 0.05845978 | nan | 0.04630113 | 0.04630113 | nan | 0.01819702 | 0.01819702 | nan | 0.97993079 | 0.97993079 | nan | 0.69380000 | 0.69158000 | 0.26002000 | 0.27609000 | 1.00000000 | 0.97157705 | 0.95516692 | 0.97157705 | 0.97157705 |
-| noposemb | hpg_hier_octamer | EA | 4 | all | 4774 | 1 | False | 0.93886538 | 0.93886538 | nan | 0.35665506 | 0.35665506 | nan | 0.64182144 | 0.64182144 | nan | 0.92475708 | 0.92475708 | nan | 0.08112435 | 0.08112435 | nan | 0.11014464 | 0.11014464 | nan | 0.09965593 | 0.09965593 | nan | -0.06080112 | -0.06080112 | nan | 1.08924729 | 1.08924729 | nan | 0.88373000 | 0.86128000 | 0.12697000 | 0.14955000 | 1.00000000 | 0.47420128 | 0.45759139 | 0.47420128 | 0.47420128 |
+| noposemb | hpg_hier_octamer | EA | 0 | all | 4774 | 3 | True | 0.99503371 | 0.98074675 | 0.02098857 | 0.75718670 | 0.72091870 | 0.09934200 | 0.74006191 | 0.72624090 | 0.05988535 | 0.99233616 | 0.97774179 | 0.01973678 | 0.03458435 | 0.05522798 | 0.03069998 | 0.04352209 | 0.06951462 | 0.03167794 | 0.03497602 | 0.06232454 | 0.03587923 | -0.01618525 | -0.01618525 | 0.05872785 | 1.00428223 | 1.00616738 | 0.04272132 | 0.69380000 | 0.69158000 | 0.26002000 | 0.27609000 | 1.00000000 | 0.98378091 | 0.97515129 | 0.98378091 | 0.98378091 |
+| noposemb | hpg_hier_octamer | EA | 1 | all | 4774 | 3 | True | 0.98304922 | 0.97811286 | 0.01049902 | 0.86448902 | 0.82970926 | 0.01196064 | 0.84351580 | 0.83406647 | 0.00951651 | 0.97956223 | 0.97372859 | 0.01073522 | 0.04147519 | 0.04703981 | 0.01142106 | 0.05107278 | 0.05715222 | 0.01139664 | 0.04654122 | 0.05194000 | 0.01219359 | 0.03052940 | 0.03052940 | 0.02337375 | 1.02042990 | 1.02144616 | 0.01005417 | 0.48731000 | 0.48470000 | 0.21665000 | 0.25645000 | 1.00000000 | 0.96693756 | 0.96033812 | 0.96693756 | 0.96693756 |
+| noposemb | hpg_hier_octamer | EA | 2 | all | 4774 | 3 | True | 0.98886846 | 0.98586599 | 0.00255108 | 0.87720234 | 0.84932767 | 0.05195092 | 0.82029977 | 0.80300315 | 0.03011867 | 0.98721871 | 0.98381390 | 0.00272984 | 0.04566937 | 0.05187665 | 0.00572944 | 0.05939066 | 0.06666751 | 0.00578564 | 0.05501788 | 0.06181673 | 0.00575901 | 0.03260875 | 0.03260875 | 0.01484787 | 0.98117172 | 0.98234697 | 0.01585396 | 0.96114000 | 0.95597000 | 0.08439000 | 0.11023000 | 1.00000000 | 0.71354750 | 0.70971395 | 0.71354750 | 0.71354750 |
+| noposemb | hpg_hier_octamer | EA | 3 | all | 4774 | 3 | True | 0.98918909 | 0.98643760 | 0.00752265 | 0.85747570 | 0.84057765 | 0.00953728 | 0.85573477 | 0.83987727 | 0.00703641 | 0.98447276 | 0.98118517 | 0.00749268 | 0.03766548 | 0.04109667 | 0.01121189 | 0.04959353 | 0.05379244 | 0.01140038 | 0.04115405 | 0.04472475 | 0.01366044 | 0.03112004 | 0.03112004 | 0.01789267 | 0.96985183 | 0.97051279 | 0.01299022 | 0.95276000 | 0.94747000 | 0.07258000 | 0.09121000 | 1.00000000 | 0.77114916 | 0.70441190 | 0.77114916 | 0.77114916 |
+| noposemb | hpg_hier_octamer | EA | 4 | all | 4774 | 3 | True | 0.96096256 | 0.95724382 | 0.01667130 | 0.39975080 | 0.36255487 | 0.16895044 | 0.56215380 | 0.58355056 | 0.05865472 | 0.94867455 | 0.94436233 | 0.01892670 | 0.06292176 | 0.06647454 | 0.01373200 | 0.09096973 | 0.09378486 | 0.01621003 | 0.07963431 | 0.08231270 | 0.01598521 | -0.04483120 | -0.04483120 | 0.01388019 | 1.05626572 | 1.05738143 | 0.02782584 | 0.88373000 | 0.86128000 | 0.12697000 | 0.14955000 | 1.00000000 | 0.66425186 | 0.63000687 | 0.66425186 | 0.66425186 |
+| noposemb | hpg_hier_octamer | EA | 5 | all | 4774 | 3 | True | 0.98875711 | 0.98419368 | 0.00625896 | 0.88656380 | 0.84910548 | 0.03805426 | 0.82999348 | 0.82624633 | 0.01702567 | 0.98492466 | 0.97893697 | 0.00756559 | 0.03493349 | 0.03972893 | 0.00814435 | 0.04500673 | 0.05253640 | 0.01025214 | 0.03873080 | 0.04521614 | 0.00983212 | 0.02534726 | 0.02534726 | 0.01253275 | 0.99424547 | 0.99618419 | 0.00878109 | 0.67571000 | 0.67461000 | 0.17628000 | 0.20909000 | 1.00000000 | 0.96533074 | 0.95366993 | 0.96533074 | 0.96533074 |
+| noposemb | hpg_hier_octamer | EA | 6 | all | 4774 | 3 | True | 0.92966120 | 0.90717514 | 0.05356408 | -0.03609862 | -0.08658876 | 0.09187336 | 0.78633105 | 0.77791354 | 0.01845694 | 0.89288378 | 0.86757347 | 0.04978127 | 0.05842849 | 0.06530072 | 0.01979946 | 0.07946952 | 0.08739430 | 0.01596387 | 0.06562394 | 0.07347659 | 0.02065445 | 0.01622597 | 0.01622597 | 0.03880575 | 0.94923303 | 0.95183773 | 0.04652142 | -19.06946000 | -19.97913000 | 1.05641000 | 1.11216000 | 1.00000000 | 0.99649523 | 0.99489415 | 0.99649523 | 0.99649523 |
+| noposemb | hpg_hier_octamer | EA | 7 | all | 4774 | 3 | True | 0.98834950 | 0.98411362 | 0.01331154 | 0.81760652 | 0.77196771 | 0.00830239 | 0.78796025 | 0.77422070 | 0.02247482 | 0.98684247 | 0.98239031 | 0.01325997 | 0.05468272 | 0.06083120 | 0.02665850 | 0.07076923 | 0.07825474 | 0.02947419 | 0.06628116 | 0.07311724 | 0.03108855 | 0.04030134 | 0.04030134 | 0.02474101 | 0.93723617 | 0.93827955 | 0.04171270 | 0.09751000 | 0.10387000 | 0.51370000 | 0.58404000 | 1.00000000 | 0.98709071 | 0.98531739 | 0.98709071 | 0.98709071 |
+| noposemb | hpg_hier_octamer | EA | 8 | all | 4774 | 3 | True | 0.98940230 | 0.98410572 | 0.01059701 | 0.83449685 | 0.81888362 | 0.02004208 | 0.81712284 | 0.81066037 | 0.00712451 | 0.98727956 | 0.98186950 | 0.01086541 | 0.05378491 | 0.06092307 | 0.02250074 | 0.06590777 | 0.07649928 | 0.02255484 | 0.05999446 | 0.07095090 | 0.02337318 | 0.04292046 | 0.04292046 | 0.02144542 | 0.97145882 | 0.97293568 | 0.04735878 | 0.42772000 | 0.42902000 | 0.39270000 | 0.44157000 | 1.00000000 | 0.98148163 | 0.97772175 | 0.98148163 | 0.98148163 |
+| noposemb | hpg_hier_octamer | IP | 0 | all | 4774 | 3 | True | 0.83931106 | 0.82585479 | 0.08488247 | 0.73456948 | 0.71008359 | 0.11920871 | 0.80123819 | 0.78244814 | 0.05900169 | 0.83258602 | 0.81789666 | 0.08050335 | 0.10253032 | 0.10478146 | 0.02783895 | 0.11667653 | 0.11927689 | 0.02951899 | 0.11437864 | 0.11610949 | 0.03232494 | 0.10113709 | 0.10113709 | 0.03170985 | 1.09309014 | 1.09471338 | 0.05180963 | 0.96902000 | 0.96650000 | 0.04433000 | 0.05219000 | 0.00000000 | -4.18686041 | -3.99743236 | -4.18686041 | -4.18686041 |
+| noposemb | hpg_hier_octamer | IP | 1 | all | 4774 | 3 | True | 0.99319666 | 0.97901333 | 0.01954251 | 0.86859706 | 0.85264306 | 0.02411362 | 0.84058325 | 0.83145976 | 0.00592812 | 0.99165340 | 0.97739750 | 0.01960093 | 0.02460092 | 0.04344419 | 0.02165791 | 0.03424192 | 0.05288697 | 0.02381515 | 0.03096156 | 0.05043759 | 0.02489448 | 0.01380666 | 0.01380666 | 0.04782997 | 1.03376826 | 1.03491102 | 0.03761855 | 0.50927000 | 0.50602000 | 0.24599000 | 0.26343000 | 1.00000000 | 0.98613629 | 0.98310336 | 0.98613629 | 0.98613629 |
+| noposemb | hpg_hier_octamer | IP | 2 | all | 4774 | 3 | True | 0.99384457 | 0.99034055 | 0.00388449 | 0.66438126 | 0.57130266 | 0.06432368 | 0.73989899 | 0.72653959 | 0.04480168 | 0.99207987 | 0.98801869 | 0.00385709 | 0.03511435 | 0.04323049 | 0.00858167 | 0.04636016 | 0.05655635 | 0.00889240 | 0.04085496 | 0.05053986 | 0.00987500 | 0.00948276 | 0.00948276 | 0.02270075 | 1.01276638 | 1.01374649 | 0.01963197 | -1.01943000 | -1.00861000 | 0.66143000 | 0.73829000 | 1.00000000 | 0.99695190 | 0.99605691 | 0.99695190 | 0.99695190 |
+| noposemb | hpg_hier_octamer | IP | 3 | all | 4774 | 3 | True | 0.98844702 | 0.98404349 | 0.00959065 | 0.91643824 | 0.89457446 | 0.03883073 | 0.84921799 | 0.82782122 | 0.02370260 | 0.98276545 | 0.97679169 | 0.01147472 | 0.02319630 | 0.02665594 | 0.00816591 | 0.02940225 | 0.03347628 | 0.00807561 | 0.02406121 | 0.02747636 | 0.00818475 | 0.01260111 | 0.01260111 | 0.00847062 | 0.95131824 | 0.95274586 | 0.03324614 | -3.20636000 | -3.20740000 | 0.42575000 | 0.45940000 | 1.00000000 | 0.99725345 | 0.99590375 | 0.99725345 | 0.99725345 |
+| noposemb | hpg_hier_octamer | IP | 4 | all | 4774 | 3 | True | 0.92745524 | 0.92171151 | 0.02541113 | 0.62033036 | 0.58223902 | 0.15650151 | 0.80718475 | 0.77492669 | 0.05788941 | 0.91456167 | 0.90784202 | 0.02949536 | 0.04810929 | 0.04973445 | 0.00775063 | 0.06108370 | 0.06283190 | 0.01073511 | 0.05727214 | 0.05890637 | 0.01023518 | 0.04179547 | 0.04179547 | 0.00714235 | 1.10557624 | 1.10698889 | 0.05325350 | -0.25097000 | -0.34241000 | 0.19383000 | 0.24213000 | 1.00000000 | 0.94200919 | 0.93635452 | 0.94200919 | 0.94200919 |
+| noposemb | hpg_hier_octamer | IP | 5 | all | 4774 | 3 | True | 0.97658213 | 0.96941049 | 0.01038407 | 0.92972144 | 0.91819035 | 0.01633366 | 0.93589117 | 0.92285761 | 0.00560358 | 0.96738336 | 0.95894086 | 0.00855667 | 0.03521412 | 0.03969818 | 0.00486991 | 0.04769456 | 0.05330956 | 0.00570043 | 0.03896772 | 0.04409495 | 0.00766306 | 0.00701678 | 0.00701678 | 0.01021045 | 0.93510672 | 0.93753350 | 0.05249934 | -7.52773000 | -6.93823000 | 0.70901000 | 0.74407000 | 1.00000000 | 0.99725391 | 0.99589119 | 0.99725391 | 0.99725391 |
+| noposemb | hpg_hier_octamer | IP | 6 | all | 4774 | 3 | True | 0.99636722 | 0.99143708 | 0.00679784 | 0.93351572 | 0.91434349 | 0.01509570 | 0.84237537 | 0.83775931 | 0.00706840 | 0.99470070 | 0.98939285 | 0.00650081 | 0.02141230 | 0.02971547 | 0.01165990 | 0.02814228 | 0.03865466 | 0.01168794 | 0.02323449 | 0.03394374 | 0.01343294 | 0.00890758 | 0.00890758 | 0.02465338 | 1.00099492 | 1.00201677 | 0.01461528 | 0.56868000 | 0.56208000 | 0.23231000 | 0.25583000 | 1.00000000 | 0.99157752 | 0.98789894 | 0.99157752 | 0.99157752 |
+| noposemb | hpg_hier_octamer | IP | 7 | all | 4774 | 3 | True | 0.99525622 | 0.99154953 | 0.00458140 | 0.85090716 | 0.82185792 | 0.04217960 | 0.80066797 | 0.78953514 | 0.00799690 | 0.99312506 | 0.98905375 | 0.00476046 | 0.02684907 | 0.03412543 | 0.01033080 | 0.03528514 | 0.04385279 | 0.00942998 | 0.02922956 | 0.03804387 | 0.01057938 | -0.01553764 | -0.01553764 | 0.02087080 | 1.01606786 | 1.01708389 | 0.00528104 | 0.40980000 | 0.40641000 | 0.29355000 | 0.32787000 | 1.00000000 | 0.99196242 | 0.98841804 | 0.99196242 | 0.99196242 |
+| noposemb | hpg_hier_octamer | IP | 8 | all | 4774 | 3 | True | 0.99155102 | 0.98693124 | 0.00149684 | 0.90750703 | 0.87888854 | 0.01599118 | 0.85003258 | 0.84525361 | 0.01403033 | 0.98774279 | 0.98211054 | 0.00153470 | 0.02042744 | 0.02457504 | 0.00202375 | 0.02630914 | 0.03176441 | 0.00136932 | 0.02208067 | 0.02743252 | 0.00155011 | -0.01136974 | -0.01136974 | 0.00651078 | 1.00559536 | 1.00709653 | 0.04089683 | -0.03401000 | -0.06530000 | 0.21632000 | 0.24527000 | 1.00000000 | 0.99182892 | 0.98849413 | 0.99182892 | 0.99182892 |
 | k16 | hpg_hier_octamer | EA | 0 | all | 4774 | 3 | True | 0.95826540 | 0.95206493 | 0.02721927 | 0.80983879 | 0.77165564 | 0.06948583 | 0.78543500 | 0.76849137 | 0.01733620 | 0.95694488 | 0.95033756 | 0.02753697 | 0.08585859 | 0.09121309 | 0.03072182 | 0.10315707 | 0.10801877 | 0.03015892 | 0.10139175 | 0.10580586 | 0.03031680 | -0.08134347 | -0.08134347 | 0.03576505 | 1.07727617 | 1.07852591 | 0.00916698 | 0.69380000 | 0.69158000 | 0.26002000 | 0.27609000 | 1.00000000 | 0.86370149 | 0.86040102 | 0.86370149 | 0.86370149 |
 | k16 | hpg_hier_octamer | EA | 1 | all | 4774 | 3 | True | 0.99125729 | 0.98487909 | 0.00439298 | 0.87444253 | 0.83691320 | 0.01175508 | 0.87414467 | 0.83938851 | 0.02375182 | 0.98781445 | 0.98039160 | 0.00450606 | 0.03006742 | 0.03818363 | 0.00329669 | 0.03943623 | 0.04980281 | 0.00577829 | 0.03342457 | 0.04364056 | 0.00645206 | 0.00395366 | 0.00395366 | 0.02539935 | 1.03430429 | 1.03525299 | 0.04125215 | 0.48731000 | 0.48470000 | 0.21665000 | 0.25645000 | 1.00000000 | 0.98294738 | 0.97635251 | 0.98294738 | 0.98294738 |
 | k16 | hpg_hier_octamer | EA | 2 | all | 4774 | 3 | True | 0.98560989 | 0.98206311 | 0.00694452 | 0.88980117 | 0.87181599 | 0.00479856 | 0.83765070 | 0.82852721 | 0.00469084 | 0.98417578 | 0.98038615 | 0.00680046 | 0.05607869 | 0.06059245 | 0.01312659 | 0.06608332 | 0.07285413 | 0.01255617 | 0.06255446 | 0.06899464 | 0.01326260 | 0.05040507 | 0.05040507 | 0.01789157 | 0.99297559 | 0.99425882 | 0.01858893 | 0.96114000 | 0.95597000 | 0.08439000 | 0.11023000 | 1.00000000 | 0.62969339 | 0.64060375 | 0.62969339 | 0.62969339 |
@@ -76,8 +139,24 @@ A run is flagged **potentially undertrained** if `best_epoch < 10`. A run is fla
 
 | setting | model | target | fold | row_set | n_test_rows | n_seeds | protocol_complete | group_mean_r2 | group_mean_r2_seed_mean | group_mean_r2_seed_sd | delta_r2 | delta_r2_seed_mean | delta_r2_seed_sd | ordering | ordering_seed_mean | ordering_seed_sd | overall_r2 | overall_r2_seed_mean | overall_r2_seed_sd | mae | mae_seed_mean | mae_seed_sd | rmse | rmse_seed_mean | rmse_seed_sd | group_mean_rmse | group_mean_rmse_seed_mean | group_mean_rmse_seed_sd | mean_signed_bias | mean_signed_bias_seed_mean | mean_signed_bias_seed_sd | compression_ratio | compression_ratio_seed_mean | compression_ratio_seed_sd | null_group_mean_r2 | null_overall_r2 | null_mae | null_rmse | beats_null_floor | skill_group_mean | skill_overall | skill_vs_null | null_floor_headroom_used |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| noposemb | hpg_hier_octamer | EA | 0 | random | 2046 | 1 | False | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98957262 | 0.98957262 | nan | 0.03998652 | 0.03998652 | nan | 0.04973505 | 0.04973505 | nan | nan | nan | nan | 0.02109361 | 0.02109361 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
-| noposemb | hpg_hier_octamer | EA | 4 | random | 2046 | 1 | False | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.91823654 | 0.91823654 | nan | 0.08423318 | 0.08423318 | nan | 0.11101607 | 0.11101607 | nan | nan | nan | nan | -0.06200931 | -0.06200931 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 0 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.99477506 | 0.97975145 | 0.02025225 | 0.02884467 | 0.05257905 | 0.03042659 | 0.03520591 | 0.06382189 | 0.03309336 | nan | nan | nan | -0.01287644 | -0.01287644 | 0.05854193 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 1 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98059377 | 0.97564069 | 0.01127503 | 0.04148520 | 0.04614294 | 0.01159745 | 0.04996378 | 0.05504563 | 0.01246069 | nan | nan | nan | 0.03248062 | 0.03248062 | 0.02180028 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 2 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98924106 | 0.98640367 | 0.00268106 | 0.04308011 | 0.04830055 | 0.00672150 | 0.05480940 | 0.06140124 | 0.00626909 | nan | nan | nan | 0.03304677 | 0.03304677 | 0.01353201 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 3 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98487835 | 0.98186606 | 0.00835025 | 0.04007175 | 0.04260059 | 0.01332841 | 0.04932288 | 0.05285847 | 0.01360187 | nan | nan | nan | 0.03531014 | 0.03531014 | 0.01758586 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 4 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.94554824 | 0.94156201 | 0.02175528 | 0.06693219 | 0.06963237 | 0.01393288 | 0.09059666 | 0.09277349 | 0.01739386 | nan | nan | nan | -0.04665068 | -0.04665068 | 0.01332431 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 5 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98676488 | 0.98157611 | 0.00821182 | 0.03456057 | 0.03915412 | 0.01077372 | 0.04230992 | 0.04890973 | 0.01223394 | nan | nan | nan | 0.02543921 | 0.02543921 | 0.01442557 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 6 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.91587533 | 0.89092241 | 0.05241121 | 0.05469196 | 0.06106836 | 0.02104620 | 0.07057534 | 0.07894447 | 0.01841476 | nan | nan | nan | 0.00622399 | 0.00622399 | 0.03872206 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 7 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98719278 | 0.98265759 | 0.01409791 | 0.05480866 | 0.06041595 | 0.02755960 | 0.06892712 | 0.07603044 | 0.03128953 | nan | nan | nan | 0.04354483 | 0.04354483 | 0.02551567 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 8 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98777194 | 0.98220778 | 0.01136552 | 0.05394133 | 0.06007506 | 0.02279564 | 0.06293283 | 0.07353799 | 0.02307193 | nan | nan | nan | 0.04840377 | 0.04840377 | 0.02162888 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 0 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.87620588 | 0.86303503 | 0.07058811 | 0.09467081 | 0.09585814 | 0.03019467 | 0.10434650 | 0.10663099 | 0.03185403 | nan | nan | nan | 0.09388202 | 0.09388202 | 0.03163361 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 1 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.99344139 | 0.97970584 | 0.01746607 | 0.02296806 | 0.04232713 | 0.02110601 | 0.03045313 | 0.05028337 | 0.02262284 | nan | nan | nan | 0.01277951 | 0.01277951 | 0.04709392 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 2 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.99306920 | 0.98941164 | 0.00298151 | 0.03196968 | 0.03966793 | 0.00742291 | 0.04278694 | 0.05254400 | 0.00734501 | nan | nan | nan | 0.00878394 | 0.00878394 | 0.02075677 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 3 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98749581 | 0.98295709 | 0.00727727 | 0.02006257 | 0.02385984 | 0.00579833 | 0.02634500 | 0.03032373 | 0.00629965 | nan | nan | nan | 0.01348938 | 0.01348938 | 0.00766716 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 4 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.92461233 | 0.91873434 | 0.02644760 | 0.04716365 | 0.04913180 | 0.00782604 | 0.05961489 | 0.06129286 | 0.01055136 | nan | nan | nan | 0.04028714 | 0.04028714 | 0.00619081 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 5 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.97379895 | 0.96715443 | 0.00893636 | 0.03266519 | 0.03687245 | 0.00510191 | 0.04500905 | 0.05006826 | 0.00700634 | nan | nan | nan | 0.00238148 | 0.00238148 | 0.01378453 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 6 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.99612315 | 0.99161278 | 0.00576453 | 0.01925835 | 0.02753041 | 0.01132638 | 0.02460508 | 0.03489428 | 0.01175633 | nan | nan | nan | 0.00878994 | 0.00878994 | 0.02293287 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 7 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.99514402 | 0.99157821 | 0.00417000 | 0.02317879 | 0.03057550 | 0.00912811 | 0.03021235 | 0.03899436 | 0.00968223 | nan | nan | nan | -0.01477695 | -0.01477695 | 0.01942293 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 8 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.99037057 | 0.98601193 | 0.00384126 | 0.02005144 | 0.02368840 | 0.00473487 | 0.02475212 | 0.02965470 | 0.00398405 | nan | nan | nan | -0.01559467 | -0.01559467 | 0.00793727 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 0 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.95751538 | 0.95082267 | 0.02816479 | 0.08473350 | 0.09001236 | 0.03136202 | 0.10039009 | 0.10514010 | 0.03028290 | nan | nan | nan | -0.08100808 | -0.08100808 | 0.03625526 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 1 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.99121106 | 0.98343785 | 0.00352948 | 0.02644383 | 0.03651622 | 0.00183580 | 0.03362427 | 0.04598644 | 0.00486366 | nan | nan | nan | 0.00859058 | 0.00859058 | 0.02832356 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 2 | random | 2046 | 3 | True | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.98464747 | 0.98126512 | 0.00658362 | 0.05665823 | 0.06034715 | 0.01284752 | 0.06547270 | 0.07158437 | 0.01265447 | nan | nan | nan | 0.05262179 | 0.05262179 | 0.01561313 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
@@ -101,8 +180,24 @@ A run is flagged **potentially undertrained** if `best_epoch < 10`. A run is fla
 
 | setting | model | target | fold | row_set | n_test_rows | n_seeds | protocol_complete | group_mean_r2 | group_mean_r2_seed_mean | group_mean_r2_seed_sd | delta_r2 | delta_r2_seed_mean | delta_r2_seed_sd | ordering | ordering_seed_mean | ordering_seed_sd | overall_r2 | overall_r2_seed_mean | overall_r2_seed_sd | mae | mae_seed_mean | mae_seed_sd | rmse | rmse_seed_mean | rmse_seed_sd | group_mean_rmse | group_mean_rmse_seed_mean | group_mean_rmse_seed_sd | mean_signed_bias | mean_signed_bias_seed_mean | mean_signed_bias_seed_sd | compression_ratio | compression_ratio_seed_mean | compression_ratio_seed_sd | null_group_mean_r2 | null_overall_r2 | null_mae | null_rmse | beats_null_floor | skill_group_mean | skill_overall | skill_vs_null | null_floor_headroom_used |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| noposemb | hpg_hier_octamer | EA | 0 | block_alternating | 2728 | 1 | False | 0.98565221 | 0.98565221 | nan | 0.62621549 | 0.62621549 | nan | 0.64956012 | 0.64956012 | nan | 0.98378428 | 0.98378428 | nan | 0.04377403 | 0.04377403 | nan | 0.06423024 | 0.06423024 | nan | 0.05802927 | 0.05802927 | nan | 0.01602459 | 0.01602459 | nan | 0.95163932 | 0.95163932 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
-| noposemb | hpg_hier_octamer | EA | 4 | block_alternating | 2728 | 1 | False | 0.89451256 | 0.89451256 | nan | 0.39211327 | 0.39211327 | nan | 0.64589443 | 0.64589443 | nan | 0.92908492 | 0.92908492 | nan | 0.07879272 | 0.07879272 | nan | 0.10948651 | 0.10948651 | nan | 0.12059123 | 0.12059123 | nan | -0.05989498 | -0.05989498 | nan | 1.13807647 | 1.13807647 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 0 | block_alternating | 2728 | 3 | True | 0.99527202 | 0.98078337 | 0.01579478 | 0.79009132 | 0.75380425 | 0.11053161 | 0.76246334 | 0.74682307 | 0.09402856 | 0.99062473 | 0.97631930 | 0.01942781 | 0.03888911 | 0.05721469 | 0.03090753 | 0.04883861 | 0.07339807 | 0.03092205 | 0.03331136 | 0.06330047 | 0.02747233 | -0.01866686 | -0.01866686 | 0.05886832 | 0.99517474 | 0.99638873 | 0.05351648 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 1 | block_alternating | 2728 | 3 | True | 0.97674191 | 0.97041028 | 0.01150518 | 0.90842476 | 0.88255245 | 0.02815957 | 0.84604106 | 0.83919844 | 0.03454576 | 0.97873758 | 0.97222198 | 0.01034530 | 0.04146767 | 0.04771247 | 0.01129421 | 0.05188898 | 0.05866745 | 0.01065375 | 0.04966113 | 0.05536012 | 0.01045518 | 0.02906599 | 0.02906599 | 0.02457414 | 1.03058345 | 1.03180049 | 0.01392300 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 2 | block_alternating | 2728 | 3 | True | 0.98992948 | 0.98675079 | 0.00350766 | 0.91204408 | 0.88800858 | 0.04295312 | 0.87463343 | 0.85117302 | 0.02994220 | 0.98565596 | 0.98181288 | 0.00288400 | 0.04761132 | 0.05455874 | 0.00508068 | 0.06260700 | 0.07034372 | 0.00568591 | 0.05184384 | 0.05911811 | 0.00786247 | 0.03228024 | 0.03228024 | 0.01586680 | 0.98461396 | 0.98575177 | 0.01708437 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 3 | block_alternating | 2728 | 3 | True | 0.98543807 | 0.98207339 | 0.00840865 | 0.87427725 | 0.86274719 | 0.00676873 | 0.87756598 | 0.85410557 | 0.00733138 | 0.98413043 | 0.98062409 | 0.00706853 | 0.03586078 | 0.03996873 | 0.01037371 | 0.04979555 | 0.05439172 | 0.01017341 | 0.04410899 | 0.04787314 | 0.01244891 | 0.02797747 | 0.02797747 | 0.01835655 | 0.97156545 | 0.97235088 | 0.01515028 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 4 | block_alternating | 2728 | 3 | True | 0.92889213 | 0.92446655 | 0.02860403 | 0.41708234 | 0.37929706 | 0.18001367 | 0.57258065 | 0.58479961 | 0.06014114 | 0.95074287 | 0.94621073 | 0.01712369 | 0.05991394 | 0.06410617 | 0.01359671 | 0.09124853 | 0.09452184 | 0.01539563 | 0.09900889 | 0.10080386 | 0.01942065 | -0.04346660 | -0.04346660 | 0.01430264 | 1.08876656 | 1.08996213 | 0.04310856 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 5 | block_alternating | 2728 | 3 | True | 0.98621989 | 0.97863648 | 0.00814191 | 0.91906625 | 0.88778682 | 0.05509286 | 0.87609971 | 0.87267840 | 0.01540171 | 0.98349818 | 0.97689222 | 0.00709317 | 0.03521318 | 0.04016003 | 0.00618256 | 0.04692774 | 0.05504076 | 0.00902596 | 0.03877790 | 0.04759885 | 0.00991969 | 0.02527829 | 0.02527829 | 0.01114797 | 1.00207837 | 1.00451530 | 0.02373610 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 6 | block_alternating | 2728 | 3 | True | 0.88625638 | 0.83898512 | 0.05046725 | 0.15290446 | 0.10479918 | 0.09573025 | 0.89002933 | 0.87683284 | 0.00888882 | 0.87543410 | 0.84983778 | 0.04795930 | 0.06123089 | 0.06847498 | 0.01886761 | 0.08553536 | 0.09316341 | 0.01450481 | 0.05815100 | 0.06865659 | 0.01047583 | 0.02372745 | 0.02372745 | 0.03886852 | 0.89100004 | 0.89778272 | 0.01238509 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 7 | block_alternating | 2728 | 3 | True | 0.98563658 | 0.98201876 | 0.01336412 | 0.85953734 | 0.81713154 | 0.01434403 | 0.82184751 | 0.80816227 | 0.03230247 | 0.98658148 | 0.98218568 | 0.01266928 | 0.05458827 | 0.06114265 | 0.02599621 | 0.07211993 | 0.07984316 | 0.02820254 | 0.07447581 | 0.07980217 | 0.02937688 | 0.03786873 | 0.03786873 | 0.02416984 | 0.91915643 | 0.92008053 | 0.04135742 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 8 | block_alternating | 2728 | 3 | True | 0.98889340 | 0.98383390 | 0.01217274 | 0.89955279 | 0.88589606 | 0.02438956 | 0.85190616 | 0.84261975 | 0.01903807 | 0.98692619 | 0.98161510 | 0.01054494 | 0.05366759 | 0.06155907 | 0.02229893 | 0.06805368 | 0.07863285 | 0.02223485 | 0.06005440 | 0.06929227 | 0.02592387 | 0.03880798 | 0.03880798 | 0.02130800 | 0.96119618 | 0.96252402 | 0.05146402 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 0 | block_alternating | 2728 | 3 | True | 0.79827413 | 0.77555882 | 0.12281435 | 0.74360979 | 0.71982784 | 0.13195691 | 0.80351906 | 0.78421310 | 0.09091008 | 0.79396071 | 0.77788645 | 0.08957192 | 0.10842494 | 0.11147395 | 0.02608222 | 0.12512924 | 0.12783455 | 0.02838582 | 0.10862054 | 0.11084036 | 0.03552593 | 0.10657840 | 0.10657840 | 0.03176880 | 1.13935251 | 1.14124141 | 0.08862623 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 1 | block_alternating | 2728 | 3 | True | 0.99206405 | 0.97728647 | 0.02008489 | 0.92146754 | 0.90911697 | 0.02125480 | 0.90395894 | 0.89369501 | 0.02304433 | 0.99028845 | 0.97562504 | 0.02124358 | 0.02582557 | 0.04428199 | 0.02207467 | 0.03682860 | 0.05475486 | 0.02468367 | 0.03165900 | 0.05010987 | 0.02316244 | 0.01457701 | 0.01457701 | 0.04838536 | 1.03627534 | 1.03704474 | 0.04216211 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 2 | block_alternating | 2728 | 3 | True | 0.99564061 | 0.99201259 | 0.00279600 | 0.74821504 | 0.65827908 | 0.06054017 | 0.73533724 | 0.72947214 | 0.06043831 | 0.99136529 | 0.98701194 | 0.00453849 | 0.03747285 | 0.04590241 | 0.00953933 | 0.04886892 | 0.05936667 | 0.01008539 | 0.03383751 | 0.04536525 | 0.00773209 | 0.01000687 | 0.01000687 | 0.02418809 | 1.00444647 | 1.00540074 | 0.01952359 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 3 | block_alternating | 2728 | 3 | True | 0.97742391 | 0.96783558 | 0.01048889 | 0.94285398 | 0.92230890 | 0.04008141 | 0.90102639 | 0.87561095 | 0.01100521 | 0.97831989 | 0.97099129 | 0.01538984 | 0.02554660 | 0.02875301 | 0.00994352 | 0.03150106 | 0.03564727 | 0.00924866 | 0.02401562 | 0.02840062 | 0.00476032 | 0.01193491 | 0.01193491 | 0.00919236 | 0.93919848 | 0.94218118 | 0.05151925 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 4 | block_alternating | 2728 | 3 | True | 0.85337822 | 0.84485207 | 0.04487762 | 0.60916476 | 0.56986734 | 0.20563326 | 0.84164223 | 0.80205279 | 0.07059093 | 0.90545988 | 0.89798011 | 0.03258540 | 0.04881851 | 0.05018644 | 0.00796835 | 0.06216254 | 0.06395342 | 0.01094528 | 0.06315261 | 0.06447753 | 0.00970717 | 0.04292672 | 0.04292672 | 0.00790420 | 1.14737239 | 1.14912144 | 0.06070110 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 5 | block_alternating | 2728 | 3 | True | 0.92988024 | 0.91115399 | 0.02156036 | 0.94018767 | 0.93127166 | 0.02252859 | 0.94941349 | 0.94110459 | 0.01693109 | 0.96071300 | 0.95041683 | 0.00846519 | 0.03712581 | 0.04181747 | 0.00509612 | 0.04961339 | 0.05559507 | 0.00486407 | 0.04096058 | 0.04588756 | 0.00550014 | 0.01049326 | 0.01049326 | 0.00819540 | 0.85503192 | 0.86014560 | 0.03007118 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 6 | block_alternating | 2728 | 3 | True | 0.99552651 | 0.99001679 | 0.00598642 | 0.96142660 | 0.94566320 | 0.00657017 | 0.87829912 | 0.87927664 | 0.01262048 | 0.99353091 | 0.98756134 | 0.00718287 | 0.02302776 | 0.03135426 | 0.01202057 | 0.03052738 | 0.04120227 | 0.01189044 | 0.02368869 | 0.03440831 | 0.01012633 | 0.00899582 | 0.00899582 | 0.02595908 | 1.00893557 | 1.00985532 | 0.01986511 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 7 | block_alternating | 2728 | 3 | True | 0.99513263 | 0.99103545 | 0.00281208 | 0.89441009 | 0.86919519 | 0.04426280 | 0.87903226 | 0.85997067 | 0.02854534 | 0.99149723 | 0.98701555 | 0.00524701 | 0.02960179 | 0.03678788 | 0.01125237 | 0.03865530 | 0.04715214 | 0.00936713 | 0.02833616 | 0.03815970 | 0.00583020 | -0.01610815 | -0.01610815 | 0.02202326 | 1.03335183 | 1.03429519 | 0.00409162 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 8 | block_alternating | 2728 | 3 | True | 0.98318991 | 0.97696887 | 0.00382111 | 0.93724406 | 0.90892367 | 0.02044001 | 0.85557185 | 0.85459433 | 0.01667519 | 0.98516170 | 0.97828111 | 0.00252753 | 0.02070943 | 0.02524002 | 0.00105907 | 0.02741895 | 0.03313610 | 0.00190135 | 0.02337972 | 0.02730344 | 0.00226549 | -0.00820104 | -0.00820104 | 0.00544096 | 1.03361638 | 1.03559050 | 0.03197001 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 0 | block_alternating | 2728 | 3 | True | 0.96247835 | 0.95634563 | 0.02464473 | 0.83751894 | 0.80165166 | 0.06836802 | 0.82697947 | 0.80938416 | 0.04242075 | 0.95651283 | 0.94996014 | 0.02712316 | 0.08670240 | 0.09211364 | 0.03024499 | 0.10518455 | 0.11012470 | 0.03008591 | 0.09384164 | 0.09865910 | 0.02771210 | -0.08159502 | -0.08159502 | 0.03539741 | 1.08074129 | 1.08185668 | 0.01575236 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 1 | block_alternating | 2728 | 3 | True | 0.98307493 | 0.97385580 | 0.01144908 | 0.90900313 | 0.87898738 | 0.02058554 | 0.88636364 | 0.86241447 | 0.02848251 | 0.98520350 | 0.97803353 | 0.00531884 | 0.03278511 | 0.03943419 | 0.00452052 | 0.04328607 | 0.05247476 | 0.00648303 | 0.04236378 | 0.05179505 | 0.01158895 | 0.00047598 | 0.00047598 | 0.02320621 | 1.05486335 | 1.05607206 | 0.05321617 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 2 | block_alternating | 2728 | 3 | True | 0.98700547 | 0.98291468 | 0.00619761 | 0.92601297 | 0.91377011 | 0.01287780 | 0.88929619 | 0.87267840 | 0.00223977 | 0.98379832 | 0.97969273 | 0.00700071 | 0.05564403 | 0.06077642 | 0.01350094 | 0.06653761 | 0.07378421 | 0.01255192 | 0.05889134 | 0.06682268 | 0.01192062 | 0.04874253 | 0.04874253 | 0.01961557 | 1.01192312 | 1.01309147 | 0.02903282 | nan | nan | nan | nan | nan | nan | nan | nan | nan |
@@ -126,8 +221,24 @@ A run is flagged **potentially undertrained** if `best_epoch < 10`. A run is fla
 
 | setting | model | target | fold | row_set | n_test_rows | n_seeds | protocol_complete | group_mean_r2 | group_mean_r2_seed_mean | group_mean_r2_seed_sd | delta_r2 | delta_r2_seed_mean | delta_r2_seed_sd | ordering | ordering_seed_mean | ordering_seed_sd | overall_r2 | overall_r2_seed_mean | overall_r2_seed_sd | mae | mae_seed_mean | mae_seed_sd | rmse | rmse_seed_mean | rmse_seed_sd | group_mean_rmse | group_mean_rmse_seed_mean | group_mean_rmse_seed_sd | mean_signed_bias | mean_signed_bias_seed_mean | mean_signed_bias_seed_sd | compression_ratio | compression_ratio_seed_mean | compression_ratio_seed_sd | null_group_mean_r2 | null_overall_r2 | null_mae | null_rmse | beats_null_floor | skill_group_mean | skill_overall | skill_vs_null | null_floor_headroom_used |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| noposemb | hpg_hier_octamer | EA | 0 | random_via_all_groups | 4774 | 1 | False | nan | nan | nan | 0.42717794 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
-| noposemb | hpg_hier_octamer | EA | 4 | random_via_all_groups | 4774 | 1 | False | nan | nan | nan | 0.21768829 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 0 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.56381976 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 1 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.59080318 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 2 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.67256291 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 3 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.71783479 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 4 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.31798516 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 5 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.66913926 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 6 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | -0.45184404 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 7 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.58928729 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | EA | 8 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.52177208 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 0 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.57581078 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 1 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.61720116 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 2 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.26844844 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 3 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.74480337 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 4 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.50716701 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 5 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.81596552 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 6 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.75120209 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 7 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.62952307 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
+| noposemb | hpg_hier_octamer | IP | 8 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.71648025 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 0 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.64732125 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 1 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.64801933 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
 | k16 | hpg_hier_octamer | EA | 2 | random_via_all_groups | 4774 | 3 | True | nan | nan | nan | 0.66402216 | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan | nan |
@@ -153,10 +264,14 @@ Each cell's `delta_r2_seed_sd` is computed from the available seeds for that cel
 
 | setting | target | row_set | n_cells | n_cells_2_seed | median_delta_r2_seed_sd | mean_delta_r2_seed_sd | max_delta_r2_seed_sd |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| noposemb | EA | all | 2 | 0 | nan | nan | nan |
-| noposemb | EA | random | 2 | 0 | nan | nan | nan |
-| noposemb | EA | block_alternating | 2 | 0 | nan | nan | nan |
-| noposemb | EA | random_via_all_groups | 2 | 0 | nan | nan | nan |
+| noposemb | EA | all | 9 | 0 | 0.03805426 | 0.05555704 | 0.16895044 |
+| noposemb | EA | random | 9 | 0 | nan | nan | nan |
+| noposemb | EA | block_alternating | 9 | 0 | 0.04295312 | 0.06199816 | 0.18001367 |
+| noposemb | EA | random_via_all_groups | 9 | 0 | nan | nan | nan |
+| noposemb | IP | all | 9 | 0 | 0.03883073 | 0.05473093 | 0.15650151 |
+| noposemb | IP | random | 9 | 0 | nan | nan | nan |
+| noposemb | IP | block_alternating | 9 | 0 | 0.04008141 | 0.06147424 | 0.20563326 |
+| noposemb | IP | random_via_all_groups | 9 | 0 | nan | nan | nan |
 | k16 | EA | all | 9 | 0 | 0.01911567 | 0.16678743 | 0.81245400 |
 | k16 | EA | random | 9 | 0 | nan | nan | nan |
 | k16 | EA | block_alternating | 9 | 0 | 0.02058554 | 0.18817527 | 0.92087051 |
@@ -170,33 +285,136 @@ Each cell's `delta_r2_seed_sd` is computed from the available seeds for that cel
 
 **Primary quantity:** `delta_r2` (ablated − K=16) on the `all` row set. Materiality threshold for R1: **±0.051**. Overall R², MAE and RMSE are reported as secondary metrics only.
 
-- **Supported outcome:** None
-- **Median `delta_r2` difference (ablated − K=16), all rows:** nan
-- **Median `overall_r2` difference (ablated − K=16), all rows:** nan
-- **Median `mae` difference (ablated − K=16), all rows:** nan
-- **Median `rmse` difference (ablated − K=16), all rows:** nan
+- **Supported outcome:** no_material_change
+- **Median `delta_r2` difference (ablated − K=16), all rows:** -0.009789
+- **Median `overall_r2` difference (ablated − K=16), all rows:** 0.000314
+- **Median `mae` difference (ablated − K=16), all rows:** -0.001172
+- **Median `rmse` difference (ablated − K=16), all rows:** -0.000764
 
-### Metric-choice caveat (pilot observation)
+### Per-fold `delta_r2` diffs (all 9 folds, arm complete)
 
-On pilot fold 0 the primary and secondary metrics moved in opposite directions: overall R² increased by ~+0.028 while `delta_r2` fell by ~−0.173. Because the pre-registration names `delta_r2` as the primary quantity, the outcome is driven by `delta_r2`; overall R² is reported only for context.
+`diff` is ablated minus baseline (noposemb − K=16). `*_seed_sd` is the across-seed SD of `delta_r2` for that setting/cell; `max_seed_sd` is the larger of the two. Cells with `max_seed_sd > 0.2` are flagged **unstable** — their diff carries almost no information regardless of sign; see the sensitivity check below.
+
+| target | fold | baseline_delta_r2 | ablated_delta_r2 | diff | baseline_delta_r2_seed_sd | ablated_delta_r2_seed_sd | max_delta_r2_seed_sd | unstable |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| EA | 0 | 0.80983879 | 0.75718670 | -0.05265209 | 0.06948583 | 0.09934200 | 0.09934200 | False |
+| EA | 1 | 0.87444253 | 0.86448902 | -0.00995350 | 0.01175508 | 0.01196064 | 0.01196064 | False |
+| EA | 2 | 0.88980117 | 0.87720234 | -0.01259883 | 0.00479856 | 0.05195092 | 0.05195092 | False |
+| EA | 3 | 0.86520791 | 0.85747570 | -0.00773221 | 0.06668324 | 0.00953728 | 0.06668324 | False |
+| EA | 4 | 0.41508714 | 0.39975080 | -0.01533635 | 0.48172707 | 0.16895044 | 0.48172707 | True |
+| EA | 5 | 0.88507666 | 0.88656380 | 0.00148714 | 0.01751781 | 0.03805426 | 0.03805426 | False |
+| EA | 6 | -0.14090997 | -0.03609862 | 0.10481136 | 0.81245400 | 0.09187336 | 0.81245400 | True |
+| EA | 7 | 0.81260997 | 0.81760652 | 0.00499655 | 0.01754963 | 0.00830239 | 0.01754963 | False |
+| EA | 8 | 0.84889407 | 0.83449685 | -0.01439722 | 0.01911567 | 0.02004208 | 0.02004208 | False |
+| IP | 0 | 0.84252489 | 0.73456948 | -0.10795541 | 0.05096303 | 0.11920871 | 0.11920871 | False |
+| IP | 1 | 0.88559266 | 0.86859706 | -0.01699559 | 0.02352082 | 0.02411362 | 0.02411362 | False |
+| IP | 2 | 0.75151675 | 0.66438126 | -0.08713549 | 0.03822293 | 0.06432368 | 0.06432368 | False |
+| IP | 3 | 0.94409684 | 0.91643824 | -0.02765860 | 0.02424252 | 0.03883073 | 0.03883073 | False |
+| IP | 4 | 0.56943204 | 0.62033036 | 0.05089832 | 0.34257592 | 0.15650151 | 0.34257592 | True |
+| IP | 5 | 0.91322654 | 0.92972144 | 0.01649490 | 0.06923920 | 0.01633366 | 0.06923920 | False |
+| IP | 6 | 0.92872381 | 0.93351572 | 0.00479191 | 0.01617381 | 0.01509570 | 0.01617381 | False |
+| IP | 7 | 0.86053126 | 0.85090716 | -0.00962410 | 0.09276479 | 0.04217960 | 0.09276479 | False |
+| IP | 8 | 0.88922255 | 0.90750703 | 0.01828448 | 0.05949856 | 0.01599118 | 0.05949856 | False |
+
+### Cells flagged unstable
+
+| target | fold | baseline_delta_r2 | ablated_delta_r2 | diff | baseline_delta_r2_seed_sd | ablated_delta_r2_seed_sd | max_delta_r2_seed_sd | unstable |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| EA | 4 | 0.41508714 | 0.39975080 | -0.01533635 | 0.48172707 | 0.16895044 | 0.48172707 | True |
+| EA | 6 | -0.14090997 | -0.03609862 | 0.10481136 | 0.81245400 | 0.09187336 | 0.81245400 | True |
+| IP | 4 | 0.56943204 | 0.62033036 | 0.05089832 | 0.34257592 | 0.15650151 | 0.34257592 | True |
+
+**EA fold 6's baseline `delta_r2` is itself negative (-0.1409) with a seed SD of 0.8125 — larger than the entire plausible range of the metric.** Its +0.1048 diff is not evidence of anything and must not be reported as the arm's largest effect without this caveat attached in the same sentence.
+
+Do not read the out-of-band folds per target as a trend: each target has 2 of 9 folds outside ±0.051 (see the sensitivity check below), and the unstable cells above account for the largest-magnitude diffs in both directions.
+
+### Sensitivity check — excluding unstable cells
+
+Robustness check only; the pre-registered all-folds numbers above remain the headline result. This does not replace them.
+
+| target | cells | n_folds | median_diff | folds_outside_threshold | negative_folds | positive_folds | exact_sign_p |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| EA | all_folds | 9 | -0.00995350 | 2 | 6 | 3 | 0.50781250 |
+| EA | excl_unstable | 7 | -0.00995350 | 1 | 5 | 2 | 0.45312500 |
+| IP | all_folds | 9 | -0.00962410 | 2 | 5 | 4 | 1.00000000 |
+| IP | excl_unstable | 8 | -0.01330985 | 2 | 5 | 3 | 0.72656250 |
+
+**Outcome-3 conclusion does not change** when the unstable cells are excluded: both medians remain inside ±0.051 and neither sign test approaches significance.
 
 ### Assessment notes
 
-- Primary quantity is NaN; cannot determine outcome.
+- **Outcome 3 (R1 only): no material change.** Both EA and IP medians (EA -0.0100, IP -0.0096) sit inside [-0.051, +0.051], and neither paired sign test approaches significance (minimum attainable p at n=9 is 0.0039; see the comparisons table). Factor 2 (positional embeddings) is excluded as the principal source of the octamer gain, like factor 5 in the K=1 arm. Remaining candidates are factor 1 (8-slot topology) and factor 4 (the discarded 16-d port-pair edge features). No ablation at the current noise floor can separate those two -- this is a limit of the dataset, not of effort.
+- **Scope: R1 only.** The pre-registration's outcome 3 is phrased across both splits; R3 has not been run. This outcome is reported for the monomer_heldout split only and must not be read as closing the arm on R3 as well.
+- This is a *reduction* of positional information, not its elimination (pre-registration §2): end slots and interior slots remain distinguishable through path structure (end slots aggregate one incoming message, interior slots aggregate two). Do not describe the ablated model as "position-blind".
 
 ## Paired per-fold comparisons (ablated minus K=16)
 
 Signed differences are ablated minus K=16.  Tests are paired per fold. Folds where either setting is missing a seed are excluded from paired tests; see Exclusions above. No pooled comparisons are reported.
 
-### Exclusions
+### R1 — all
 
-- EA: excluded folds [0, 4] from R1_all_folds / all because at least one setting is missing a seed (reported as 2-seed cell, not 3).
-- IP: no common folds in R1_all_folds / all
-- EA: excluded folds [0, 4] from R1_all_folds / random because at least one setting is missing a seed (reported as 2-seed cell, not 3).
-- IP: no common folds in R1_all_folds / random
-- EA: excluded folds [0, 4] from R1_all_folds / block_alternating because at least one setting is missing a seed (reported as 2-seed cell, not 3).
-- IP: no common folds in R1_all_folds / block_alternating
-- EA: excluded folds [0, 4] from R1_all_folds / random_via_all_groups because at least one setting is missing a seed (reported as 2-seed cell, not 3).
-- IP: no common folds in R1_all_folds / random_via_all_groups
+| fold_group | row_set | n_folds | model | setting | reference_setting | target | metric | median_paired_difference | wins | losses | exact_sign_p | min_attainable_p | folds_smaller_than_measured_seed_sd | holm_p |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | EA | group_mean_r2 | -0.00124931 | 3 | 6 | 0.50781250 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | EA | delta_r2 | -0.00995350 | 3 | 6 | 0.50781250 | 0.00390625 | 9 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | EA | ordering | -0.01735093 | 1 | 8 | 0.03906250 | 0.00390625 | 6 | 0.46875000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | EA | overall_r2 | -0.00155201 | 3 | 6 | 0.50781250 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | EA | mae | 0.00147460 | 3 | 6 | 0.50781250 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | EA | rmse | 0.00057782 | 6 | 3 | 0.50781250 | 0.00390625 | 7 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | IP | group_mean_r2 | 0.00071455 | 6 | 3 | 0.50781250 | 0.00390625 | 6 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | IP | delta_r2 | -0.00962410 | 4 | 5 | 1.00000000 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | IP | ordering | -0.00000000 | 4 | 5 | 1.00000000 | 0.00390625 | 9 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | IP | overall_r2 | 0.00217915 | 6 | 3 | 0.50781250 | 0.00390625 | 7 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | IP | mae | -0.00381942 | 6 | 3 | 0.50781250 | 0.00390625 | 6 | 1.00000000 |
+| R1_all_folds | all | 9 | hpg_hier_octamer | noposemb | k16 | IP | rmse | -0.00210527 | 3 | 6 | 0.50781250 | 0.00390625 | 7 | 1.00000000 |
 
-_No comparisons computed._
+### R1 — random
+
+| fold_group | row_set | n_folds | model | setting | reference_setting | target | metric | median_paired_difference | wins | losses | exact_sign_p | min_attainable_p | folds_smaller_than_measured_seed_sd | holm_p |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | EA | group_mean_r2 | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | EA | delta_r2 | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | EA | ordering | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | EA | overall_r2 | -0.00019325 | 4 | 5 | 1.00000000 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | EA | mae | 0.00200930 | 3 | 6 | 0.50781250 | 0.00390625 | 5 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | EA | rmse | 0.00049927 | 5 | 4 | 1.00000000 | 0.00390625 | 7 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | IP | group_mean_r2 | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | IP | delta_r2 | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | IP | ordering | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | IP | overall_r2 | 0.00069986 | 5 | 4 | 1.00000000 | 0.00390625 | 7 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | IP | mae | -0.00221341 | 5 | 4 | 1.00000000 | 0.00390625 | 5 | 1.00000000 |
+| R1_all_folds | random | 9 | hpg_hier_octamer | noposemb | k16 | IP | rmse | -0.00212880 | 4 | 5 | 1.00000000 | 0.00390625 | 7 | 1.00000000 |
+
+### R1 — block_alternating
+
+| fold_group | row_set | n_folds | model | setting | reference_setting | target | metric | median_paired_difference | wins | losses | exact_sign_p | min_attainable_p | folds_smaller_than_measured_seed_sd | holm_p |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | EA | group_mean_r2 | 0.00132686 | 5 | 4 | 1.00000000 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | EA | delta_r2 | -0.00538494 | 2 | 7 | 0.17968750 | 0.00390625 | 9 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | EA | ordering | -0.01466276 | 4 | 5 | 1.00000000 | 0.00390625 | 7 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | EA | overall_r2 | -0.00179573 | 3 | 6 | 0.50781250 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | EA | mae | 0.00105188 | 4 | 5 | 1.00000000 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | EA | rmse | 0.00167873 | 6 | 3 | 0.50781250 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | IP | group_mean_r2 | 0.00386524 | 7 | 2 | 0.17968750 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | IP | delta_r2 | -0.00090786 | 4 | 5 | 1.00000000 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | IP | ordering | 0.00586510 | 5 | 4 | 1.00000000 | 0.00390625 | 6 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | IP | overall_r2 | 0.00321498 | 7 | 2 | 0.17968750 | 0.00390625 | 8 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | IP | mae | -0.00258456 | 6 | 3 | 0.50781250 | 0.00390625 | 6 | 1.00000000 |
+| R1_all_folds | block_alternating | 9 | hpg_hier_octamer | noposemb | k16 | IP | rmse | -0.00225496 | 2 | 7 | 0.17968750 | 0.00390625 | 8 | 1.00000000 |
+
+### R1 — random_via_all_groups
+
+| fold_group | row_set | n_folds | model | setting | reference_setting | target | metric | median_paired_difference | wins | losses | exact_sign_p | min_attainable_p | folds_smaller_than_measured_seed_sd | holm_p |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | EA | group_mean_r2 | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | EA | delta_r2 | -0.04771201 | 3 | 6 | 0.50781250 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | EA | ordering | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | EA | overall_r2 | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | EA | mae | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | EA | rmse | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | IP | group_mean_r2 | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | IP | delta_r2 | -0.01707797 | 4 | 5 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | IP | ordering | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | IP | overall_r2 | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | IP | mae | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |
+| R1_all_folds | random_via_all_groups | 9 | hpg_hier_octamer | noposemb | k16 | IP | rmse | nan | 0 | 0 | 1.00000000 | 0.00390625 | 0 | 1.00000000 |

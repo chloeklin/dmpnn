@@ -125,3 +125,64 @@ controls, not by assumption:
 
 The controls-passing gate is what distinguishes these two readings.  State that gate explicitly
 when reporting outcome 4.
+
+### 2026-08-11 — R1 materiality threshold: documented value vs. re-derived value
+
+**Summary:** the documented R1 threshold (0.051) does not re-derive from the cited source today.
+The headline outcome (outcome 3, no material change) is unaffected. The frozen value 0.051 must
+continue to be used; this addendum documents the discrepancy.
+
+**Documented value:** §5 records the R1 threshold as **0.051**, described as the "median per-cell
+across-seed SD of `delta_r2` for `hpg_hier_octamer` on `all` rows", 18 cells.
+
+**Re-derived value today:** sorting the 18 per-cell SDs from
+`_regen_v1_results_individual_runs.csv` gives a median of **(0.038223 + 0.050963) / 2 =
+0.044593**. The mean is **0.1232**, matching the companion figure value (0.123) to four
+significant figures — confirming the data is unchanged.
+
+**Likely cause — median-convention slip:** the 18 sorted SDs are listed below. The 10th value
+(0-indexed, i.e. index 9) is IP fold 0, SD = **0.050963 ≈ 0.051**. A 1-indexed or off-by-one
+reading of the median position (taking the 10th element rather than averaging the 9th and 10th)
+reproduces the documented value exactly. No run has been added or removed; only the median
+calculation convention differed.
+
+| rank (1-based) | target | fold | delta_r2 SD |
+|---|---|---|---|
+| 1 | EA | 2 | 0.004799 |
+| 2 | EA | 1 | 0.011755 |
+| 3 | IP | 6 | 0.016174 |
+| 4 | EA | 5 | 0.017518 |
+| 5 | EA | 7 | 0.017550 |
+| 6 | EA | 8 | 0.019116 |
+| 7 | IP | 1 | 0.023521 |
+| 8 | IP | 3 | 0.024243 |
+| 9 | IP | 2 | 0.038223 |
+| **10** | **IP** | **0** | **0.050963** |
+| 11 | IP | 8 | 0.059499 |
+| 12 | EA | 3 | 0.066683 |
+| 13 | IP | 5 | 0.069239 |
+| 14 | EA | 0 | 0.069486 |
+| 15 | IP | 7 | 0.092765 |
+| 16 | IP | 4 | 0.342576 |
+| 17 | EA | 4 | 0.481727 |
+| 18 | EA | 6 | 0.812454 |
+
+True median (average of ranks 9 and 10) = 0.044593. Documented value = rank 10 = 0.050963.
+
+**Outcome verified under both values:**
+
+The primary quantity is the median diff (ablated minus K=16) across folds, per target:
+EA = **−0.0100**, IP = **−0.0096** (from `_octamer_posemb_r1_results_fold_diffs.csv`).
+
+Both medians sit well inside [−0.044593, +0.044593] and [−0.051, +0.051]. The headline verdict
+— outcome 3, no material change on R1 — is identical under either threshold.
+
+One fold-cell differs in its individual fold-level classification: IP fold 4 (diff = +0.0509) is
+just inside [−0.051, +0.051] but just outside [−0.044593, +0.044593]. That cell is flagged
+unstable in `_octamer_posemb_r1_results_fold_diffs.csv` (max_delta_r2_seed_sd = 0.343, far above
+the 0.2 unstable threshold), so its individual diff carries almost no information regardless.
+Folds outside either threshold — EA {0, 6} and IP {0, 2} — are the same under both values. IP
+fold 4 is additionally outside under 0.044593 only.
+
+**The analysis continues to use the frozen pre-registered value of 0.051.** Using a pre-registered
+value is the entire point of pre-registering it.

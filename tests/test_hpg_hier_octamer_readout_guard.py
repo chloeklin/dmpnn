@@ -1,10 +1,8 @@
-"""Fail-fast guard for the unimplemented octamer_sequence + stoich_weighted combination.
+"""Fail-fast guard for the octamer_sequence readout combination.
 
-The OctamerEncoder in chemprop/models/hpg_hier.py is only constructed when
-stage2_mode == "octamer_sequence" and stage2_readout == "attention".  Using
-"octamer_sequence" with any other readout silently falls back to the 2-node
-baseline transition-graph path.  These tests ensure both entry points raise a
-ValueError instead.
+The OctamerEncoder in chemprop/models/hpg_hier.py is constructed for
+stage2_mode == "octamer_sequence" with either "attention" (arm D baseline)
+or "stoich_weighted" (arm D mean-pooling).  Unknown readouts still raise.
 """
 from pathlib import Path
 
@@ -32,16 +30,20 @@ def _dummy_model(stage2_readout: str) -> HPGHierMPNN:
     )
 
 
-def test_octamer_sequence_with_stoich_weighted_raises():
-    with pytest.raises(ValueError, match="octamer_sequence with readout 'stoich_weighted' is not implemented"):
-        _dummy_model("stoich_weighted")
+def test_octamer_sequence_with_stoich_weighted_uses_mean_readout():
+    model = _dummy_model("stoich_weighted")
+    assert model.octamer_encoder is not None
+    assert model.octamer_encoder.readout == "mean"
+    assert model.octamer_encoder.attention_readout is None
 
 
 def test_octamer_sequence_with_attention_is_allowed():
     model = _dummy_model("attention")
     assert model.octamer_encoder is not None
+    assert model.octamer_encoder.readout == "attention"
+    assert model.octamer_encoder.attention_readout is not None
 
 
-def test_octamer_sequence_guard_mentions_handoff_arm_d():
-    with pytest.raises(ValueError, match="See HANDOFF §7 \\(arm D\\)"):
-        _dummy_model("stoich_weighted")
+def test_octamer_sequence_guard_rejects_unknown_readout():
+    with pytest.raises(ValueError, match="Unknown stage2_readout"):
+        _dummy_model("max")

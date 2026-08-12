@@ -25,6 +25,61 @@ from sklearn.metrics import r2_score, mean_absolute_error
 from typing import Sequence
 
 
+# ── Architecture spread helper ──────────────────────────────────────────────
+
+def _arch_spread_metrics(sub_frame: pd.DataFrame, suffix: str) -> dict:
+    """Per-group architecture-spread statistics for one arch-count stratum.
+
+    sub_frame must have columns ``group``, ``y_true``, ``y_pred``.
+    Degenerate groups (true_spread < 1e-9) are excluded from **all** counts.
+    Groups with pred_spread == 0 (ratio == 0) are counted in collapsed_frac
+    but excluded from logerr (log2(0) is undefined).
+
+    Keys returned (per suffix):
+        arch_spread_n_groups      — number of non-degenerate contributing groups
+        arch_spread_true          — median true spread (eV)
+        arch_spread_pred          — median predicted spread (eV)
+        arch_spread_ratio         — median(pred_spread / true_spread)
+        arch_spread_collapsed_frac — fraction of groups with ratio < 0.25
+        arch_spread_within_2x_frac — fraction of groups with 0.5 <= ratio <= 2.0
+        arch_spread_logerr        — median |log2(ratio)| (nonzero-ratio groups only)
+    """
+    true_spreads: list[float] = []
+    pred_spreads: list[float] = []
+    ratios:       list[float] = []
+    for _, gdf in sub_frame.groupby("group"):
+        ts = float(gdf.y_true.max() - gdf.y_true.min())
+        if ts < 1e-9:
+            continue  # degenerate group — excluded from all counts
+        ps = float(gdf.y_pred.max() - gdf.y_pred.min())
+        true_spreads.append(ts)
+        pred_spreads.append(ps)
+        ratios.append(ps / ts)
+    _nan_keys = [
+        f"arch_spread_n_groups{suffix}",
+        f"arch_spread_true{suffix}", f"arch_spread_pred{suffix}",
+        f"arch_spread_ratio{suffix}", f"arch_spread_collapsed_frac{suffix}",
+        f"arch_spread_within_2x_frac{suffix}", f"arch_spread_logerr{suffix}",
+    ]
+    if not ratios:
+        return {k: np.nan for k in _nan_keys}
+    ratios_arr = np.array(ratios, dtype=np.float64)
+    nonzero    = ratios_arr[ratios_arr > 0.0]
+    return {
+        f"arch_spread_n_groups{suffix}": float(len(ratios)),
+        f"arch_spread_true{suffix}": float(np.median(true_spreads)),
+        f"arch_spread_pred{suffix}": float(np.median(pred_spreads)),
+        f"arch_spread_ratio{suffix}": float(np.median(ratios_arr)),
+        f"arch_spread_collapsed_frac{suffix}": float(np.mean(ratios_arr < 0.25)),
+        f"arch_spread_within_2x_frac{suffix}": float(np.mean(
+            (ratios_arr >= 0.5) & (ratios_arr <= 2.0)
+        )),
+        f"arch_spread_logerr{suffix}": (
+            float(np.median(np.abs(np.log2(nonzero)))) if nonzero.size > 0 else np.nan
+        ),
+    }
+
+
 # ── Overall metrics ───────────────────────────────────────────────────────────
 
 def compute_overall_r2(y_true: Sequence, y_pred: Sequence) -> float:
@@ -76,6 +131,9 @@ def compute_copolymer_metrics(
                 else float((true_values[i] - true_values[j]) * (pred_values[i] - pred_values[j]) > 0)
                 for i, j in pairs
             ]))
+    # Arch-spread strata — arch3 and arch2 kept separate (range over 3 vs 2 points)
+    sub3 = matched[matched.group.isin(valid[valid == 3].index)]
+    sub2 = matched[matched.group.isin(valid[valid == 2].index)]
     metrics = {
         "group_mean_r2": float(r2_score(group_means.y_true, group_means.y_pred)),
         "delta_r2": float(r2_score(delta_true, delta_pred)),
@@ -86,6 +144,8 @@ def compute_copolymer_metrics(
         "group_mean_rmse": float(np.sqrt(np.mean((group_means.y_pred - group_means.y_true) ** 2))),
         "mean_signed_bias": float((np.asarray(y_pred, dtype=np.float64) - np.asarray(y_true, dtype=np.float64)).mean()),
         "compression_ratio": float(group_means.y_pred.std(ddof=0) / group_means.y_true.std(ddof=0)),
+        **_arch_spread_metrics(sub3, "_arch3"),
+        **_arch_spread_metrics(sub2, "_arch2"),
     }
     return metrics, group_means
 

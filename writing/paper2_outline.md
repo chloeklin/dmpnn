@@ -16,7 +16,7 @@ Nothing goes in the paper that isn't in this table.
 | # | Claim | Evidence | Figure / source |
 |---|---|---|---|
 | 1 | Architecture is ~1% of the variance; monomer identity is ~90% | EA 0.98%, IP 1.46% within (A,B,fracA); A+B identity 0.93 / 0.90 | `fig2_variance_by_axis` |
-| 2 | A split can be degenerate for a target, and you cannot tell without a null | A-blind null median group-mean R² **0.676** on EA vs **−0.034** on IP; the null beats the model on one EA fold | `fig_r1_chemistry_floor` |
+| 2 | A split can be degenerate for a target, and you cannot tell without a null | A-blind null median group-mean R² **0.676** on EA vs **−0.034** on IP; on **IP fold 0** the null (0.969) beats **both** trained models | `F3_null_floor` (`analysis/paper1_figures/`) |
 | 3 | The two chemical axes need different splits | headroom: A-split EA 0.32 / IP 1.03; B-split EA 0.62 / IP 0.44 | design audit §0.5–0.6 |
 | 4 | The benchmark's B space is dominated by two scaffold families | 112 Murcko scaffolds, largest 317 (46%) and 109 (16%) = 62.5% | `fig3_scaffold_cluster_sizes` |
 | 5 | Therefore a balanced scaffold-disjoint split is impossible, and the folds are not exchangeable | folds 0–3: 76/76 held-out monomers have a same-core relative in training; folds 7–8: 0/75 | fold-composition table |

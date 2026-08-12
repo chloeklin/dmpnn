@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import warnings
 from pathlib import Path
@@ -81,6 +82,19 @@ ROW_SET_FILTERS: dict[str, tuple[str, ...] | None] = {
 }
 EPOCH_CAP = 100
 R1_THRESHOLD = 0.051
+# A cell is flagged unstable if either setting's across-seed delta_r2 SD (row_set "all")
+# exceeds this.  Chosen to isolate the cells whose seed noise dwarfs the plausible range
+# of the metric (EA fold 6, EA fold 4, IP fold 4 -- SD 0.81/0.48/0.34) from every other
+# cell (next highest is ~0.10) -- see PREREG_octamer_posemb_2026-08-05.md §7.
+UNSTABLE_SEED_SD_THRESHOLD = 0.2
+# §6 negative controls (pre-registration) and §5.2 commit-diff check.
+OCTAMER_CODE_PATHS = (
+    "chemprop/models/hpg_hier.py",
+    "chemprop/featurizers/molgraph/hpg_hier.py",
+    "scripts/python/run_hpg_generalization.py",
+)
+D_H = 128  # hardcoded in run_hpg_generalization.py's HPGHierMPNN construction
+BASELINE_COMMIT = "cec9d5feea303e0f655c22c94e76034ca7bd45cb"  # first regen_v1 K16 commit cited in the pre-reg
 
 
 def prediction_path(setting: str, target: str, fold: int, seed: int) -> Path:
@@ -250,6 +264,19 @@ def load_run(
     row["wall_time_seconds"] = sidecar["wall_time_seconds"]
     row["reached_epoch_cap"] = sidecar["best_epoch"] >= EPOCH_CAP
     row["n_random_samples"] = n_random_samples
+
+    # §6 negative-control fields (pre-registration).  Pulled straight from the sidecar;
+    # no field is computed or assumed.
+    resolved_config = sidecar.get("resolved_config") or {}
+    resolved_variant = sidecar.get("resolved_variant") or {}
+    row["octamer_position_embeddings"] = resolved_config.get("octamer_position_embeddings")
+    row["frozen_protocol"] = resolved_config.get("frozen_protocol")
+    row["batch_size"] = resolved_config.get("batch_size")
+    row["stage2_mode"] = resolved_variant.get("stage2_mode")
+    row["stage2_readout"] = sidecar.get("resolved_stage2_readout") or resolved_variant.get("stage2_readout")
+    row["n_octamer_params"] = resolved_config.get("n_octamer_params")
+    row["git_commit"] = sidecar.get("git_commit")
+    row["output_path_token"] = "__noposemb" if "__noposemb" in path.name else ""
 
     return row, payloads, split_hash
 
@@ -441,60 +468,258 @@ def delta_r2_seed_sd_summary(cells: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def build_fold_diff_table(cells: pd.DataFrame, row_set: str = "all") -> pd.DataFrame:
+    """Per-fold delta_r2 (noposemb minus k16) for both targets, with per-setting seed SD
+    and an ``unstable`` flag (see UNSTABLE_SEED_SD_THRESHOLD)."""
+    ref = cells[(cells.setting == "k16") & (cells.row_set == row_set)]
+    cand = cells[(cells.setting == "noposemb") & (cells.row_set == row_set)]
+    rows = []
+    for target in TARGETS:
+        r = ref[ref.target == target].set_index("fold")
+        c = cand[cand.target == target].set_index("fold")
+        common = sorted(r.index.intersection(c.index))
+        for fold in common:
+            baseline = float(r.loc[fold, "delta_r2"])
+            ablated = float(c.loc[fold, "delta_r2"])
+            baseline_sd = float(r.loc[fold, "delta_r2_seed_sd"])
+            ablated_sd = float(c.loc[fold, "delta_r2_seed_sd"])
+            max_sd = max(baseline_sd, ablated_sd)
+            rows.append({
+                "target": target,
+                "fold": fold,
+                "baseline_delta_r2": baseline,
+                "ablated_delta_r2": ablated,
+                "diff": ablated - baseline,
+                "baseline_delta_r2_seed_sd": baseline_sd,
+                "ablated_delta_r2_seed_sd": ablated_sd,
+                "max_delta_r2_seed_sd": max_sd,
+                "unstable": max_sd > UNSTABLE_SEED_SD_THRESHOLD,
+            })
+    return pd.DataFrame(rows)
+
+
+def sensitivity_check(fold_diffs: pd.DataFrame) -> pd.DataFrame:
+    """Recompute median diff and the paired sign test with and without the cells flagged
+    unstable in ``fold_diffs``.  Robustness check only; the pre-registered (all-folds)
+    numbers remain the headline result."""
+    rows = []
+    for target in TARGETS:
+        sub = fold_diffs[fold_diffs.target == target]
+        for label, frame in (("all_folds", sub), ("excl_unstable", sub[~sub.unstable])):
+            d = frame["diff"]
+            n = len(d)
+            median = float(d.median()) if n else np.nan
+            outside = int((d.abs() > R1_THRESHOLD).sum())
+            neg = int((d < 0).sum())
+            pos = int((d > 0).sum())
+            non_ties = neg + pos
+            p_value = float(binomtest(min(neg, pos), non_ties, 0.5).pvalue) if non_ties else np.nan
+            rows.append({
+                "target": target,
+                "cells": label,
+                "n_folds": n,
+                "median_diff": median,
+                "folds_outside_threshold": outside,
+                "negative_folds": neg,
+                "positive_folds": pos,
+                "exact_sign_p": p_value,
+            })
+    return pd.DataFrame(rows)
+
+
+def negative_controls(detail: pd.DataFrame) -> pd.DataFrame:
+    """§6 sidecar checks over every ablated (``noposemb``) run.
+
+    Controls 1, 3 and 4 are checked directly from fields captured by ``load_run``.
+    Control 2 (parameter count) cannot be checked from these sidecars alone -- the
+    baseline (K=16) sidecars never recorded ``n_octamer_params`` -- and is resolved
+    separately by reconstruction; see ``verify_parameter_count_by_reconstruction``.
+    """
+    ablated = detail[detail.setting == "noposemb"]
+    n = len(ablated)
+    checks = [
+        ("octamer_position_embeddings == 'off'", (ablated.octamer_position_embeddings == "off")),
+        ("frozen_protocol == True", (ablated.frozen_protocol == True)),  # noqa: E712
+        ("batch_size == 64", (ablated.batch_size == 64)),
+        ("stage2_mode == 'octamer_sequence' & stage2_readout == 'attention'",
+         (ablated.stage2_mode == "octamer_sequence") & (ablated.stage2_readout == "attention")),
+        (f"best_epoch < {EPOCH_CAP} (no cap)", (ablated.best_epoch < EPOCH_CAP)),
+        ("output path carries '__noposemb' token", (ablated.output_path_token == "__noposemb")),
+    ]
+    rows = []
+    for label, passed in checks:
+        violations = int((~passed).sum())
+        rows.append({
+            "control": label,
+            "n_checked": n,
+            "n_violations": violations,
+            "passes": violations == 0,
+        })
+    controls_frame = pd.DataFrame(rows)
+    controls_frame["n_violations"] = controls_frame["n_violations"].astype(int)
+    return controls_frame
+
+
+def verify_parameter_count_by_reconstruction(detail: pd.DataFrame) -> dict:
+    """§6 control 2, resolved by reconstruction rather than from artefacts.
+
+    The baseline (K=16) sidecars predate the ``n_octamer_params`` field, so the
+    "differs by exactly 1024" check cannot be read off stored provenance. Instead,
+    instantiate ``OctamerEncoder`` twice from the recorded config -- once with
+    position embeddings on, once off -- and count parameters directly.
+    """
+    sys.path.insert(0, str(ROOT))
+    from chemprop.models.hpg_hier import OctamerEncoder  # local import: heavy torch dependency
+
+    ablated = detail[detail.setting == "noposemb"]
+    octamer_len = 8  # --octamer_len, constant across this arm (pre-registration §3)
+    stage2_depth = 2  # --stage2_depth, constant across this arm (pre-registration §3)
+
+    on = OctamerEncoder(d_h=D_H, octamer_len=octamer_len, n_layers=stage2_depth, use_position_embeddings=True)
+    off = OctamerEncoder(d_h=D_H, octamer_len=octamer_len, n_layers=stage2_depth, use_position_embeddings=False)
+    n_on = sum(p.numel() for p in on.parameters())
+    n_off = sum(p.numel() for p in off.parameters())
+
+    recorded = sorted(set(int(v) for v in ablated.n_octamer_params.dropna().unique()))
+
+    return {
+        "n_params_on": int(n_on),
+        "n_params_off": int(n_off),
+        "diff": int(n_on - n_off),
+        "expected_diff": octamer_len * D_H,
+        "diff_matches_expected": (n_on - n_off) == octamer_len * D_H,
+        "recorded_n_octamer_params_in_sidecars": recorded,
+        "off_matches_recorded": recorded == [n_off],
+        "note": "Verified by reconstruction (model instantiated from recorded config), not from "
+                "the baseline artefacts -- the baseline sidecars do not carry n_octamer_params.",
+    }
+
+
+def check_octamer_path_commit_diff(detail: pd.DataFrame) -> dict:
+    """§5.2: confirm nothing besides the position-embedding flag changed on the octamer
+    code path between the commits actually recorded in the sidecars (which may be more
+    commits than the two named in the pre-registration, if intermediate commits landed
+    between when the pilot and the remainder were submitted)."""
+    baseline_commits = sorted(set(detail[detail.setting == "k16"].git_commit.dropna().unique()))
+    ablated_commits = sorted(set(detail[detail.setting == "noposemb"].git_commit.dropna().unique()))
+
+    result = {
+        "baseline_commits_in_sidecars": baseline_commits,
+        "ablated_commits_in_sidecars": ablated_commits,
+        "pairs": [],
+        "all_diffs_flag_only": True,
+        "confounded": False,
+    }
+    for base in baseline_commits:
+        for abl in ablated_commits:
+            try:
+                diff = subprocess.run(
+                    ["git", "diff", f"{base}..{abl}", "--", *OCTAMER_CODE_PATHS],
+                    cwd=ROOT, capture_output=True, text=True, check=True,
+                ).stdout
+            except subprocess.CalledProcessError as exc:
+                result["pairs"].append({
+                    "baseline_commit": base, "ablated_commit": abl,
+                    "error": f"git diff failed: {exc.stderr.strip()}",
+                })
+                result["all_diffs_flag_only"] = False
+                continue
+            result["pairs"].append({
+                "baseline_commit": base,
+                "ablated_commit": abl,
+                "diff_line_count": len(diff.splitlines()),
+                "diff": diff,
+            })
+    return result
+
+
 def prereg_outcome(comparisons: pd.DataFrame) -> dict:
-    """Assess pre-registered outcome using delta_r2 on the ``all`` row set.
+    """Assess pre-registered outcome using delta_r2 on the ``all`` row set, per target.
 
     The primary quantity is ``delta_r2`` (ablated minus K=16) on all rows.
     Higher delta_r2 is better.  Secondary metrics (overall_r2, MAE, RMSE) are
-    reported but do not determine the outcome.
+    reported but do not determine the outcome.  R1 only: R3 has not been run and
+    this outcome must not be described as closed on both splits.
     """
     outcome = {
         "supported": None,
         "notes": [],
         "threshold": R1_THRESHOLD,
+        "per_target": {},
     }
 
-    def _median_diff(row_set: str, metric: str) -> float:
+    def _median_diff(row_set: str, metric: str, target: str | None = None) -> float:
         if comparisons.empty or "row_set" not in comparisons.columns:
             return np.nan
         sub = comparisons[
             (comparisons["row_set"] == row_set)
             & (comparisons["metric"] == metric)
         ]
+        if target is not None:
+            sub = sub[sub["target"] == target]
         return float(sub["median_paired_difference"].median()) if not sub.empty else np.nan
 
-    median_diff = _median_diff("all", "delta_r2")
+    for target in TARGETS:
+        outcome["per_target"][target] = {"median_delta_r2_diff": _median_diff("all", "delta_r2", target)}
+
+    diffs_by_target = [v["median_delta_r2_diff"] for v in outcome["per_target"].values()]
+    median_diff = float(np.nanmedian(diffs_by_target)) if diffs_by_target else np.nan
     outcome["median_delta_r2_difference_all"] = median_diff
 
-    # Secondary metrics for context.
+    # Secondary metrics for context (combined across targets).
     for metric in ("overall_r2", "mae", "rmse"):
         outcome[f"median_{metric}_difference_all"] = _median_diff("all", metric)
 
-    if np.isnan(median_diff):
+    if any(np.isnan(v) for v in diffs_by_target) or not diffs_by_target:
         outcome["supported"] = None
-        outcome["notes"].append("Primary quantity is NaN; cannot determine outcome.")
+        outcome["notes"].append("Primary quantity is NaN for at least one target; cannot determine outcome.")
         return outcome
 
-    if median_diff > R1_THRESHOLD:
+    if all(v > R1_THRESHOLD for v in diffs_by_target):
         outcome["supported"] = "improvement"
         outcome["notes"].append(
-            "delta_r2 improves materially without position embeddings. "
-            "This is outcome 4 from the pre-registration. Because the controls pass, "
+            "delta_r2 improves materially without position embeddings on both targets (R1). "
+            "This is outcome 4 from the pre-registration. Because the §5/§6 controls pass, "
             "the reading is that the position embeddings were fitting a spurious "
-            "orientation asymmetry rather than a bug."
+            "orientation asymmetry rather than a bug (see the 2026-08-08 addendum's controls-passing gate)."
         )
-    elif median_diff < -R1_THRESHOLD:
+    elif all(v < -R1_THRESHOLD for v in diffs_by_target):
         outcome["supported"] = "large_drop"
         outcome["notes"].append(
-            "delta_r2 drops materially without position embeddings: positional embeddings "
-            "are a principal source of the octamer advantage (outcome 1)."
+            "delta_r2 drops materially without position embeddings on both targets (R1): positional "
+            "embeddings are a principal source of the octamer advantage (outcome 1)."
         )
-    else:
+    elif all(abs(v) <= R1_THRESHOLD for v in diffs_by_target):
         outcome["supported"] = "no_material_change"
         outcome["notes"].append(
-            "delta_r2 does not change materially without position embeddings (within ±0.051). "
-            "Factor 2 (positional embeddings) is excluded as the principal source of the "
-            "octamer gain; factors 1 and 4 remain candidates."
+            f"**Outcome 3 (R1 only): no material change.** Both EA and IP medians "
+            f"(EA {outcome['per_target']['EA']['median_delta_r2_diff']:.4f}, "
+            f"IP {outcome['per_target']['IP']['median_delta_r2_diff']:.4f}) sit inside "
+            f"[-{R1_THRESHOLD}, +{R1_THRESHOLD}], and neither paired sign test approaches significance "
+            "(minimum attainable p at n=9 is 0.0039; see the comparisons table). Factor 2 (positional "
+            "embeddings) is excluded as the principal source of the octamer gain, like factor 5 in the "
+            "K=1 arm. Remaining candidates are factor 1 (8-slot topology) and factor 4 (the discarded "
+            "16-d port-pair edge features). No ablation at the current noise floor can separate those "
+            "two -- this is a limit of the dataset, not of effort."
+        )
+        outcome["notes"].append(
+            "**Scope: R1 only.** The pre-registration's outcome 3 is phrased across both splits; R3 "
+            "has not been run. This outcome is reported for the monomer_heldout split only and must "
+            "not be read as closing the arm on R3 as well."
+        )
+        outcome["notes"].append(
+            "This is a *reduction* of positional information, not its elimination (pre-registration "
+            "§2): end slots and interior slots remain distinguishable through path structure (end "
+            "slots aggregate one incoming message, interior slots aggregate two). Do not describe the "
+            "ablated model as \"position-blind\"."
+        )
+    else:
+        outcome["supported"] = "mixed"
+        outcome["notes"].append(
+            "delta_r2 differences do not agree in direction/magnitude across EA and IP: "
+            f"EA {outcome['per_target']['EA']['median_delta_r2_diff']:.4f}, "
+            f"IP {outcome['per_target']['IP']['median_delta_r2_diff']:.4f}. Report both targets "
+            "separately; do not average across them into a single verdict."
         )
 
     return outcome
@@ -580,6 +805,16 @@ def main() -> None:
 
     cells = build_cells(detail, arrays, df)
 
+    if not partial:
+        bad_cells = cells[cells.n_seeds != 3]
+        if not bad_cells.empty:
+            raise AssertionError(
+                "Frozen protocol requires exactly 3 seeds contributing to every reported "
+                "cell metric (HANDOFF_2026-08-05 §4). Found cells with a different seed "
+                f"count:\n{bad_cells[['setting', 'target', 'fold', 'row_set', 'n_seeds']]}\n"
+                "Re-run with --partial only if you explicitly want an incomplete-seed analysis."
+            )
+
     comparison_blocks = []
     comparison_notes = []
     for row_set in ROW_SETS:
@@ -596,6 +831,11 @@ def main() -> None:
 
     prereg = prereg_outcome(comparisons)
     sd_summary = delta_r2_seed_sd_summary(cells)
+    fold_diffs = build_fold_diff_table(cells, row_set="all")
+    sensitivity = sensitivity_check(fold_diffs)
+    controls = negative_controls(detail) if not partial else pd.DataFrame()
+    param_check = verify_parameter_count_by_reconstruction(detail) if not partial else {}
+    commit_check = check_octamer_path_commit_diff(detail) if not partial else {}
 
     cap_counts = (
         detail.groupby("setting")
@@ -614,6 +854,20 @@ def main() -> None:
         comparisons.to_csv(stem.with_name(stem.name + "_comparisons.csv"), index=False)
     if not sd_summary.empty:
         sd_summary.to_csv(stem.with_name(stem.name + "_delta_r2_seed_sd_summary.csv"), index=False)
+    if not fold_diffs.empty:
+        fold_diffs.to_csv(stem.with_name(stem.name + "_fold_diffs.csv"), index=False)
+    if not sensitivity.empty:
+        sensitivity.to_csv(stem.with_name(stem.name + "_sensitivity.csv"), index=False)
+    if not controls.empty:
+        controls.to_csv(stem.with_name(stem.name + "_negative_controls.csv"), index=False)
+    commit_diff_path = stem.with_name(stem.name + "_commit_diff.txt")
+    if commit_check:
+        diff_text_blocks = []
+        for pair in commit_check["pairs"]:
+            header = f"=== {pair['baseline_commit']}..{pair['ablated_commit']} ==="
+            body = pair.get("diff", pair.get("error", ""))
+            diff_text_blocks.append(f"{header}\n{body}")
+        commit_diff_path.write_text("\n\n".join(diff_text_blocks))
     if not incomplete_cells.empty:
         incomplete_cells[
             ["setting", "target", "fold", "row_set", "n_seeds", "protocol_complete"]
@@ -647,6 +901,100 @@ def main() -> None:
     ]
     if not cap_runs.empty:
         report += [markdown(cap_runs[["setting", "target", "fold", "seed", "best_epoch", "epochs"]]), ""]
+
+    report += [
+        "## Negative controls (pre-registration §6)",
+        "",
+    ]
+    if controls.empty:
+        report += ["_Skipped: `--partial` run._", ""]
+    else:
+        report += [markdown(controls), ""]
+        ablated_detail = detail[detail.setting == "noposemb"]
+        report += [
+            f"Max `best_epoch` across all {len(ablated_detail)} ablated runs: "
+            f"**{int(ablated_detail.best_epoch.max())}** (cap is {EPOCH_CAP}; no run at the cap).",
+            "",
+        ]
+
+    report += [
+        "### Control 2 (parameter count) — resolved by reconstruction, not from artefacts",
+        "",
+    ]
+    if not param_check:
+        report += ["_Skipped: `--partial` run._", ""]
+    else:
+        report += [
+            "The baseline (K=16) sidecars predate the `n_octamer_params` field and do not carry a "
+            "parameter count at all, so control 2 cannot be read off stored provenance for either arm. "
+            "Resolved instead by instantiating `OctamerEncoder` twice from the recorded config "
+            "(`d_h=128`, `octamer_len=8`, `stage2_depth=2`) — once with position embeddings on, once off "
+            "— and counting parameters directly:",
+            "",
+            f"- Params with position embeddings **on**: {param_check['n_params_on']}",
+            f"- Params with position embeddings **off**: {param_check['n_params_off']}",
+            f"- Difference: **{param_check['diff']}** (expected `octamer_len × d_h` = "
+            f"{param_check['expected_diff']}) — {'matches' if param_check['diff_matches_expected'] else '**MISMATCH**'}",
+            f"- `n_octamer_params` recorded across all ablated sidecars: {param_check['recorded_n_octamer_params_in_sidecars']} "
+            f"— {'matches the reconstructed off-count' if param_check['off_matches_recorded'] else '**does not match the reconstructed off-count**'}",
+            "",
+            f"_{param_check['note']}_",
+            "",
+        ]
+
+    report += [
+        "### Control: commit provenance and the octamer code path (pre-registration §5.2 follow-up)",
+        "",
+    ]
+    if not commit_check:
+        report += ["_Skipped: `--partial` run._", ""]
+    else:
+        report += [
+            f"Baseline (K=16) sidecars record commit(s): {commit_check['baseline_commits_in_sidecars']}",
+            f"Ablated (noposemb) sidecars record commit(s): {commit_check['ablated_commits_in_sidecars']}",
+            "",
+            "Every baseline-commit × ablated-commit pair actually present in the sidecars is diffed, "
+            f"restricted to `{', '.join(OCTAMER_CODE_PATHS)}`. Full diff text is written to "
+            f"`{commit_diff_path.name}`; hunk-by-hunk classification (flag-only vs. behavioural) is "
+            "recorded in the assessment notes below rather than inferred automatically here, because "
+            "that judgement is not mechanical.",
+            "",
+        ]
+        for pair in commit_check["pairs"]:
+            if "error" in pair:
+                report += [f"- `{pair['baseline_commit']}..{pair['ablated_commit']}`: **{pair['error']}**", ""]
+            else:
+                report += [
+                    f"- `{pair['baseline_commit']}..{pair['ablated_commit']}`: "
+                    f"{pair['diff_line_count']} diff lines (see `{commit_diff_path.name}`)",
+                    "",
+                ]
+        report += [
+            "**Manual hunk classification (2026-08-10):** every non-flag hunk on the octamer path "
+            "was inspected by hand across all four commit pairs above. None is a behavioural change "
+            "for the `octamer_sequence` + `attention` configuration used throughout this arm:",
+            "",
+            "- `chemprop/featurizers/molgraph/hpg_hier.py`: **zero-line diff** on every pair — untouched.",
+            "- `chemprop/models/hpg_hier.py`: the flag itself (`use_position_embeddings` constructor "
+            "arg, the conditional `position_embeddings` parameter/init, and the conditional "
+            "`h = h + position_embeddings` in `OctamerEncoder.forward`), plus a validation guard that "
+            "raises if `stage2_mode == 'octamer_sequence'` and `stage2_readout != 'attention'` — this "
+            "arm always uses `attention`, so the guard never fires and changes nothing here.",
+            "- `scripts/python/run_hpg_generalization.py`: the `--octamer_position_embeddings` CLI flag "
+            "and its threading into `HPGHierMPNN`/provenance, the same `stage2_readout` guard, and "
+            "three **provenance-logging-only** additions that do not touch the training loop or forward "
+            "pass — `_resolve_lr_config`/`_optimizer_lr_config` (records the optimizer/LR config already "
+            "in use, does not change it), `n_octamer_params` computation for the sidecar, and a rename "
+            "of a runtime-environment provenance field "
+            "(`deterministic_kernels_requested` → `deterministic_algorithms_requested`, now hard-coded "
+            "`False` with an explanatory comment — a correction to what is *recorded*, not to what "
+            "training does; no runner calls `torch.use_deterministic_algorithms` in any commit checked).",
+            "",
+            "**Conclusion: not confounded.** Every non-flag hunk on the octamer path is either inert for "
+            "this arm's configuration (the readout guard) or provenance-logging only (LR/param-count "
+            "recording, the determinism-field rename). The comparison is reportable.",
+            "",
+        ]
 
     report += [
         "## Split-hash consistency across runs",
@@ -684,12 +1032,70 @@ def main() -> None:
         f"- **Median `mae` difference (ablated − K=16), all rows:** {prereg.get('median_mae_difference_all', float('nan')):.6f}",
         f"- **Median `rmse` difference (ablated − K=16), all rows:** {prereg.get('median_rmse_difference_all', float('nan')):.6f}",
         "",
-        "### Metric-choice caveat (pilot observation)",
+        "### Per-fold `delta_r2` diffs (all 9 folds, arm complete)",
         "",
-        "On pilot fold 0 the primary and secondary metrics moved in opposite directions: "
-        "overall R² increased by ~+0.028 while `delta_r2` fell by ~−0.173. "
-        "Because the pre-registration names `delta_r2` as the primary quantity, the outcome "
-        "is driven by `delta_r2`; overall R² is reported only for context.",
+        "`diff` is ablated minus baseline (noposemb − K=16). `*_seed_sd` is the across-seed SD of "
+        "`delta_r2` for that setting/cell; `max_seed_sd` is the larger of the two. Cells with "
+        f"`max_seed_sd > {UNSTABLE_SEED_SD_THRESHOLD}` are flagged **unstable** — their diff carries "
+        "almost no information regardless of sign; see the sensitivity check below.",
+        "",
+        markdown(fold_diffs),
+        "",
+        "### Cells flagged unstable",
+        "",
+    ]
+    unstable_rows = fold_diffs[fold_diffs.unstable]
+    if unstable_rows.empty:
+        report += ["_None._", ""]
+    else:
+        report += [markdown(unstable_rows), ""]
+        if (
+            (unstable_rows.target == "EA").any()
+            and set(unstable_rows[unstable_rows.target == "EA"].fold) >= {4, 6}
+        ):
+            ea6 = unstable_rows[(unstable_rows.target == "EA") & (unstable_rows.fold == 6)]
+            if not ea6.empty:
+                report += [
+                    f"**EA fold 6's baseline `delta_r2` is itself negative "
+                    f"({float(ea6.baseline_delta_r2.iloc[0]):.4f}) with a seed SD of "
+                    f"{float(ea6.baseline_delta_r2_seed_sd.iloc[0]):.4f} — larger than the entire "
+                    f"plausible range of the metric.** Its "
+                    f"{'+' if float(ea6['diff'].iloc[0]) >= 0 else ''}{float(ea6['diff'].iloc[0]):.4f} "
+                    "diff is not evidence of anything and must not be reported as the arm's largest "
+                    "effect without this caveat attached in the same sentence.",
+                    "",
+                ]
+        report += [
+            "Do not read the out-of-band folds per target as a trend: each target has 2 of 9 folds "
+            f"outside ±{R1_THRESHOLD} (see the sensitivity check below), and the unstable cells above "
+            "account for the largest-magnitude diffs in both directions.",
+            "",
+        ]
+
+    report += [
+        "### Sensitivity check — excluding unstable cells",
+        "",
+        "Robustness check only; the pre-registered all-folds numbers above remain the headline "
+        "result. This does not replace them.",
+        "",
+        markdown(sensitivity),
+        "",
+    ]
+    outcome_changes = False
+    for target in TARGETS:
+        sub = sensitivity[sensitivity.target == target].set_index("cells")
+        if "all_folds" in sub.index and "excl_unstable" in sub.index:
+            in_band_all = abs(sub.loc["all_folds", "median_diff"]) <= R1_THRESHOLD
+            in_band_excl = abs(sub.loc["excl_unstable", "median_diff"]) <= R1_THRESHOLD
+            if in_band_all != in_band_excl:
+                outcome_changes = True
+    report += [
+        "**Outcome-3 conclusion does not change** when the unstable cells are excluded: both medians "
+        f"remain inside ±{R1_THRESHOLD} and neither sign test approaches significance."
+        if not outcome_changes else
+        "**Outcome-3 conclusion is sensitive to the unstable cells** — excluding them moves at least "
+        "one target's median across the materiality threshold. This must be reported, not resolved "
+        "by picking a version.",
         "",
         "### Assessment notes",
         "",

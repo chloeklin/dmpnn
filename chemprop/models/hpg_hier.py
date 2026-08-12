@@ -91,12 +91,15 @@ class OctamerEncoder(nn.Module):
     octamer_sequences: (n_polymers*K, octamer_len) long  -- values 0 (A) or 1 (B)
     octamer_polymer_batch: (n_polymers*K,) long  -- which polymer each replicate belongs to
     """
-    def __init__(self, d_h: int, octamer_len: int, n_layers: int, use_position_embeddings: bool = True):
+    def __init__(self, d_h: int, octamer_len: int, n_layers: int, use_position_embeddings: bool = True, readout: str = "attention"):
         super().__init__()
+        if readout not in {"attention", "mean"}:
+            raise ValueError(f"Unknown OctamerEncoder readout={readout!r}")
         self.d_h = d_h
         self.octamer_len = octamer_len
+        self.readout = readout
         self.layers = nn.ModuleList([OctamerPathLayer(d_h) for _ in range(n_layers)])
-        self.attention_readout = AttentionReadout(d_h)
+        self.attention_readout = AttentionReadout(d_h) if readout == "attention" else None
         if use_position_embeddings:
             self.position_embeddings = nn.Parameter(torch.empty(octamer_len, d_h))
             nn.init.normal_(self.position_embeddings, std=0.02)
@@ -125,7 +128,9 @@ class OctamerEncoder(nn.Module):
         for layer in self.layers:
             h_flat = layer(h_flat, edge_index, n_nodes)
         h = h_flat.reshape(n_reps, L, self.d_h)
-        return self.attention_readout(h)
+        if self.readout == "attention":
+            return self.attention_readout(h)
+        return h.mean(dim=1)
 
 
 class JunctionCouplingLayer(nn.Module):
@@ -185,12 +190,11 @@ class HPGHierMPNN(pl.LightningModule):
             stage2_readout = "attention" if stage2_mode == "octamer_sequence" else "stoich_weighted"
         if stage2_readout not in {"stoich_weighted", "attention"}:
             raise ValueError(f"Unknown stage2_readout={stage2_readout!r}")
-        if stage2_mode == "octamer_sequence" and stage2_readout != "attention":
+        if stage2_mode == "octamer_sequence" and stage2_readout not in {"attention", "stoich_weighted"}:
             raise ValueError(
                 f"octamer_sequence with readout '{stage2_readout}' is not implemented — "
-                "OctamerEncoder is only constructed for the attention readout (hpg_hier.py:201-203). "
-                "This configuration would silently train the 2-node baseline. "
-                "See HANDOFF §7 (arm D)."
+                "only 'attention' and 'stoich_weighted' are supported. "
+                "See HANDOFF §7 (arm D is now implemented)."
             )
         self.save_hyperparameters()
         self.stage1_pool = stage1_pool
@@ -212,8 +216,9 @@ class HPGHierMPNN(pl.LightningModule):
             OctamerEncoder(
                 d_h, octamer_len=octamer_len, n_layers=stage2_depth,
                 use_position_embeddings=use_position_embeddings,
+                readout=("attention" if stage2_readout == "attention" else "mean"),
             )
-            if stage2_mode == "octamer_sequence" and stage2_readout == "attention" else None
+            if stage2_mode == "octamer_sequence" else None
         )
         self.stage2_attention_readout = (
             AttentionReadout(d_h)
@@ -257,7 +262,7 @@ class HPGHierMPNN(pl.LightningModule):
         h = self.stage2_input(torch.cat([monomers, batch.monomer_fracs.unsqueeze(-1)], dim=-1))
 
         # Variant 2: octamer sequence — yhat = mean_k( head( encode(octamer_k) ) )
-        if self.stage2_mode == "octamer_sequence" and self.stage2_readout == "attention" and batch.octamer_sequences is not None:
+        if self.stage2_mode == "octamer_sequence" and batch.octamer_sequences is not None:
             n_polymers = len(batch)
             oct_embeds = self.octamer_encoder(h, batch.octamer_sequences, batch.octamer_polymer_batch)
             all_preds = self.head(oct_embeds)
