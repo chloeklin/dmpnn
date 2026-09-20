@@ -63,11 +63,11 @@ def test_expected_sample_run_ids_and_fastest_split_dimension():
 def test_pbs_wrappers_have_required_guards_and_resources():
     specifications = {
         "run_year2_final_htpmd_array.pbs": (
-            "#PBS -J 0-374%10", "#PBS -l walltime=12:00:00", "#PBS -l mem=32GB",
+            "#PBS -l walltime=12:00:00", "#PBS -l mem=32GB",
             "--resolve htpmd", "htpmd_cells.tsv",
         ),
         "run_year2_final_eaip_array.pbs": (
-            "#PBS -J 0-49%10", "#PBS -l walltime=24:00:00", "#PBS -l mem=64GB",
+            "#PBS -l walltime=24:00:00", "#PBS -l mem=64GB",
             "--resolve eaip", "eaip_cells.tsv",
         ),
     }
@@ -77,8 +77,10 @@ def test_pbs_wrappers_have_required_guards_and_resources():
             assert value in text
         assert "#PBS -P ng76" in text
         assert "#PBS -q gpuvolta" in text
-        assert "#PBS -l ncpus=4" in text
+        assert "#PBS -J" not in text
+        assert "#PBS -l ncpus=12" in text
         assert "#PBS -l ngpus=1" in text
+        assert "YEAR2_CELL_INDEX is required" in text
         assert "scratch/um09+gdata/dk92" in text
         assert 'if [[ -e "$CELL_DIR" ]]' in text
         assert "exit 20" in text

@@ -2,7 +2,6 @@
 #PBS -N y2h_final
 #PBS -P ng76
 #PBS -q gpuvolta
-#PBS -J 0-374%10
 #PBS -l walltime=12:00:00
 #PBS -l ncpus=12
 #PBS -l ngpus=1
@@ -23,7 +22,7 @@ EXPERIMENT_NAMESPACE="year2_corrected_final_2026"
 MANIFEST="$PROJECT_DIR/manifests/$EXPERIMENT_NAMESPACE/htpmd_cells.tsv"
 DATA_PATH="$PROJECT_DIR/data/htpmd.csv"
 SPLIT_PATH="$PROJECT_DIR/metadata/splits/htpmd_chemistry_disjoint.json"
-ARRAY_INDEX="${PBS_ARRAY_INDEX:?PBS_ARRAY_INDEX is required}"
+ARRAY_INDEX="${YEAR2_CELL_INDEX:?YEAR2_CELL_INDEX is required}"
 
 test "$(basename "$PROJECT_DIR")" = "dmpnn" || { echo "ERROR: unexpected working directory: $PROJECT_DIR" >&2; exit 2; }
 test -f "$MANIFEST" || { echo "ERROR: missing manifest: $MANIFEST" >&2; exit 2; }
@@ -68,7 +67,7 @@ split_seed=$SPLIT_SEED
 initialization_seed=$INIT_SEED
 hostname=$(hostname)
 pbs_job_id=${PBS_JOBID:-}
-pbs_array_index=$ARRAY_INDEX
+campaign_cell_index=$ARRAY_INDEX
 cuda_visible_devices=$CUDA_VISIBLE_VALUE
 start_time_utc=$START_TIME_UTC
 git_commit=$GIT_COMMIT
@@ -120,7 +119,7 @@ keys = {
     "git_commit": "GIT_COMMIT",
     "git_tag_or_describe": "GIT_DESCRIBE",
     "pbs_job_id": "PBS_JOB_ID_VALUE",
-    "pbs_array_index": "ARRAY_INDEX",
+    "campaign_cell_index": "ARRAY_INDEX",
     "cuda_visible_devices": "CUDA_VISIBLE_VALUE",
     "working_directory": "PROJECT_DIR",
     "python_executable": "PYTHON_EXECUTABLE",
