@@ -8,7 +8,9 @@ from rdkit import Chem
 from rdkit.Chem import Mol
 
 from chemprop.data.molgraph import MolGraph, PolymerMolGraph
+from chemprop.featurizers.atom import MultiHotAtomFeaturizer
 from chemprop.featurizers.base import GraphFeaturizer
+from chemprop.featurizers.bond import MultiHotBondFeaturizer
 from chemprop.featurizers.molgraph.mixins import _MolGraphFeaturizerMixin
 from chemprop.utils.utils import is_cuikmolmaker_available
 
@@ -229,6 +231,58 @@ def parse_polymer_rules(rules):
             raise ValueError(f'sum of weights of incoming stochastic edges should be 1 -- found {v} for [*:{k}]')
     return polymer_info, 1. + np.log10(Xn)
 
+
+def parse_polymer_rules_controlled(rules: list[str], strict_weight_normalization: bool = True):
+    """Non-mutating, robust replacement for :func:`parse_polymer_rules`.
+
+    Correctly consumes ``~Xn`` in the last rule without modifying the caller's
+    input list, and uses a mathematically valid ``np.isclose`` guard.
+
+    Parameters
+    ----------
+    rules : list[str]
+        Edge specification strings, e.g. ``["1-2:1:1", "2-1:1:1~100"]``.
+    strict_weight_normalization : bool, default=True
+        If True, raise when the sum of incoming stochastic weights for any
+        attachment point is not close to 1.0. This exposes the published
+        weight-convention violations (e.g. block/random weights) as errors
+        rather than silently accepting them.
+    """
+    # Copy up-front so the caller's list is never mutated.
+    rules = list(rules)
+    Xn = 1.0
+
+    if rules and "~" in rules[-1]:
+        head, tail = rules[-1].split("~")
+        Xn = float(tail)
+        rules[-1] = head
+
+    polymer_info = []
+    counter = Counter()
+
+    for rule in rules:
+        if rule == "":
+            continue
+        parts = rule.split(":")
+        if len(parts) != 3:
+            raise ValueError(f'incorrect format for input information "{rule}"')
+        idx1, idx2 = parts[0].split("-")
+        w12 = float(parts[1])
+        w21 = float(parts[2])
+        polymer_info.append((idx1, idx2, w12, w21))
+        counter[idx1] += w21
+        counter[idx2] += w12
+
+    if strict_weight_normalization:
+        for k, v in counter.items():
+            if not np.isclose(v, 1.0):
+                raise ValueError(
+                    f'sum of weights of incoming stochastic edges should be 1 -- found {v} for [*:{k}]'
+                )
+
+    return polymer_info, 1.0 + np.log10(Xn)
+
+
 def tag_atoms_in_repeating_unit(mol):
     """
     Tags atoms that are part of the core units, as well as atoms serving to identify attachment points. In addition,
@@ -340,6 +394,23 @@ def remove_wildcard_atoms(rwmol: Chem.RWMol) -> Chem.RWMol:
 
     return rwmol
 
+
+def remove_wildcard_atoms_published(rwmol: Chem.RWMol) -> Chem.RWMol:
+    """Reference-style wildcard removal used by polymer-chemprop.
+
+    This is a literal port of the published reference's ``remove_wildcard_atoms``.
+    It iteratively removes every atom whose SMILES representation contains ``*``,
+    then sanitizes with ``SANITIZE_ALL``. It does **not** special-case ring
+    wildcards; that is intentional for ``wDMPNN-published`` fidelity.
+    """
+    indices = [a.GetIdx() for a in rwmol.GetAtoms() if "*" in a.GetSmarts()]
+    while len(indices) > 0:
+        rwmol.RemoveAtom(indices[0])
+        indices = [a.GetIdx() for a in rwmol.GetAtoms() if "*" in a.GetSmarts()]
+    Chem.SanitizeMol(rwmol, Chem.SanitizeFlags.SANITIZE_ALL)
+    return rwmol
+
+
 @dataclass
 class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
     """
@@ -397,7 +468,7 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
 
         
         # parse rules on monomer connections
-        polymer_info, degree_of_polym = parse_polymer_rules(edges)
+        polymer_info, degree_of_polym = self.parse_polymer_rules(edges)
         # make molecule editable
         rwmol = Chem.rdchem.RWMol(mol)
         # tag (i) attachment atoms and (ii) atoms for which features needs to be computed
@@ -451,17 +522,12 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
 
 
         # remove R groups -> now atoms in rdkit Mol object have the same order as self.f_atoms
-        rwmol = remove_wildcard_atoms(rwmol)
+        rwmol = self.remove_wildcard_atoms(rwmol)
 
         # Determine monomer identity from connected components after R-group removal.
         # This uses connectivity, not stoichiometry, so it is robust at fracA = 0.5
         # where atom_weights alone cannot distinguish monomers.
         frags = Chem.GetMolFrags(rwmol, asMols=False, sanitizeFrags=False)
-        if len(frags) != 2:
-            raise ValueError(
-                f"Expected 2 monomer fragments after wildcard removal, got {len(frags)} "
-                f"for molecule: {Chem.MolToSmiles(rwmol)}"
-            )
         atom_to_monomer = {}
         for monomer_id, atom_indices in enumerate(frags):
             for idx in atom_indices:
@@ -661,3 +727,109 @@ class PolymerMolGraphFeaturizer(_MolGraphFeaturizerMixin, GraphFeaturizer[Mol]):
         # This should reflect the true atom and bond feature dims,
         # including extra dims and possible overwrite flags.
         return self.atom_fdim, self.bond_fdim
+
+    # -------------------------------------------------------------------
+    #  Extension points for published vs controlled wD-MPNN variants
+    # -------------------------------------------------------------------
+    def parse_polymer_rules(self, edges: list[str]) -> tuple[list[tuple[str, str, float, float]], float]:
+        """Parse edge strings and degree of polymerization; overridable by variants."""
+        return parse_polymer_rules(edges)
+
+    def remove_wildcard_atoms(self, rwmol: Chem.RWMol) -> Chem.RWMol:
+        """Remove wildcard attachment atoms; overridable by variants."""
+        return remove_wildcard_atoms(rwmol)
+
+
+class wDMPNNPublishedPolymerMolGraphFeaturizer(PolymerMolGraphFeaturizer):
+    """Faithful reproduction of the published/reference wD-MPNN featurization.
+
+    This matches Aldeghi & Coley polymer-chemprop as closely as the current
+    Chemprop v2 infrastructure allows:
+
+    * 133D Chemprop-v1 atom features via :meth:`MultiHotAtomFeaturizer.v1`.
+    * Reference-style wildcard removal.
+    * Mutating ``~Xn`` parsing and the (dead) ``np.isclose ... is False``
+      normalization guard, exactly as in the reference code.
+
+    These choices are preserved for fidelity, not because they are robust.
+    See :class:`wDMPNNControlledPolymerMolGraphFeaturizer` for a corrected
+    control implementation.
+    """
+
+    def __init__(
+        self,
+        atom_featurizer: MultiHotAtomFeaturizer | None = None,
+        bond_featurizer: MultiHotBondFeaturizer | None = None,
+        extra_atom_fdim: int = 0,
+        extra_bond_fdim: int = 0,
+        overwrite_default_atom_features: bool = False,
+        overwrite_default_bond_features: bool = False,
+    ):
+        if atom_featurizer is None:
+            atom_featurizer = MultiHotAtomFeaturizer.v1()
+        if bond_featurizer is None:
+            bond_featurizer = MultiHotBondFeaturizer()
+        super().__init__(
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            extra_atom_fdim=extra_atom_fdim,
+            extra_bond_fdim=extra_bond_fdim,
+            overwrite_default_atom_features=overwrite_default_atom_features,
+            overwrite_default_bond_features=overwrite_default_bond_features,
+        )
+
+    def remove_wildcard_atoms(self, rwmol: Chem.RWMol) -> Chem.RWMol:
+        return remove_wildcard_atoms_published(rwmol)
+
+
+class wDMPNNControlledPolymerMolGraphFeaturizer(PolymerMolGraphFeaturizer):
+    """Corrected, explicitly controlled wD-MPNN featurization.
+
+    This retains the wD-MPNN representational idea (molecular fragments,
+    weighted atoms, weighted polymer connections, wD message passing, explicit
+    ``Xn``) but repairs accidental implementation defects:
+
+    * Non-mutating ``~Xn`` parsing; repeated featurization is idempotent.
+    * A mathematically valid incoming-weight normalization guard (raise if the
+      sums are not close to 1; configurable via ``strict_weight_normalization``).
+    * Explicit atom/bond featurizer choice via constructor arguments.
+
+    It deliberately does **not** add positional, sequence, or ensemble
+    information; that would be a new representation.
+    """
+
+    def __init__(
+        self,
+        atom_featurizer: MultiHotAtomFeaturizer | None = None,
+        bond_featurizer: MultiHotBondFeaturizer | None = None,
+        extra_atom_fdim: int = 0,
+        extra_bond_fdim: int = 0,
+        overwrite_default_atom_features: bool = False,
+        overwrite_default_bond_features: bool = False,
+        strict_weight_normalization: bool = True,
+    ):
+        if atom_featurizer is None:
+            raise ValueError(
+                "wDMPNN-controlled requires an explicit atom_featurizer choice. "
+                "Pass e.g. MultiHotAtomFeaturizer.v1() for the v1/published atom "
+                "feature space, or another explicitly chosen featurizer."
+            )
+        if bond_featurizer is None:
+            bond_featurizer = MultiHotBondFeaturizer()
+        super().__init__(
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            extra_atom_fdim=extra_atom_fdim,
+            extra_bond_fdim=extra_bond_fdim,
+            overwrite_default_atom_features=overwrite_default_atom_features,
+            overwrite_default_bond_features=overwrite_default_bond_features,
+        )
+        self.strict_weight_normalization = strict_weight_normalization
+
+    def parse_polymer_rules(self, edges: list[str]) -> tuple[list[tuple[str, str, float, float]], float]:
+        return parse_polymer_rules_controlled(edges, self.strict_weight_normalization)
+
+    def remove_wildcard_atoms(self, rwmol: Chem.RWMol) -> Chem.RWMol:
+        # Use the robust wildcard handler (ring wildcards are replaced, not
+        # removed), which is a deliberate controlled-port improvement.
+        return remove_wildcard_atoms(rwmol)

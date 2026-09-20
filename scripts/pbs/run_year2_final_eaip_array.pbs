@@ -1,0 +1,142 @@
+#!/bin/bash
+#PBS -N y2e_final
+#PBS -P ng76
+#PBS -q gpuvolta
+#PBS -J 0-49%10
+#PBS -l walltime=24:00:00
+#PBS -l ncpus=4
+#PBS -l ngpus=1
+#PBS -l mem=64GB
+#PBS -l jobfs=20GB
+#PBS -l storage=scratch/um09+gdata/dk92
+#PBS -r y
+
+set -euo pipefail
+
+module use /g/data/dk92/apps/Modules/modulefiles
+module load python3/3.12.1 cuda/12.0.0
+source /home/659/hl4138/dmpnn-venv/bin/activate
+cd /scratch/um09/hl4138/dmpnn
+
+PROJECT_DIR="$PWD"
+EXPERIMENT_NAMESPACE="year2_corrected_final_2026"
+MANIFEST="$PROJECT_DIR/manifests/$EXPERIMENT_NAMESPACE/eaip_cells.tsv"
+DATA_PATH="$PROJECT_DIR/data/ea_ip.csv"
+PUBLISHED_DATA_PATH="$PROJECT_DIR/polymer-chemprop-data/datasets/vipea/chemprop_inputs/dataset-poly_chemprop.csv"
+SPLIT_PATH="$PROJECT_DIR/metadata/splits/ea_ip_chemistry_disjoint.json"
+ARRAY_INDEX="${PBS_ARRAY_INDEX:?PBS_ARRAY_INDEX is required}"
+
+test "$(basename "$PROJECT_DIR")" = "dmpnn" || { echo "ERROR: unexpected working directory: $PROJECT_DIR" >&2; exit 2; }
+test -f "$MANIFEST" || { echo "ERROR: missing manifest: $MANIFEST" >&2; exit 2; }
+test -f "$DATA_PATH" || { echo "ERROR: missing data: $DATA_PATH" >&2; exit 2; }
+test -f "$PUBLISHED_DATA_PATH" || { echo "ERROR: missing published data: $PUBLISHED_DATA_PATH" >&2; exit 2; }
+test -f "$SPLIT_PATH" || { echo "ERROR: missing split artifact: $SPLIT_PATH" >&2; exit 2; }
+
+eval "$(python3 scripts/python/year2_final_campaign.py --resolve eaip --array-index "$ARRAY_INDEX" --project-dir "$PROJECT_DIR")"
+LOG_DIR="$PROJECT_DIR/logs/$EXPERIMENT_NAMESPACE/eaip"
+mkdir -p "$LOG_DIR"
+JOB_TOKEN="${PBS_JOBID:-no_pbs_job}"
+exec >"$LOG_DIR/${CANONICAL_RUN_ID}__job${JOB_TOKEN}.out" 2>"$LOG_DIR/${CANONICAL_RUN_ID}__job${JOB_TOKEN}.err"
+
+START_EPOCH="$(date -u +%s)"
+START_TIME_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+on_exit() {
+    status=$?
+    set +e
+    end_epoch="$(date -u +%s)"
+    echo "exit_status=$status"
+    echo "end_time_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "elapsed_seconds=$((end_epoch - START_EPOCH))"
+    echo "expected_output_directory=$CELL_DIR"
+}
+trap on_exit EXIT
+
+GIT_COMMIT="$(git rev-parse HEAD)"
+GIT_DESCRIBE="$(git describe --tags --always --dirty)"
+PYTHON_EXECUTABLE="$(command -v python3)"
+PYTHON_VERSION="$(python3 --version 2>&1)"
+CUDA_VISIBLE_VALUE="${CUDA_VISIBLE_DEVICES:-}"
+
+cat <<EOF
+experiment_namespace=$EXPERIMENT_NAMESPACE
+canonical_run_id=$CANONICAL_RUN_ID
+dataset=$DATASET
+model=$RUNNER_MODEL
+target=$TARGET
+split_index=$SPLIT_INDEX
+split_seed=$SPLIT_SEED
+initialization_seed=$INIT_SEED
+hostname=$(hostname)
+pbs_job_id=${PBS_JOBID:-}
+pbs_array_index=$ARRAY_INDEX
+cuda_visible_devices=$CUDA_VISIBLE_VALUE
+start_time_utc=$START_TIME_UTC
+git_commit=$GIT_COMMIT
+git_describe=$GIT_DESCRIBE
+working_directory=$PROJECT_DIR
+python_executable=$PYTHON_EXECUTABLE
+python_version=$PYTHON_VERSION
+exact_python_command=$EXACT_PYTHON_COMMAND
+data_path=$DATA_PATH
+published_data_path=$PUBLISHED_DATA_PATH
+split_path=$SPLIT_PATH
+output_directory=$CELL_DIR
+EOF
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "ERROR: Gadi tracked working tree is not clean" >&2
+    exit 21
+fi
+if [[ -e "$CELL_DIR" ]]; then
+    echo "ERROR: output cell directory already exists: $CELL_DIR" >&2
+    exit 20
+fi
+mkdir -p "$(dirname "$CELL_DIR")"
+if ! mkdir "$CELL_DIR"; then
+    echo "ERROR: could not create output cell directory exactly once: $CELL_DIR" >&2
+    exit 20
+fi
+
+export EXPERIMENT_NAMESPACE CANONICAL_RUN_ID DATASET RUNNER_MODEL CONDITION TARGET
+export SPLIT_INDEX SPLIT_SEED INIT_SEED GIT_COMMIT GIT_DESCRIBE CUDA_VISIBLE_VALUE
+export PROJECT_DIR PYTHON_EXECUTABLE PYTHON_VERSION DATA_PATH PUBLISHED_DATA_PATH SPLIT_PATH CELL_DIR
+export EXACT_PYTHON_COMMAND START_TIME_UTC ARRAY_INDEX
+export PBS_JOB_ID_VALUE="${PBS_JOBID:-}"
+
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+keys = {
+    "experiment_namespace": "EXPERIMENT_NAMESPACE",
+    "canonical_run_id": "CANONICAL_RUN_ID",
+    "dataset": "DATASET",
+    "model": "RUNNER_MODEL",
+    "condition": "CONDITION",
+    "target": "TARGET",
+    "split_index": "SPLIT_INDEX",
+    "split_seed": "SPLIT_SEED",
+    "init_seed": "INIT_SEED",
+    "git_commit": "GIT_COMMIT",
+    "git_tag_or_describe": "GIT_DESCRIBE",
+    "pbs_job_id": "PBS_JOB_ID_VALUE",
+    "pbs_array_index": "ARRAY_INDEX",
+    "cuda_visible_devices": "CUDA_VISIBLE_VALUE",
+    "working_directory": "PROJECT_DIR",
+    "python_executable": "PYTHON_EXECUTABLE",
+    "python_version": "PYTHON_VERSION",
+    "data_path": "DATA_PATH",
+    "published_data_path_if_applicable": "PUBLISHED_DATA_PATH",
+    "split_path": "SPLIT_PATH",
+    "output_directory": "CELL_DIR",
+    "exact_python_command": "EXACT_PYTHON_COMMAND",
+    "launch_time_utc": "START_TIME_UTC",
+}
+payload = {key: os.environ[value] for key, value in keys.items()}
+payload["hostname"] = os.uname().nodename
+Path(os.environ["CELL_DIR"], "launch_manifest.json").write_text(json.dumps(payload, indent=2) + "\n")
+PY
+
+"${PYTHON_COMMAND[@]}"
