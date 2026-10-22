@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""DP16 inference, sharing the original polymer-chemprop adapter with DP8.
+"""Generate DP16 analytic inputs using the shared DP8 input-generation code."""
 
-Configure common lookup/checkpoint/code paths in run_inference_dp8.py.
-The DP8 sequence path is not used here. All paths also have CLI overrides.
-"""
+from run_inference_dp8 import ROOT, main
 
-from run_inference_dp8 import main
-
-SEQUENCES_CSV = "[PATH_TO_DP16_CSV]"
+SEQUENCES_CSV = ROOT / "data/eaip_variant/dp16_cls.csv"
 
 
 if __name__ == "__main__":
